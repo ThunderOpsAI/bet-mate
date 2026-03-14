@@ -1,0 +1,61 @@
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(150deg, #f4f9ff 0%, #fff7f2 100%);
+  color: #14213d;
+}
+
+main {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 2rem 1rem 3rem;
+}
+
+h1 {
+  margin-bottom: 0.35rem;
+}
+
+.subtitle {
+  color: #45556c;
+  margin-top: 0;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e3e9f1;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 8px 24px rgba(20, 33, 61, 0.05);
+}
+
+.pill {
+  display: inline-block;
+  background: #e8f3ff;
+  color: #124a84;
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.pick-list {
+  margin: 0.65rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.muted {
+  color: #5c6b80;
+  font-size: 0.92rem;
+}
