@@ -10,9 +10,15 @@
     "test": "echo \"No tests configured for web\""
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.21",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.36.0",
+    "lucide-react": "^0.577.0",
     "next": "^14.2.15",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.0",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@types/node": "^22.7.4",

@@ -66,6 +66,7 @@ model Bet {
   stake            Decimal   @db.Decimal(10, 2)
   payout           Decimal?  @db.Decimal(10, 2)
   status           BetStatus @default(PENDING)
+  settledAt        DateTime?
   wasAIRecommended Boolean   @default(false)
   notes            String?
   createdAt        DateTime  @default(now())
