@@ -32,3 +32,6 @@ pnpm-debug.log*
 
 # Misc
 *.local
+IMPLEMENTATION_CHECKLIST.md
+LIVE_IMPLEMENTATION_CHECKLIST.md
+docs/betmate-implementation-checklist.docx
