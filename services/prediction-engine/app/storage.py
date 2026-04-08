@@ -151,6 +151,9 @@ def settle_prediction_result(
             (sport, event_id),
         ).fetchall()
 
+        if not rows:
+            raise ValueError("no logged predictions found for sport/event_id")
+
         inferred_event_name = event_name or (rows[0]["event_name"] if rows else "")
         matched_predictions = 0
         matched_winner = 0

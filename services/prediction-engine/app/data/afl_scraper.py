@@ -249,6 +249,64 @@ def _record_game(state, points_for: float, points_against: float, won: bool, gam
     state["last_game_at"] = game_at
 
 
+def fetch_completed_afl_results(year=None, max_results=50):
+    """Fetch completed AFL results from Squiggle in prediction-settlement shape."""
+    year = year or datetime.now().year
+    max_results = max(1, min(int(max_results), 200))
+    games_data = _squiggle_get({"q": "games", "year": year})
+    raw_games = games_data.get("games", [])
+    completed_games = [
+        game for game in raw_games
+        if _numeric(game.get("complete")) >= 100
+        and game.get("hscore") is not None
+        and game.get("ascore") is not None
+        and game.get("id") is not None
+    ]
+    completed_games.sort(key=lambda game: (game.get("unixtime") or 0, game.get("id") or 0), reverse=True)
+
+    results = []
+    for game in completed_games[:max_results]:
+        home_team = game.get("hteam", "")
+        away_team = game.get("ateam", "")
+        if not home_team or not away_team:
+            continue
+
+        hscore = _numeric(game.get("hscore"))
+        ascore = _numeric(game.get("ascore"))
+        winner_selection = None
+        if hscore > ascore:
+            winner_selection = home_team
+            selection_results = {home_team: 1.0, away_team: 0.0}
+        elif ascore > hscore:
+            winner_selection = away_team
+            selection_results = {home_team: 0.0, away_team: 1.0}
+        else:
+            selection_results = {home_team: 0.5, away_team: 0.5}
+
+        game_at = _parse_game_datetime(game.get("date"))
+        results.append({
+            "sport": "afl",
+            "event_id": str(game.get("id")),
+            "event_name": f"{home_team} vs {away_team}",
+            "winner_selection": winner_selection,
+            "selection_results": selection_results,
+            "completed_at": game_at.isoformat() if game_at else None,
+            "result_payload": {
+                "source": "squiggle",
+                "round": game.get("round"),
+                "venue": game.get("venue", ""),
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_score": hscore,
+                "away_score": ascore,
+                "complete": game.get("complete"),
+            },
+        })
+
+    print(f"[Squiggle] Loaded {len(results)} completed AFL results for settlement")
+    return results
+
+
 def fetch_this_week_afl():
     """
     Fetch upcoming/recent AFL games from Squiggle and build feature dicts

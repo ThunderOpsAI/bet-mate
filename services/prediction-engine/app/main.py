@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 import os
 
@@ -67,6 +67,12 @@ class PredictionResultInput(BaseModel):
     selection_results: Optional[Dict[str, float]] = None
     completed_at: Optional[str] = None
     result_payload: Optional[Dict[str, Any]] = None
+
+class PredictionResultIngestionInput(BaseModel):
+    sports: List[str] = Field(default_factory=lambda: ["afl", "nba"])
+    max_results: int = 50
+    afl_year: Optional[int] = None
+    nba_days_back: int = 7
 
 @app.on_event("startup")
 def startup_event():
@@ -151,6 +157,77 @@ def settle_prediction_result(result: PredictionResultInput):
     return {
         "result": settled_result,
         "accuracy": storage.get_prediction_accuracy(result.sport),
+    }
+
+@app.post("/api/predictions/results/ingest")
+def ingest_prediction_results(request: Optional[PredictionResultIngestionInput] = None):
+    request = request or PredictionResultIngestionInput()
+    sports = {sport.strip().lower() for sport in request.sports if sport.strip()}
+    if "all" in sports:
+        sports = {"afl", "nba"}
+
+    unsupported = sorted(sports - {"afl", "nba"})
+    if unsupported:
+        raise HTTPException(status_code=400, detail=f"Result ingestion is not available for: {', '.join(unsupported)}")
+
+    ingestion = {
+        "sports": {},
+        "fetched": 0,
+        "settled": 0,
+        "skipped_unmatched": 0,
+        "errors": [],
+    }
+
+    if "afl" in sports:
+        afl_results = afl_scraper.fetch_completed_afl_results(
+            year=request.afl_year,
+            max_results=request.max_results,
+        )
+        ingestion["sports"]["afl"] = _settle_ingested_results(afl_results)
+
+    if "nba" in sports:
+        nba_results = nba_scraper.fetch_completed_nba_results(
+            days_back=request.nba_days_back,
+            max_results=request.max_results,
+        )
+        ingestion["sports"]["nba"] = _settle_ingested_results(nba_results)
+
+    for sport_result in ingestion["sports"].values():
+        ingestion["fetched"] += sport_result["fetched"]
+        ingestion["settled"] += sport_result["settled"]
+        ingestion["skipped_unmatched"] += sport_result["skipped_unmatched"]
+        ingestion["errors"].extend(sport_result["errors"])
+
+    return {
+        "ingestion": ingestion,
+        "accuracy": storage.get_prediction_accuracy(),
+        "summary": storage.get_prediction_summary(),
+    }
+
+def _settle_ingested_results(results: List[Dict[str, Any]]):
+    settled = []
+    errors = []
+    skipped_unmatched = 0
+
+    for result in results:
+        try:
+            settled.append(storage.settle_prediction_result(**result))
+        except ValueError as e:
+            if "no logged predictions" in str(e):
+                skipped_unmatched += 1
+            else:
+                errors.append({
+                    "sport": result.get("sport"),
+                    "event_id": result.get("event_id"),
+                    "message": str(e),
+                })
+
+    return {
+        "fetched": len(results),
+        "settled": len(settled),
+        "skipped_unmatched": skipped_unmatched,
+        "errors": errors,
+        "results": settled,
     }
 
 # --- RACING ENDPOINTS ---

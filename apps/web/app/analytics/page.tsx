@@ -72,45 +72,83 @@ export default function AnalyticsPage() {
   const [accuracy, setAccuracy] = useState<AccuracyMetrics | null>(null);
   const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
   const [loading, setLoading] = useState(true);
+  const [syncingResults, setSyncingResults] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [metadataResponse, summaryResponse, accuracyResponse, recentResponse] = await Promise.all([
-          fetch(`${ML_API}/api/models/metadata`),
-          fetch(`${ML_API}/api/predictions/summary`).catch(() => null),
-          fetch(`${ML_API}/api/predictions/accuracy`).catch(() => null),
-          fetch(`${ML_API}/api/predictions/recent?limit=20`).catch(() => null),
-        ]);
+  const loadAnalytics = async (showLoading = true) => {
+    try {
+      if (showLoading) {
+        setLoading(true);
+      }
+      setError(null);
+      const [metadataResponse, summaryResponse, accuracyResponse, recentResponse] = await Promise.all([
+        fetch(`${ML_API}/api/models/metadata`),
+        fetch(`${ML_API}/api/predictions/summary`).catch(() => null),
+        fetch(`${ML_API}/api/predictions/accuracy`).catch(() => null),
+        fetch(`${ML_API}/api/predictions/recent?limit=20`).catch(() => null),
+      ]);
 
-        if (!metadataResponse.ok) {
-          throw new Error("Model metadata unavailable");
-        }
+      if (!metadataResponse.ok) {
+        throw new Error("Model metadata unavailable");
+      }
 
-        const data = await metadataResponse.json();
-        setModels(data?.models ?? []);
-        if (summaryResponse?.ok) {
-          const summaryData = await summaryResponse.json();
-          setPredictionSummary(summaryData?.summary ?? []);
-        }
-        if (accuracyResponse?.ok) {
-          const accuracyData = await accuracyResponse.json();
-          setAccuracy(accuracyData?.accuracy ?? null);
-        }
-        if (recentResponse?.ok) {
-          const recentData = await recentResponse.json();
-          setRecentPredictions(recentData?.predictions ?? []);
-        }
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Model metadata unavailable");
-      } finally {
+      const data = await metadataResponse.json();
+      setModels(data?.models ?? []);
+      if (summaryResponse?.ok) {
+        const summaryData = await summaryResponse.json();
+        setPredictionSummary(summaryData?.summary ?? []);
+      }
+      if (accuracyResponse?.ok) {
+        const accuracyData = await accuracyResponse.json();
+        setAccuracy(accuracyData?.accuracy ?? null);
+      }
+      if (recentResponse?.ok) {
+        const recentData = await recentResponse.json();
+        setRecentPredictions(recentData?.predictions ?? []);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Model metadata unavailable");
+    } finally {
+      if (showLoading) {
         setLoading(false);
       }
-    };
+    }
+  };
 
-    load();
+  useEffect(() => {
+    loadAnalytics();
   }, []);
+
+  const syncResults = async () => {
+    try {
+      setSyncingResults(true);
+      setSyncMessage(null);
+
+      const response = await fetch(`${ML_API}/api/predictions/results/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sports: ["afl", "nba"], max_results: 50 }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Result sync failed");
+      }
+
+      const data = await response.json();
+      setAccuracy(data?.accuracy ?? null);
+      setPredictionSummary(data?.summary ?? []);
+      await loadAnalytics(false);
+
+      const settled = data?.ingestion?.settled ?? 0;
+      const skipped = data?.ingestion?.skipped_unmatched ?? 0;
+      setSyncMessage(`Settled ${settled} events. ${skipped} completed events had no logged predictions.`);
+    } catch (e) {
+      setSyncMessage(e instanceof Error ? e.message : "Result sync failed");
+    } finally {
+      setSyncingResults(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -157,6 +195,20 @@ export default function AnalyticsPage() {
 
   return (
     <div>
+      <div className="section-header">
+        <h3>Prediction Analytics</h3>
+        <button className="btn btn-sm btn-secondary" type="button" onClick={syncResults} disabled={syncingResults}>
+          {syncingResults ? "Syncing..." : "Sync Results"}
+        </button>
+      </div>
+
+      {syncMessage && (
+        <div className="engine-banner online">
+          <Activity size={16} />
+          <span>{syncMessage}</span>
+        </div>
+      )}
+
       <div className="stats-grid">
         <div className="stat-card green">
           <div className="stat-label"><Activity size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Loaded Models</div>

@@ -38,4 +38,15 @@ curl http://localhost:8000/api/predictions/accuracy
 curl http://localhost:8000/api/predictions/accuracy?sport=afl
 ```
 
+Ingest completed AFL and NBA results from the configured data sources and settle any matching logged predictions:
+
+```bash
+curl -X POST http://localhost:8000/api/predictions/results/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sports": ["afl", "nba"],
+    "max_results": 50
+  }'
+```
+
 Metrics include settled event count, top-pick hit rate, Brier score, log loss, winner probability, and calibration buckets.

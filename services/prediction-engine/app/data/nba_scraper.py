@@ -172,6 +172,81 @@ def _record_game(state, points_for: float, points_against: float, won: bool, gam
     state["last_game_at"] = game_at
 
 
+def fetch_completed_nba_results(days_back=7, max_results=50):
+    """Fetch recent completed NBA results from Ball Don't Lie in settlement shape."""
+    if not BDL_API_KEY:
+        return []
+
+    days_back = max(0, min(int(days_back), 30))
+    max_results = max(1, min(int(max_results), 200))
+    raw_games = []
+    today = datetime.now()
+
+    for offset in range(days_back + 1):
+        day = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        data = _bdl_get("games", {"dates[]": day})
+        raw_games.extend(data.get("data", []))
+
+    completed_games = [
+        game for game in raw_games
+        if game.get("status") == "Final"
+        and game.get("home_team_score") is not None
+        and game.get("visitor_team_score") is not None
+        and game.get("id") is not None
+    ]
+    completed_games.sort(key=lambda game: (_parse_game_datetime(game) or datetime.min, game.get("id") or 0), reverse=True)
+
+    results = []
+    seen_ids = set()
+    for game in completed_games:
+        game_id = str(game.get("id"))
+        if game_id in seen_ids:
+            continue
+        seen_ids.add(game_id)
+
+        home_team = game.get("home_team", {}).get("full_name", "")
+        away_team = game.get("visitor_team", {}).get("full_name", "")
+        if not home_team or not away_team:
+            continue
+
+        home_score = float(game.get("home_team_score") or 0)
+        away_score = float(game.get("visitor_team_score") or 0)
+        winner_selection = None
+        if home_score > away_score:
+            winner_selection = home_team
+            selection_results = {home_team: 1.0, away_team: 0.0}
+        elif away_score > home_score:
+            winner_selection = away_team
+            selection_results = {home_team: 0.0, away_team: 1.0}
+        else:
+            selection_results = {home_team: 0.5, away_team: 0.5}
+
+        game_at = _parse_game_datetime(game)
+        results.append({
+            "sport": "nba",
+            "event_id": game_id,
+            "event_name": f"{home_team} vs {away_team}",
+            "winner_selection": winner_selection,
+            "selection_results": selection_results,
+            "completed_at": game_at.isoformat() if game_at else None,
+            "result_payload": {
+                "source": "balldontlie",
+                "date": game.get("date", ""),
+                "status": game.get("status", ""),
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_score": home_score,
+                "away_score": away_score,
+            },
+        })
+
+        if len(results) >= max_results:
+            break
+
+    print(f"[BallDontLie] Loaded {len(results)} completed NBA results for settlement")
+    return results
+
+
 def fetch_today_nba():
     """
     Fetch today's NBA games from Ball Don't Lie API.
