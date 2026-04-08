@@ -62,7 +62,7 @@ def startup_event():
     # Pre-train or load models on startup
     try:
         print("Initializing Racing ML Model...")
-        racing_predictor.train()
+        racing_predictor.load_or_train()
         print("Initializing AFL ML Model...")
         afl_predictor.load_or_train()
         print("Initializing NBA ML Model...")

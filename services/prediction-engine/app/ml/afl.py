@@ -6,7 +6,11 @@ from sklearn.preprocessing import StandardScaler
 import pickle
 import os
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "afl_model.pkl")
+from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
+
+MODEL_FILENAME = "afl_model.pkl"
+MODEL_PATH = model_path(MODEL_FILENAME)
+LEGACY_MODEL_PATH = legacy_model_path(MODEL_FILENAME)
 HISTORICAL_TRAINING_SOURCE = 'squiggle_historical'
 SYNTHETIC_TRAINING_SOURCE = 'synthetic'
 
@@ -107,6 +111,7 @@ class AFLPredictor:
         self.training_source = training_source
         self.training_rows = len(df)
         
+        ensure_model_dir()
         with open(MODEL_PATH, 'wb') as f:
             pickle.dump({
                 'model': self.model,
@@ -197,21 +202,27 @@ class AFLPredictor:
             return []
 
     def _load_existing_artifacts(self):
-        if not os.path.exists(MODEL_PATH):
-            return False
+        for artifact_path in [MODEL_PATH, LEGACY_MODEL_PATH]:
+            if not os.path.exists(artifact_path):
+                continue
 
-        try:
-            with open(MODEL_PATH, 'rb') as f:
-                artifacts = pickle.load(f)
+            try:
+                with open(artifact_path, 'rb') as f:
+                    artifacts = pickle.load(f)
 
-            if artifacts.get('feature_columns') != FEATURE_COLUMNS:
-                return False
+                if artifacts.get('feature_columns') != FEATURE_COLUMNS:
+                    continue
 
-            self.model = artifacts['model']
-            self.scaler = artifacts['scaler']
-            self.training_source = artifacts.get('training_source')
-            self.training_rows = artifacts.get('training_rows', 0)
-            return True
-        except Exception as e:
-            print(f"AFL model load failed: {e}")
-            return False
+                self.model = artifacts['model']
+                self.scaler = artifacts['scaler']
+                self.training_source = artifacts.get('training_source')
+                self.training_rows = artifacts.get('training_rows', 0)
+                if artifact_path != MODEL_PATH:
+                    ensure_model_dir()
+                    with open(MODEL_PATH, 'wb') as f:
+                        pickle.dump(artifacts, f)
+                return True
+            except Exception as e:
+                print(f"AFL model load failed from {artifact_path}: {e}")
+
+        return False
