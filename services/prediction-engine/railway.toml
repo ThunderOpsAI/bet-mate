@@ -1,11 +1,9 @@
 [build]
 builder = "nixpacks"
-
-[phases.build]
-cmds = ["echo 'No build step required for Python'"]
+buildCommand = "pip install -r requirements.txt"
 
 [deploy]
-startCommand = "pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
