@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Activity, BarChart3, Database, Target } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
@@ -21,22 +21,67 @@ type ModelMetadata = {
 type PredictionSummary = {
   sport: string;
   prediction_count: number;
+  settled_count: number;
+  winning_count: number;
+  event_count: number;
   latest_at: string | null;
   avg_probability: number;
+};
+
+type CalibrationBucket = {
+  bucket: string;
+  count: number;
+  avg_predicted: number;
+  observed_rate: number;
+};
+
+type AccuracyMetrics = {
+  sport: string;
+  settled_predictions: number;
+  settled_events: number;
+  top_pick_wins: number;
+  hit_rate: number;
+  brier_score: number;
+  log_loss: number;
+  avg_confidence: number;
+  avg_winner_probability: number;
+  calibration_error: number;
+  latest_settled_at: string | null;
+  calibration: CalibrationBucket[];
+  by_sport?: AccuracyMetrics[];
+};
+
+type RecentPrediction = {
+  id: number;
+  created_at: string;
+  updated_at: string | null;
+  sport: string;
+  event_id: string;
+  event_name: string;
+  selection: string;
+  probability: number;
+  fair_odds: number | null;
+  actual_outcome: number | null;
+  result_status: string | null;
+  settled_at: string | null;
 };
 
 export default function AnalyticsPage() {
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [predictionSummary, setPredictionSummary] = useState<PredictionSummary[]>([]);
+  const [accuracy, setAccuracy] = useState<AccuracyMetrics | null>(null);
+  const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [metadataResponse, summaryResponse] = await Promise.all([
+        const [metadataResponse, summaryResponse, accuracyResponse, recentResponse] = await Promise.all([
           fetch(`${ML_API}/api/models/metadata`),
           fetch(`${ML_API}/api/predictions/summary`).catch(() => null),
+          fetch(`${ML_API}/api/predictions/accuracy`).catch(() => null),
+          fetch(`${ML_API}/api/predictions/recent?limit=20`).catch(() => null),
         ]);
 
         if (!metadataResponse.ok) {
@@ -48,6 +93,14 @@ export default function AnalyticsPage() {
         if (summaryResponse?.ok) {
           const summaryData = await summaryResponse.json();
           setPredictionSummary(summaryData?.summary ?? []);
+        }
+        if (accuracyResponse?.ok) {
+          const accuracyData = await accuracyResponse.json();
+          setAccuracy(accuracyData?.accuracy ?? null);
+        }
+        if (recentResponse?.ok) {
+          const recentData = await recentResponse.json();
+          setRecentPredictions(recentData?.predictions ?? []);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Model metadata unavailable");
@@ -85,6 +138,18 @@ export default function AnalyticsPage() {
   const totalRows = models.reduce((sum, model) => sum + (model.training_rows ?? 0), 0);
   const totalFeatures = models.reduce((sum, model) => sum + model.feature_count, 0);
   const loggedPredictions = predictionSummary.reduce((sum, sport) => sum + sport.prediction_count, 0);
+  const settledEvents = accuracy?.settled_events ?? 0;
+  const hitRate = accuracy?.hit_rate ?? 0;
+  const calibrationChartData = (accuracy?.calibration ?? []).map((bucket) => ({
+    bucket: bucket.bucket,
+    predicted: roundPct(bucket.avg_predicted),
+    observed: roundPct(bucket.observed_rate),
+  }));
+  const accuracyBySportData = (accuracy?.by_sport ?? []).map((sport) => ({
+    name: formatFeatureName(sport.sport),
+    hitRate: roundPct(sport.hit_rate),
+    brierScore: sport.brier_score,
+  }));
   const rowChartData = models.map((model) => ({
     name: model.name,
     rows: model.training_rows ?? 0,
@@ -113,6 +178,21 @@ export default function AnalyticsPage() {
           <div className="stat-value">{loggedPredictions.toLocaleString("en-AU")}</div>
           <div className="stat-sub">{predictionSummary.length} sports tracked</div>
         </div>
+        <div className="stat-card blue">
+          <div className="stat-label">Settled Events</div>
+          <div className="stat-value">{settledEvents.toLocaleString("en-AU")}</div>
+          <div className="stat-sub">{accuracy?.settled_predictions ?? 0} selections scored</div>
+        </div>
+        <div className="stat-card green">
+          <div className="stat-label">Top Pick Hit Rate</div>
+          <div className="stat-value">{formatPct(hitRate)}</div>
+          <div className="stat-sub">{accuracy?.top_pick_wins ?? 0} winning events</div>
+        </div>
+        <div className="stat-card yellow">
+          <div className="stat-label">Brier Score</div>
+          <div className="stat-value">{formatDecimal(accuracy?.brier_score)}</div>
+          <div className="stat-sub">Lower is better</div>
+        </div>
         <div className="stat-card yellow">
           <div className="stat-label">Artifacts</div>
           <div className="stat-value">{models.filter((model) => model.artifact_exists).length}</div>
@@ -132,6 +212,70 @@ export default function AnalyticsPage() {
           </BarChart>
         </ResponsiveContainer>
       </div>
+
+      {accuracyBySportData.length > 0 && (
+        <div className="chart-container">
+          <h4>Accuracy By Sport</h4>
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart data={accuracyBySportData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="name" />
+              <YAxis />
+              <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Bar dataKey="hitRate" name="Top pick hit rate %" fill="var(--green)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {calibrationChartData.length > 0 && (
+        <div className="chart-container">
+          <h4>Calibration Buckets</h4>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={calibrationChartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="bucket" />
+              <YAxis />
+              <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Legend />
+              <Bar dataKey="predicted" name="Predicted %" fill="var(--blue)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="observed" name="Observed %" fill="var(--green)" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {recentPredictions.length > 0 && (
+        <div className="chart-container">
+          <h4>Recent Prediction Log</h4>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sport</th>
+                  <th>Event</th>
+                  <th>Selection</th>
+                  <th>Probability</th>
+                  <th>Fair Odds</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPredictions.map((prediction) => (
+                  <tr key={prediction.id}>
+                    <td>{formatFeatureName(prediction.sport)}</td>
+                    <td>{prediction.event_name}</td>
+                    <td>{prediction.selection}</td>
+                    <td>{formatRawProbability(prediction.probability)}</td>
+                    <td>{prediction.fair_odds ? `$${prediction.fair_odds.toFixed(2)}` : "-"}</td>
+                    <td>{formatResultStatus(prediction.result_status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {predictionSummary.length > 0 && (
         <div className="chart-container">
@@ -209,4 +353,33 @@ function formatFeatureName(key: string): string {
   return key
     .replace(/_/g, " ")
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function roundPct(value: number): number {
+  return Number((value * 100).toFixed(1));
+}
+
+function formatPct(value: number): string {
+  return `${roundPct(value).toFixed(1)}%`;
+}
+
+function formatDecimal(value?: number | null): string {
+  if (value === undefined || value === null) {
+    return "0.000";
+  }
+
+  return value.toFixed(3);
+}
+
+function formatRawProbability(value: number): string {
+  const probability = value > 1 ? value : value * 100;
+  return `${probability.toFixed(1)}%`;
+}
+
+function formatResultStatus(status: string | null): string {
+  if (!status) {
+    return "Pending";
+  }
+
+  return formatFeatureName(status);
 }

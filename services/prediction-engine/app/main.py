@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import os
 
 # Local ML Imports
@@ -58,6 +58,15 @@ class TeamGame(BaseModel):
     home_team: str
     away_team: str
     features: Dict[str, float]
+
+class PredictionResultInput(BaseModel):
+    sport: str
+    event_id: str
+    event_name: Optional[str] = None
+    winner_selection: Optional[str] = None
+    selection_results: Optional[Dict[str, float]] = None
+    completed_at: Optional[str] = None
+    result_payload: Optional[Dict[str, Any]] = None
 
 @app.on_event("startup")
 def startup_event():
@@ -115,6 +124,34 @@ def get_recent_predictions(limit: int = 50):
 @app.get("/api/predictions/summary")
 def get_prediction_summary():
     return {"summary": storage.get_prediction_summary()}
+
+@app.get("/api/predictions/accuracy")
+def get_prediction_accuracy(sport: Optional[str] = None):
+    return {"accuracy": storage.get_prediction_accuracy(sport)}
+
+@app.get("/api/predictions/results/recent")
+def get_recent_prediction_results(limit: int = 50):
+    return {"results": storage.get_recent_results(limit)}
+
+@app.post("/api/predictions/results")
+def settle_prediction_result(result: PredictionResultInput):
+    try:
+        settled_result = storage.settle_prediction_result(
+            sport=result.sport,
+            event_id=result.event_id,
+            winner_selection=result.winner_selection,
+            selection_results=result.selection_results,
+            event_name=result.event_name,
+            completed_at=result.completed_at,
+            result_payload=result.result_payload,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "result": settled_result,
+        "accuracy": storage.get_prediction_accuracy(result.sport),
+    }
 
 # --- RACING ENDPOINTS ---
 
