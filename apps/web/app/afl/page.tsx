@@ -9,8 +9,24 @@ type AFLGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  round?: number;
+  venue?: string;
+  date?: string;
+  complete?: number;
+  hscore?: number | null;
+  ascore?: number | null;
   squiggle_tip?: string;
   squiggle_confidence?: number;
+};
+
+type AFLScoreUpdate = {
+  id?: string | number;
+  game_id?: string | number;
+  gameid?: string | number;
+  hscore?: number | string | null;
+  ascore?: number | string | null;
+  complete?: number | string | null;
+  status?: string;
 };
 
 type AFLPrediction = {
@@ -32,6 +48,8 @@ const weatherMap: Record<number, string> = { 1: "☀️ Clear", 2: "⛅ Cloudy",
 export default function AFLPage() {
   const [games, setGames] = useState<AFLGame[]>([]);
   const [predictions, setPredictions] = useState<Record<string, AFLPrediction>>({});
+  const [liveScores, setLiveScores] = useState<Record<string, AFLScoreUpdate>>({});
+  const [liveStatus, setLiveStatus] = useState<"connecting" | "connected" | "reconnecting">("connecting");
   const [loading, setLoading] = useState(true);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
 
@@ -68,6 +86,41 @@ export default function AFLPage() {
     load();
   }, []);
 
+  useEffect(() => {
+    const eventSource = new EventSource(`${ML_API}/api/afl/games/live`);
+
+    const handleGamesEvent = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        const updates = Array.isArray(parsed) ? parsed : [parsed];
+        const nextScores: Record<string, AFLScoreUpdate> = {};
+
+        for (const update of updates) {
+          const key = getLiveScoreKey(update);
+          if (key) {
+            nextScores[key] = update;
+          }
+        }
+
+        if (Object.keys(nextScores).length > 0) {
+          setLiveScores((current) => ({ ...current, ...nextScores }));
+        }
+        setLiveStatus("connected");
+      } catch {
+        // Squiggle also sends a welcome message event; ignore anything that is not game JSON.
+      }
+    };
+
+    eventSource.addEventListener("games", handleGamesEvent);
+    eventSource.onopen = () => setLiveStatus("connected");
+    eventSource.onerror = () => setLiveStatus("reconnecting");
+
+    return () => {
+      eventSource.removeEventListener("games", handleGamesEvent);
+      eventSource.close();
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -84,6 +137,11 @@ export default function AFLPage() {
       <div className="game-cards-list">
         {games.map(game => {
           const pred = predictions[game.game_id];
+          const liveScore = liveScores[game.game_id];
+          const homeScore = toScore(liveScore?.hscore ?? game.hscore);
+          const awayScore = toScore(liveScore?.ascore ?? game.ascore);
+          const gameComplete = toScore(liveScore?.complete ?? game.complete) ?? 0;
+          const scoreLabel = formatScoreLabel(homeScore, awayScore, gameComplete);
           const homePct = pred?.predictions?.home_win_probability ?? 50;
           const awayPct = pred?.predictions?.away_win_probability ?? 50;
           const homeWins = homePct > awayPct;
@@ -124,6 +182,8 @@ export default function AFLPage() {
 
               {/* Game Context */}
               <div className="game-context-row">
+                <span className="context-chip">Live scores: {formatLiveStatus(liveStatus)}</span>
+                {scoreLabel && <span className="context-chip">{scoreLabel}</span>}
                 <span className="context-chip">{weatherMap[game.features.weather_condition] ?? "☀️ Clear"}</span>
                 <span className="context-chip">🏠 {game.features.home_rest_days}d rest</span>
                 <span className="context-chip">✈️ {game.features.travel_distance_away}km travel</span>
@@ -189,4 +249,39 @@ function formatSquiggleConfidence(confidence?: number): string {
 
   const confidencePct = confidence > 1 ? confidence : confidence * 100;
   return `${confidencePct.toFixed(0)}%`;
+}
+
+function getLiveScoreKey(update: AFLScoreUpdate): string | null {
+  const key = update.id ?? update.game_id ?? update.gameid;
+  return key === undefined || key === null ? null : String(key);
+}
+
+function toScore(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatScoreLabel(homeScore: number | null, awayScore: number | null, complete: number): string | null {
+  if (homeScore === null || awayScore === null) {
+    return null;
+  }
+
+  const status = complete >= 100 ? "Final" : "Live";
+  return `${status}: ${homeScore}-${awayScore}`;
+}
+
+function formatLiveStatus(status: "connecting" | "connected" | "reconnecting"): string {
+  if (status === "connected") {
+    return "connected";
+  }
+
+  if (status === "reconnecting") {
+    return "reconnecting";
+  }
+
+  return "connecting";
 }

@@ -4,6 +4,7 @@ import random
 from datetime import datetime
 
 SQUIGGLE_BASE = "https://api.squiggle.com.au"
+SQUIGGLE_SSE_GAMES_URL = "https://sse.squiggle.com.au/games"
 USER_AGENT = "BetMate - james.jones2086@gmail.com"
 DEFAULT_AVG_POINTS_FOR = 85.0
 DEFAULT_AVG_POINTS_AGAINST = 80.0
@@ -20,6 +21,35 @@ def _squiggle_get(params: dict) -> dict:
     except Exception as e:
         print(f"[Squiggle] API error: {e}")
         return {}
+
+
+def stream_live_afl_games():
+    """Proxy Squiggle's AFL games Server-Sent Events stream."""
+    headers = {
+        "Accept": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "User-Agent": USER_AGENT,
+    }
+
+    try:
+        with requests.get(
+            SQUIGGLE_SSE_GAMES_URL,
+            headers=headers,
+            stream=True,
+            timeout=(10, 90),
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines(decode_unicode=True):
+                if line is None:
+                    continue
+
+                yield f"{line}\n"
+    except GeneratorExit:
+        return
+    except Exception as e:
+        print(f"[Squiggle] SSE games stream error: {e}")
+        yield "event:error\n"
+        yield f"data:{json.dumps({'message': 'Squiggle live score stream unavailable'})}\n\n"
 
 
 def _get_team_map() -> dict:
