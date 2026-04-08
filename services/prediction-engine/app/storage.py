@@ -1,13 +1,10 @@
 import json
 import math
 import os
-import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
-APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-DEFAULT_DB_PATH = os.path.join(APP_ROOT, "runtime", "betmate.sqlite3")
-DB_PATH = os.path.abspath(os.getenv("BETMATE_DB_PATH", DEFAULT_DB_PATH))
+from app.database import get_connection, init_database
 
 
 def log_prediction_batch(
@@ -412,25 +409,45 @@ def get_paper_bets(
 
 def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
     sport = sport.strip().lower() if sport else None
-    with _connect() as conn:
-        if sport and sport != "all":
-            rows = conn.execute("SELECT * FROM paper_bet_log WHERE sport = ?", (sport,)).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM paper_bet_log").fetchall()
+    conditions = []
+    params: list = []
+    if sport and sport != "all":
+        conditions.append("sport = ?")
+        params.append(sport)
 
-    bets = [_row_to_paper_bet(row) for row in rows]
-    total_bets = len(bets)
-    pending_bets = sum(1 for bet in bets if bet["status"] == "PENDING")
-    won_bets = sum(1 for bet in bets if bet["status"] == "WON")
-    lost_bets = sum(1 for bet in bets if bet["status"] == "LOST")
-    void_bets = sum(1 for bet in bets if bet["status"] == "VOID")
-    decision_bets = won_bets + lost_bets
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    with _connect() as conn:
+        row = conn.execute(
+            f"""
+            SELECT
+                COUNT(*) AS total_bets,
+                SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_bets,
+                SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END) AS won_bets,
+                SUM(CASE WHEN status = 'LOST' THEN 1 ELSE 0 END) AS lost_bets,
+                SUM(CASE WHEN status = 'VOID' THEN 1 ELSE 0 END) AS void_bets,
+                COALESCE(SUM(stake), 0.0) AS total_staked,
+                COALESCE(SUM(CASE WHEN status = 'PENDING' THEN stake ELSE 0 END), 0.0) AS pending_exposure,
+                COALESCE(SUM(CASE WHEN status IN ('WON', 'LOST') THEN stake ELSE 0 END), 0.0) AS settled_staked,
+                COALESCE(SUM(CASE WHEN status IN ('WON', 'LOST') THEN COALESCE(payout, 0) ELSE 0 END), 0.0) AS total_returned,
+                COALESCE(SUM(CASE WHEN status != 'PENDING' THEN COALESCE(profit, 0) ELSE 0 END), 0.0) AS net_profit
+            FROM paper_bet_log
+            {where_clause}
+            """,
+            tuple(params),
+        ).fetchone()
+
+    total_bets = int(row["total_bets"] or 0)
+    pending_bets = int(row["pending_bets"] or 0)
+    won_bets = int(row["won_bets"] or 0)
+    lost_bets = int(row["lost_bets"] or 0)
+    void_bets = int(row["void_bets"] or 0)
     settled_bets = total_bets - pending_bets
-    total_staked = sum(bet["stake"] for bet in bets)
-    pending_exposure = sum(bet["stake"] for bet in bets if bet["status"] == "PENDING")
-    settled_staked = sum(bet["stake"] for bet in bets if bet["status"] in {"WON", "LOST"})
-    total_returned = sum(bet["payout"] or 0.0 for bet in bets if bet["status"] in {"WON", "LOST"})
-    net_profit = sum(bet["profit"] or 0.0 for bet in bets if bet["status"] != "PENDING")
+    decision_bets = won_bets + lost_bets
+    total_staked = float(row["total_staked"])
+    pending_exposure = float(row["pending_exposure"])
+    settled_staked = float(row["settled_staked"])
+    total_returned = float(row["total_returned"])
+    net_profit = float(row["net_profit"])
 
     return {
         "sport": sport or "all",
@@ -746,12 +763,14 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
     return trend[-days:]
 
 
+def init_db() -> None:
+    """Initialize the database schema once. Delegates to database module."""
+    init_database()
+
+
 def _connect():
-    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
-    return conn
+    """Get a database connection. Returns a context manager."""
+    return get_connection()
 
 
 def _ensure_schema(conn) -> None:
@@ -816,7 +835,7 @@ def _ensure_schema(conn) -> None:
         )
         """
     )
-    _dedupe_prediction_log(conn)
+    # dedupe is now called once from init_db(), not on every connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -16,12 +17,34 @@ import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
 import app.storage as storage
 
-app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0")
+# CORS — configurable for deployment; defaults to localhost dev
+_cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
+CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
 
-# CORS — allow the Next.js frontend to reach the API
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # Startup
+    storage.init_db()
+    try:
+        print("Initializing Racing ML Model...")
+        racing_predictor.load_or_train()
+        print("Initializing AFL ML Model...")
+        afl_predictor.load_or_train()
+        print("Initializing NBA ML Model...")
+        nba_predictor.load_or_train()
+        print("All ML Models Initialized successfully.")
+    except Exception as e:
+        print(f"Startup ML init error: {e}")
+    yield
+    # Shutdown (nothing to clean up yet)
+
+
+app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -89,19 +112,7 @@ class PaperBetSettleInput(BaseModel):
     status: str
     payout: Optional[float] = None
 
-@app.on_event("startup")
-def startup_event():
-    # Pre-train or load models on startup
-    try:
-        print("Initializing Racing ML Model...")
-        racing_predictor.load_or_train()
-        print("Initializing AFL ML Model...")
-        afl_predictor.load_or_train()
-        print("Initializing NBA ML Model...")
-        nba_predictor.load_or_train()
-        print("All ML Models Initialized successfully.")
-    except Exception as e:
-        print(f"Startup ML init error: {e}")
+
 
 @app.get("/health")
 def health():
