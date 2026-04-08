@@ -2,11 +2,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Dict, Any
+import os
 
 # Local ML Imports
-from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS
-from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS
-from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS
+from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
+from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
+from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -73,6 +74,37 @@ def startup_event():
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "advanced-ml-engine"}
+
+@app.get("/api/models/metadata")
+def get_models_metadata():
+    return {
+        "models": [
+            _model_metadata("Racing", racing_predictor, RACING_FEATURE_COLUMNS, RACING_MODEL_PATH),
+            _model_metadata("AFL", afl_predictor, AFL_FEATURE_COLUMNS, AFL_MODEL_PATH),
+            _model_metadata("NBA", nba_predictor, NBA_FEATURE_COLUMNS, NBA_MODEL_PATH),
+        ]
+    }
+
+def _model_metadata(name: str, predictor, feature_columns: List[str], model_path: str):
+    importances = getattr(getattr(predictor, "model", None), "feature_importances_", [])
+    feature_impact = {
+        feature: round(float(importance), 4)
+        for feature, importance in zip(feature_columns, importances)
+    }
+    top_feature = max(feature_impact, key=feature_impact.get) if feature_impact else None
+
+    return {
+        "name": name,
+        "model_type": "XGBoostClassifier",
+        "status": "loaded" if getattr(predictor, "model", None) is not None else "not_loaded",
+        "training_source": getattr(predictor, "training_source", None),
+        "training_rows": getattr(predictor, "training_rows", 0),
+        "feature_count": len(feature_columns),
+        "features": feature_columns,
+        "feature_impact": feature_impact,
+        "top_feature": top_feature,
+        "artifact_exists": os.path.exists(model_path),
+    }
 
 # --- RACING ENDPOINTS ---
 
