@@ -40,3 +40,4 @@ docs/betmate-implementation-checklist.docx
 # Runtime model artifacts
 services/prediction-engine/models/
 services/prediction-engine/app/ml/*_model.pkl
+services/prediction-engine/runtime/
