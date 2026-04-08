@@ -7,6 +7,7 @@ import pickle
 import os
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "racing_model.pkl")
+SYNTHETIC_TRAINING_SOURCE = 'synthetic_market_prior'
 
 FEATURE_COLUMNS = [
     'barrier',
@@ -35,6 +36,8 @@ class RacingPredictor:
         self.model = None
         self.scaler = StandardScaler()
         self.feature_columns = FEATURE_COLUMNS
+        self.training_source = None
+        self.training_rows = 0
         
     def generate_mock_data(self, num_samples=10000):
         """Generate pseudo-random historical data for training since we lack an API key."""
@@ -87,6 +90,8 @@ class RacingPredictor:
             n_estimators=200
         )
         self.model.fit(X_train, y_train)
+        self.training_source = SYNTHETIC_TRAINING_SOURCE
+        self.training_rows = len(df)
         
         # Save model and scaler
         with open(MODEL_PATH, 'wb') as f:
@@ -94,6 +99,8 @@ class RacingPredictor:
                 'model': self.model,
                 'scaler': self.scaler,
                 'feature_columns': FEATURE_COLUMNS,
+                'training_source': self.training_source,
+                'training_rows': self.training_rows,
             }, f)
             
         print("Trained Racing XGBoost Engine successfully.")
@@ -111,6 +118,8 @@ class RacingPredictor:
                     else:
                         self.model = artifacts['model']
                         self.scaler = artifacts['scaler']
+                        self.training_source = artifacts.get('training_source')
+                        self.training_rows = artifacts.get('training_rows', 0)
             else:
                 self.train()
                 
