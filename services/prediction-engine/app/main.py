@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import os
@@ -152,6 +153,18 @@ def predict_race(race: Race):
 def get_upcoming_afl():
     games = afl_scraper.fetch_this_week_afl()
     return {"games": games}
+
+@app.get("/api/afl/games/live")
+def stream_live_afl_games():
+    return StreamingResponse(
+        afl_scraper.stream_live_afl_games(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 @app.post("/api/predict/afl")
 def predict_afl(game: TeamGame):
