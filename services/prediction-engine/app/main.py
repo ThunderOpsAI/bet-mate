@@ -74,6 +74,21 @@ class PredictionResultIngestionInput(BaseModel):
     afl_year: Optional[int] = None
     nba_days_back: int = 7
 
+class PaperBetInput(BaseModel):
+    sport: str
+    event_id: str
+    event_name: str = ""
+    selection: str
+    stake: float
+    odds: Optional[float] = None
+    bet_type: str = "win"
+    notes: Optional[str] = None
+    prediction_log_id: Optional[int] = None
+
+class PaperBetSettleInput(BaseModel):
+    status: str
+    payout: Optional[float] = None
+
 @app.on_event("startup")
 def startup_event():
     # Pre-train or load models on startup
@@ -233,6 +248,56 @@ def _settle_ingested_results(results: List[Dict[str, Any]]):
         "errors": errors,
         "results": settled,
     }
+
+@app.get("/api/paper-bets")
+def get_paper_bets(status: Optional[str] = None, sport: Optional[str] = None, limit: int = 50):
+    return {"bets": storage.get_paper_bets(status=status, sport=sport, limit=limit)}
+
+@app.get("/api/paper-bets/summary")
+def get_paper_bet_summary(sport: Optional[str] = None):
+    return {"summary": storage.get_paper_bet_summary(sport)}
+
+@app.post("/api/paper-bets")
+def create_paper_bet(bet: PaperBetInput):
+    try:
+        created = storage.create_paper_bet(
+            sport=bet.sport,
+            event_id=bet.event_id,
+            event_name=bet.event_name,
+            selection=bet.selection,
+            stake=bet.stake,
+            odds=bet.odds,
+            bet_type=bet.bet_type,
+            notes=bet.notes,
+            prediction_log_id=bet.prediction_log_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "bet": created,
+        "summary": storage.get_paper_bet_summary(bet.sport),
+    }
+
+@app.patch("/api/paper-bets/{bet_id}/settle")
+def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput):
+    try:
+        bet = storage.settle_paper_bet(bet_id, settlement.status, settlement.payout)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "bet": bet,
+        "summary": storage.get_paper_bet_summary(bet["sport"]),
+    }
+
+@app.delete("/api/paper-bets/{bet_id}")
+def delete_paper_bet(bet_id: int):
+    deleted = storage.delete_paper_bet(bet_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="paper bet not found")
+
+    return {"deleted": True, "summary": storage.get_paper_bet_summary()}
 
 # --- RACING ENDPOINTS ---
 

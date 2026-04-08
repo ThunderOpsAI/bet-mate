@@ -198,6 +198,8 @@ def settle_prediction_result(
         if rows and winner_selection and matched_winner == 0:
             raise ValueError("winner_selection did not match any logged prediction selection")
 
+        _settle_paper_bets_for_event(conn, sport, event_id, completed_at)
+
         conn.execute(
             """
             INSERT INTO prediction_results (
@@ -278,6 +280,222 @@ def get_recent_results(limit: int = 50) -> List[Dict[str, Any]]:
         ).fetchall()
 
     return [_row_to_result(row) for row in rows]
+
+
+def create_paper_bet(
+    sport: str,
+    event_id: str,
+    event_name: str,
+    selection: str,
+    stake: float,
+    odds: Optional[float] = None,
+    bet_type: str = "win",
+    notes: Optional[str] = None,
+    prediction_log_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    sport = sport.strip().lower()
+    event_id = event_id.strip()
+    event_name = event_name.strip()
+    selection = selection.strip()
+    bet_type = bet_type.strip().lower() or "win"
+    stake = float(stake)
+    odds = _optional_float(odds)
+
+    if not sport or not event_id or not selection:
+        raise ValueError("sport, event_id, and selection are required")
+    if stake <= 0:
+        raise ValueError("stake must be greater than zero")
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        prediction = _find_prediction_for_bet(conn, sport, event_id, selection, prediction_log_id)
+        if prediction:
+            event_name = event_name or prediction["event_name"]
+            odds = odds if odds and odds > 1 else _optional_float(prediction["fair_odds"])
+
+        if odds is None or odds <= 1:
+            raise ValueError("odds must be greater than 1")
+
+        status = "PENDING"
+        payout = None
+        profit = None
+        settled_at = None
+        if prediction and prediction["actual_outcome"] is not None:
+            status, payout, profit = _bet_settlement(stake, odds, float(prediction["actual_outcome"]))
+            settled_at = prediction["settled_at"] or created_at
+
+        cursor = conn.execute(
+            """
+            INSERT INTO paper_bet_log (
+                created_at,
+                updated_at,
+                settled_at,
+                prediction_log_id,
+                sport,
+                event_id,
+                event_name,
+                selection,
+                bet_type,
+                odds,
+                stake,
+                status,
+                payout,
+                profit,
+                notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created_at,
+                created_at,
+                settled_at,
+                prediction["id"] if prediction else prediction_log_id,
+                sport,
+                event_id,
+                event_name,
+                selection,
+                bet_type,
+                odds,
+                stake,
+                status,
+                payout,
+                profit,
+                notes,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            """
+            SELECT *
+            FROM paper_bet_log
+            WHERE id = ?
+            """,
+            (cursor.lastrowid,),
+        ).fetchone()
+
+    return _row_to_paper_bet(row)
+
+
+def get_paper_bets(
+    status: Optional[str] = None,
+    sport: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    status = status.strip().upper() if status else None
+    sport = sport.strip().lower() if sport else None
+    conditions = []
+    params = []
+
+    if status and status != "ALL":
+        conditions.append("status = ?")
+        params.append(status)
+    if sport and sport != "all":
+        conditions.append("sport = ?")
+        params.append(sport)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM paper_bet_log
+            {where_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+
+    return [_row_to_paper_bet(row) for row in rows]
+
+
+def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
+    sport = sport.strip().lower() if sport else None
+    with _connect() as conn:
+        if sport and sport != "all":
+            rows = conn.execute("SELECT * FROM paper_bet_log WHERE sport = ?", (sport,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM paper_bet_log").fetchall()
+
+    bets = [_row_to_paper_bet(row) for row in rows]
+    total_bets = len(bets)
+    pending_bets = sum(1 for bet in bets if bet["status"] == "PENDING")
+    won_bets = sum(1 for bet in bets if bet["status"] == "WON")
+    lost_bets = sum(1 for bet in bets if bet["status"] == "LOST")
+    void_bets = sum(1 for bet in bets if bet["status"] == "VOID")
+    decision_bets = won_bets + lost_bets
+    settled_bets = total_bets - pending_bets
+    total_staked = sum(bet["stake"] for bet in bets)
+    pending_exposure = sum(bet["stake"] for bet in bets if bet["status"] == "PENDING")
+    settled_staked = sum(bet["stake"] for bet in bets if bet["status"] in {"WON", "LOST"})
+    total_returned = sum(bet["payout"] or 0.0 for bet in bets if bet["status"] in {"WON", "LOST"})
+    net_profit = sum(bet["profit"] or 0.0 for bet in bets if bet["status"] != "PENDING")
+
+    return {
+        "sport": sport or "all",
+        "total_bets": total_bets,
+        "pending_bets": pending_bets,
+        "settled_bets": settled_bets,
+        "won_bets": won_bets,
+        "lost_bets": lost_bets,
+        "void_bets": void_bets,
+        "total_staked": round(total_staked, 2),
+        "settled_staked": round(settled_staked, 2),
+        "pending_exposure": round(pending_exposure, 2),
+        "total_returned": round(total_returned, 2),
+        "net_profit": round(net_profit, 2),
+        "roi": round(net_profit / settled_staked, 4) if settled_staked > 0 else 0.0,
+        "win_rate": round(won_bets / decision_bets, 4) if decision_bets > 0 else 0.0,
+    }
+
+
+def settle_paper_bet(
+    bet_id: int,
+    status: str,
+    payout: Optional[float] = None,
+) -> Dict[str, Any]:
+    status = status.strip().upper()
+    if status not in {"WON", "LOST", "VOID"}:
+        raise ValueError("status must be WON, LOST, or VOID")
+
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if not row:
+            raise ValueError("paper bet not found")
+
+        stake = float(row["stake"])
+        odds = float(row["odds"])
+        if status == "WON":
+            settled_payout = _optional_float(payout)
+            if settled_payout is None:
+                settled_payout = stake * odds
+        elif status == "VOID":
+            settled_payout = stake
+        else:
+            settled_payout = 0.0
+
+        profit = settled_payout - stake
+        conn.execute(
+            """
+            UPDATE paper_bet_log
+            SET updated_at = ?, settled_at = ?, status = ?, payout = ?, profit = ?
+            WHERE id = ?
+            """,
+            (updated_at, updated_at, status, settled_payout, profit, bet_id),
+        )
+        conn.commit()
+        updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+
+    return _row_to_paper_bet(updated_row)
+
+
+def delete_paper_bet(bet_id: int) -> bool:
+    with _connect() as conn:
+        cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def get_prediction_summary() -> List[Dict[str, Any]]:
@@ -507,11 +725,36 @@ def _ensure_schema(conn) -> None:
         )
         """
     )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS paper_bet_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            settled_at TEXT,
+            prediction_log_id INTEGER,
+            sport TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            selection TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            odds REAL NOT NULL,
+            stake REAL NOT NULL,
+            status TEXT NOT NULL,
+            payout REAL,
+            profit REAL,
+            notes TEXT
+        )
+        """
+    )
     _dedupe_prediction_log(conn)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_log_unique_selection
@@ -557,6 +800,27 @@ def _row_to_result(row) -> Dict[str, Any]:
         "event_name": row["event_name"],
         "winner_selection": row["winner_selection"],
         "payload": _loads_json(row["result_payload_json"]),
+    }
+
+
+def _row_to_paper_bet(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "settled_at": row["settled_at"],
+        "prediction_log_id": row["prediction_log_id"],
+        "sport": row["sport"],
+        "event_id": row["event_id"],
+        "event_name": row["event_name"],
+        "selection": row["selection"],
+        "bet_type": row["bet_type"],
+        "odds": float(row["odds"]),
+        "stake": float(row["stake"]),
+        "status": row["status"],
+        "payout": _optional_float(row["payout"]),
+        "profit": _optional_float(row["profit"]),
+        "notes": row["notes"],
     }
 
 
@@ -699,6 +963,82 @@ def _paper_bet_profit(row) -> Optional[float]:
 
     outcome = max(0.0, min(float(row["actual_outcome"]), 1.0))
     return (outcome * fair_odds) - 1
+
+
+def _find_prediction_for_bet(conn, sport: str, event_id: str, selection: str, prediction_log_id: Optional[int] = None):
+    if prediction_log_id is not None:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM prediction_log
+            WHERE id = ?
+            """,
+            (prediction_log_id,),
+        ).fetchone()
+        if (
+            row
+            and row["sport"] == sport
+            and row["event_id"] == event_id
+            and row["selection"].casefold() == selection.casefold()
+        ):
+            return row
+
+    return conn.execute(
+        """
+        SELECT *
+        FROM prediction_log
+        WHERE sport = ? AND event_id = ? AND lower(selection) = lower(?)
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (sport, event_id, selection),
+    ).fetchone()
+
+
+def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM paper_bet_log
+        WHERE sport = ? AND event_id = ? AND status = 'PENDING'
+        """,
+        (sport, event_id),
+    ).fetchall()
+
+    for bet in rows:
+        prediction = _find_prediction_for_bet(
+            conn,
+            sport,
+            event_id,
+            bet["selection"],
+            bet["prediction_log_id"],
+        )
+        if not prediction or prediction["actual_outcome"] is None:
+            continue
+
+        status, payout, profit = _bet_settlement(
+            float(bet["stake"]),
+            float(bet["odds"]),
+            float(prediction["actual_outcome"]),
+        )
+        conn.execute(
+            """
+            UPDATE paper_bet_log
+            SET updated_at = ?, settled_at = ?, prediction_log_id = ?, status = ?, payout = ?, profit = ?
+            WHERE id = ?
+            """,
+            (settled_at, settled_at, prediction["id"], status, payout, profit, bet["id"]),
+        )
+
+
+def _bet_settlement(stake: float, odds: float, outcome: float):
+    if outcome >= 1.0:
+        payout = stake * odds
+        return "WON", payout, payout - stake
+    if outcome <= 0.0:
+        return "LOST", 0.0, -stake
+
+    return "VOID", stake, 0.0
 
 
 def _mean(values: List[float]) -> float:

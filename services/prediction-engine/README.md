@@ -51,3 +51,27 @@ curl -X POST http://localhost:8000/api/predictions/results/ingest \
 ```
 
 Metrics include settled event count, top-pick hit rate, fair-odds paper ROI, Brier score, log loss, winner probability, and calibration buckets.
+
+## Paper Bets
+
+Paper bets are local tracking records tied to prediction events. They do not place wagers or handle money.
+
+```bash
+curl -X POST http://localhost:8000/api/paper-bets \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sport": "afl",
+    "event_id": "12345",
+    "event_name": "Collingwood vs Carlton",
+    "selection": "Collingwood",
+    "stake": 10,
+    "odds": 1.9
+  }'
+```
+
+When `/api/predictions/results` or `/api/predictions/results/ingest` settles the matching prediction event, pending paper bets for the same sport, event ID, and selection are settled automatically.
+
+```bash
+curl http://localhost:8000/api/paper-bets
+curl http://localhost:8000/api/paper-bets/summary
+```
