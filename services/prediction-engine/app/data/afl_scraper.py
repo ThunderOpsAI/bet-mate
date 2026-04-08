@@ -26,6 +26,54 @@ def _get_team_map() -> dict:
     return {t["id"]: t["name"] for t in teams}
 
 
+def _confidence_to_probability(confidence) -> float:
+    """Normalize Squiggle confidence to a 0-1 probability-like value."""
+    try:
+        value = float(confidence)
+    except (TypeError, ValueError):
+        return 0.5
+
+    if value <= 0:
+        return 0.5
+    if value > 1:
+        value = value / 100
+    return max(0.0, min(value, 1.0))
+
+
+def _home_signal_from_tip(
+    tip: str,
+    home_team: str,
+    away_team: str,
+    confidence,
+    tip_team_id=None,
+    home_team_id=None,
+    away_team_id=None,
+) -> float:
+    confidence_prob = _confidence_to_probability(confidence)
+    if tip_team_id is not None:
+        if str(tip_team_id) == str(home_team_id):
+            return confidence_prob
+        if str(tip_team_id) == str(away_team_id):
+            return 1 - confidence_prob
+
+    normalized_tip = (tip or "").strip().lower()
+    normalized_home = home_team.strip().lower()
+    normalized_away = away_team.strip().lower()
+
+    if not normalized_tip:
+        return 0.5
+    if _tip_matches_team(normalized_tip, normalized_home):
+        return confidence_prob
+    if _tip_matches_team(normalized_tip, normalized_away):
+        return 1 - confidence_prob
+
+    return 0.5
+
+
+def _tip_matches_team(normalized_tip: str, normalized_team: str) -> bool:
+    return normalized_tip == normalized_team or normalized_team.startswith(f"{normalized_tip} ")
+
+
 def fetch_this_week_afl():
     """
     Fetch upcoming/recent AFL games from Squiggle and build feature dicts
@@ -102,6 +150,20 @@ def fetch_this_week_afl():
         a_avg_for = a_standings.get("pts_for", 80 * a_played) / a_played
         a_avg_against = a_standings.get("pts_against", 80 * a_played) / a_played
 
+        # Add Squiggle's own predictions as context and as an ensemble model input
+        tip = tips_by_game.get(g.get("id"), {})
+        squiggle_confidence = tip.get("confidence", 0)
+        squiggle_tip = tip.get("tip", "")
+        squiggle_home_signal = _home_signal_from_tip(
+            squiggle_tip,
+            hteam_name,
+            ateam_name,
+            squiggle_confidence,
+            tip_team_id=tip.get("tipteamid"),
+            home_team_id=hteam_id,
+            away_team_id=ateam_id,
+        )
+
         # Build features compatible with our AFL XGBoost model
         features = {
             "home_win_streak": float(h_standings.get("wins", 0)),
@@ -114,12 +176,8 @@ def fetch_this_week_afl():
             "away_rest_days": 7.0,
             "weather_condition": 1.0,  # Default clear
             "travel_distance_away": 500.0,  # Default moderate
+            "squiggle_home_signal": round(squiggle_home_signal, 4),
         }
-
-        # Add Squiggle's own predictions as context
-        tip = tips_by_game.get(g.get("id"), {})
-        squiggle_confidence = tip.get("confidence", 0)
-        squiggle_tip = tip.get("tip", "")
 
         game_entry = {
             "game_id": str(g.get("id", f"afl_{len(games)}")),
@@ -170,7 +228,10 @@ def _generate_mock_afl():
                 "away_rest_days": float(random.randint(6, 9)),
                 "weather_condition": float(random.randint(1, 3)),
                 "travel_distance_away": round(random.uniform(0, 3000), 0),
+                "squiggle_home_signal": round(random.uniform(0.35, 0.65), 4),
             },
+            "squiggle_tip": "",
+            "squiggle_confidence": 0,
             "source": "mock",
         })
 

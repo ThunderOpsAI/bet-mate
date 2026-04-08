@@ -4,8 +4,8 @@ from pydantic import BaseModel
 from typing import List, Dict, Any
 
 # Local ML Imports
-from app.ml.racing import RacingPredictor
-from app.ml.afl import AFLPredictor
+from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS
+from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS
 from app.ml.nba import NBAPredictor
 
 # Local Data Scraper Imports
@@ -40,6 +40,8 @@ class Horse(BaseModel):
     jockey_win_rate: float
     track_condition: int
     days_since_last_race: int
+    betfair_back_price: float = 0.0
+    betfair_implied_prob: float = 0.0
 
 class Race(BaseModel):
     race_id: str
@@ -84,7 +86,7 @@ def get_today_races():
 def predict_race(race: Race):
     """Predict win probabilities for a racing field."""
     horse_dicts = []
-    features_keys = ['barrier', 'weight', 'past_win_rate', 'jockey_win_rate', 'track_condition', 'days_since_last_race']
+    features_keys = RACING_FEATURE_COLUMNS
     
     for h in race.horses:
         horse_dicts.append({k: getattr(h, k) for k in features_keys})
@@ -125,7 +127,7 @@ def predict_afl(game: TeamGame):
         result = afl_predictor.predict(game.features)
         
         # Mapping features back for explainability
-        feature_keys = list(game.features.keys())
+        feature_keys = result.get('feature_names', AFL_FEATURE_COLUMNS)
         importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
         
         # Calculate fair odds

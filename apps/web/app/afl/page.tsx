@@ -9,6 +9,8 @@ type AFLGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  squiggle_tip?: string;
+  squiggle_confidence?: number;
 };
 
 type AFLPrediction = {
@@ -126,6 +128,11 @@ export default function AFLPage() {
                 <span className="context-chip">🏠 {game.features.home_rest_days}d rest</span>
                 <span className="context-chip">✈️ {game.features.travel_distance_away}km travel</span>
                 <span className="context-chip">🔥 H:W{game.features.home_win_streak} / A:W{game.features.away_win_streak}</span>
+                {game.squiggle_tip && (
+                  <span className="context-chip">
+                    Squiggle: {game.squiggle_tip} {formatSquiggleConfidence(game.squiggle_confidence)}
+                  </span>
+                )}
               </div>
 
               {/* Expanded: Feature Impact */}
@@ -173,4 +180,13 @@ export default function AFLPage() {
 
 function formatFeatureName(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatSquiggleConfidence(confidence?: number): string {
+  if (!confidence) {
+    return "";
+  }
+
+  const confidencePct = confidence > 1 ? confidence : confidence * 100;
+  return `${confidencePct.toFixed(0)}%`;
 }

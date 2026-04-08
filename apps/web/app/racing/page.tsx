@@ -13,6 +13,8 @@ type HorseData = {
   jockey_win_rate: number;
   track_condition: number;
   days_since_last_race: number;
+  betfair_back_price?: number;
+  betfair_implied_prob?: number;
 };
 
 type Race = {
@@ -163,6 +165,7 @@ export default function RacingPage() {
                           <th>Weight</th>
                           <th>Form</th>
                           <th>Jockey Win%</th>
+                          <th>Market</th>
                           <th>Win Prob</th>
                           <th>Fair Odds</th>
                         </tr>
@@ -178,6 +181,7 @@ export default function RacingPage() {
                               <td>{horse?.weight ?? "-"}kg</td>
                               <td>{((horse?.past_win_rate ?? 0) * 100).toFixed(1)}%</td>
                               <td>{((horse?.jockey_win_rate ?? 0) * 100).toFixed(1)}%</td>
+                              <td>{formatMarketPrice(horse)}</td>
                               <td>
                                 <span className={`prob-badge ${i === 0 ? "prob-top" : ""}`}>
                                   {p.win_probability}%
@@ -238,4 +242,12 @@ function formatFeatureName(key: string): string {
   return key
     .replace(/_/g, " ")
     .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function formatMarketPrice(horse?: HorseData): string {
+  if (!horse?.betfair_back_price || horse.betfair_back_price <= 1) {
+    return "-";
+  }
+
+  return `$${horse.betfair_back_price.toFixed(2)}`;
 }
