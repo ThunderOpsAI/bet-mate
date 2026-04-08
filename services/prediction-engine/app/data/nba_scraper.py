@@ -9,6 +9,8 @@ load_dotenv()
 BDL_API_KEY = os.getenv("BDL_API_KEY", "")
 BDL_BASE = "https://api.balldontlie.io/nba/v1"
 USER_AGENT = "BetMate - james.jones2086@gmail.com"
+DEFAULT_WIN_PCT = 0.5
+DEFAULT_RATING = 110.0
 
 
 def _bdl_get(endpoint: str, params: dict = None) -> dict:
@@ -32,6 +34,142 @@ def _bdl_get(endpoint: str, params: dict = None) -> dict:
     except Exception as e:
         print(f"[BallDontLie] API error on {endpoint}: {e}")
         return {}
+
+
+def _parse_game_datetime(game: dict):
+    value = game.get("datetime") or game.get("date")
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+
+def _team_state():
+    return {
+        "games": 0,
+        "wins": 0,
+        "points_for": 0.0,
+        "points_against": 0.0,
+        "last_game_at": None,
+    }
+
+
+def _win_pct(state) -> float:
+    if state["games"] <= 0:
+        return DEFAULT_WIN_PCT
+
+    return state["wins"] / state["games"]
+
+
+def _avg_points(state, key: str) -> float:
+    if state["games"] <= 0:
+        return DEFAULT_RATING
+
+    return state[key] / state["games"]
+
+
+def _is_back_to_back(state, game_at) -> int:
+    last_game_at = state.get("last_game_at")
+    if not last_game_at or not game_at:
+        return 0
+
+    return int((game_at.date() - last_game_at.date()).days == 1)
+
+
+def fetch_historical_nba_training_data(start_season=None, end_season=None, min_rows=200, max_pages_per_season=2):
+    """
+    Build supervised training rows from completed Ball Don't Lie games.
+    Features use each team's state before the current game, then update state
+    after the result so completed scores do not leak into their own prediction.
+    """
+    current_year = datetime.now().year
+    current_season = current_year if datetime.now().month >= 10 else current_year - 1
+    end_season = end_season or current_season
+    start_season = start_season or end_season
+
+    raw_games = []
+    for season in range(start_season, end_season + 1):
+        cursor = None
+        pages = 0
+        while pages < max_pages_per_season:
+            params = {"seasons[]": season, "per_page": 100}
+            if cursor:
+                params["cursor"] = cursor
+
+            data = _bdl_get("games", params)
+            games = data.get("data", [])
+            if not games:
+                break
+
+            raw_games.extend(games)
+            cursor = data.get("meta", {}).get("next_cursor")
+            pages += 1
+            if not cursor:
+                break
+
+    completed_games = [
+        game for game in raw_games
+        if game.get("status") == "Final"
+        and game.get("home_team_score") is not None
+        and game.get("visitor_team_score") is not None
+    ]
+    completed_games.sort(key=lambda game: (_parse_game_datetime(game) or datetime.min, game.get("id") or 0))
+
+    team_states = {}
+    rows = []
+
+    for game in completed_games:
+        home_score = float(game.get("home_team_score") or 0)
+        away_score = float(game.get("visitor_team_score") or 0)
+        if home_score == away_score:
+            continue
+
+        home_team_id = game.get("home_team", {}).get("id")
+        away_team_id = game.get("visitor_team", {}).get("id")
+        if home_team_id is None or away_team_id is None:
+            continue
+
+        game_at = _parse_game_datetime(game)
+        home_state = team_states.setdefault(home_team_id, _team_state())
+        away_state = team_states.setdefault(away_team_id, _team_state())
+
+        rows.append({
+            "home_b2b": _is_back_to_back(home_state, game_at),
+            "away_b2b": _is_back_to_back(away_state, game_at),
+            "home_win_pct": round(_win_pct(home_state), 3),
+            "away_win_pct": round(_win_pct(away_state), 3),
+            "home_ortg": round(_avg_points(home_state, "points_for"), 1),
+            "home_drtg": round(_avg_points(home_state, "points_against"), 1),
+            "away_ortg": round(_avg_points(away_state, "points_for"), 1),
+            "away_drtg": round(_avg_points(away_state, "points_against"), 1),
+            "home_injuries_impact": 0.0,
+            "away_injuries_impact": 0.0,
+            "home_win": int(home_score > away_score),
+        })
+
+        _record_game(home_state, points_for=home_score, points_against=away_score, won=home_score > away_score, game_at=game_at)
+        _record_game(away_state, points_for=away_score, points_against=home_score, won=away_score > home_score, game_at=game_at)
+
+    if len(rows) < min_rows:
+        print(f"[BallDontLie] Historical NBA training rows below threshold ({len(rows)} < {min_rows})")
+        return []
+
+    print(f"[BallDontLie] Built {len(rows)} historical NBA training rows from {start_season}-{end_season}")
+    return rows
+
+
+def _record_game(state, points_for: float, points_against: float, won: bool, game_at):
+    state["games"] += 1
+    state["wins"] += 1 if won else 0
+    state["points_for"] += points_for
+    state["points_against"] += points_against
+    state["last_game_at"] = game_at
 
 
 def fetch_today_nba():

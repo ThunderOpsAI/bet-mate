@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 # Local ML Imports
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS
-from app.ml.nba import NBAPredictor
+from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -65,7 +65,7 @@ def startup_event():
         print("Initializing AFL ML Model...")
         afl_predictor.load_or_train()
         print("Initializing NBA ML Model...")
-        nba_predictor.train()
+        nba_predictor.load_or_train()
         print("All ML Models Initialized successfully.")
     except Exception as e:
         print(f"Startup ML init error: {e}")
@@ -162,7 +162,7 @@ def predict_nba(game: TeamGame):
     try:
         result = nba_predictor.predict(game.features)
         
-        feature_keys = list(game.features.keys())
+        feature_keys = result.get('feature_names', NBA_FEATURE_COLUMNS)
         importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
         
         home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
