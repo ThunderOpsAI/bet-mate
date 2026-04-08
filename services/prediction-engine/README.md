@@ -50,4 +50,4 @@ curl -X POST http://localhost:8000/api/predictions/results/ingest \
   }'
 ```
 
-Metrics include settled event count, top-pick hit rate, Brier score, log loss, winner probability, and calibration buckets.
+Metrics include settled event count, top-pick hit rate, fair-odds paper ROI, Brier score, log loss, winner probability, and calibration buckets.

@@ -325,6 +325,7 @@ def get_prediction_accuracy(sport: Optional[str] = None) -> Dict[str, Any]:
                     event_name,
                     selection,
                     probability,
+                    fair_odds,
                     actual_outcome,
                     settled_at,
                     result_status
@@ -344,6 +345,7 @@ def get_prediction_accuracy(sport: Optional[str] = None) -> Dict[str, Any]:
                     event_name,
                     selection,
                     probability,
+                    fair_odds,
                     actual_outcome,
                     settled_at,
                     result_status
@@ -378,6 +380,7 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
                     sport,
                     event_id,
                     probability,
+                    fair_odds,
                     actual_outcome,
                     settled_at
                 FROM prediction_log
@@ -394,6 +397,7 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
                     sport,
                     event_id,
                     probability,
+                    fair_odds,
                     actual_outcome,
                     settled_at
                 FROM prediction_log
@@ -430,6 +434,11 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
             for event_rows in bucket["events"].values()
         ]
         top_pick_wins = sum(1 for row in top_picks if float(row["actual_outcome"]) >= 1.0)
+        paper_bet_profits = [
+            profit
+            for profit in [_paper_bet_profit(row) for row in top_picks]
+            if profit is not None
+        ]
         settled_events = len(top_picks)
         settled_predictions = bucket["settled_predictions"]
 
@@ -440,6 +449,9 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
             "settled_events": settled_events,
             "top_pick_wins": top_pick_wins,
             "hit_rate": round(top_pick_wins / settled_events, 4) if settled_events else 0.0,
+            "paper_bets": len(paper_bet_profits),
+            "paper_profit": round(sum(paper_bet_profits), 4),
+            "paper_roi": round(sum(paper_bet_profits) / len(paper_bet_profits), 4) if paper_bet_profits else 0.0,
             "brier_score": round(bucket["brier_sum"] / settled_predictions, 4) if settled_predictions else 0.0,
             "log_loss": round(bucket["log_loss_sum"] / settled_predictions, 4) if settled_predictions else 0.0,
         })
@@ -557,6 +569,9 @@ def _compute_accuracy_metrics(rows, sport: str) -> Dict[str, Any]:
             "settled_events": 0,
             "top_pick_wins": 0,
             "hit_rate": 0.0,
+            "paper_bets": 0,
+            "paper_profit": 0.0,
+            "paper_roi": 0.0,
             "brier_score": 0.0,
             "log_loss": 0.0,
             "avg_confidence": 0.0,
@@ -580,6 +595,11 @@ def _compute_accuracy_metrics(rows, sport: str) -> Dict[str, Any]:
         for event_rows in events.values()
     ]
     top_pick_wins = sum(1 for row in top_picks if float(row["actual_outcome"]) >= 1.0)
+    paper_bet_profits = [
+        profit
+        for profit in [_paper_bet_profit(row) for row in top_picks]
+        if profit is not None
+    ]
     event_confidences = [_probability_fraction(row["probability"]) for row in top_picks]
     winner_probabilities = [
         _probability_fraction(row["probability"])
@@ -599,6 +619,9 @@ def _compute_accuracy_metrics(rows, sport: str) -> Dict[str, Any]:
         "settled_events": len(events),
         "top_pick_wins": top_pick_wins,
         "hit_rate": round(top_pick_wins / len(events), 4) if events else 0.0,
+        "paper_bets": len(paper_bet_profits),
+        "paper_profit": round(sum(paper_bet_profits), 4),
+        "paper_roi": round(sum(paper_bet_profits) / len(paper_bet_profits), 4) if paper_bet_profits else 0.0,
         "brier_score": round(brier_score, 4),
         "log_loss": round(log_loss, 4),
         "avg_confidence": round(_mean(event_confidences), 4),
@@ -667,6 +690,15 @@ def _probability_fraction(value) -> float:
 def _log_loss(probability: float, outcome: float) -> float:
     probability = max(1e-15, min(probability, 1 - 1e-15))
     return -((outcome * math.log(probability)) + ((1 - outcome) * math.log(1 - probability)))
+
+
+def _paper_bet_profit(row) -> Optional[float]:
+    fair_odds = _optional_float(row["fair_odds"])
+    if fair_odds is None or fair_odds <= 1:
+        return None
+
+    outcome = max(0.0, min(float(row["actual_outcome"]), 1.0))
+    return (outcome * fair_odds) - 1
 
 
 def _mean(values: List[float]) -> float:

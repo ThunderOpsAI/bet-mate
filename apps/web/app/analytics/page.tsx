@@ -41,6 +41,9 @@ type AccuracyMetrics = {
   settled_events: number;
   top_pick_wins: number;
   hit_rate: number;
+  paper_bets: number;
+  paper_profit: number;
+  paper_roi: number;
   brier_score: number;
   log_loss: number;
   avg_confidence: number;
@@ -73,6 +76,9 @@ type AccuracyTrendPoint = {
   settled_events: number;
   top_pick_wins: number;
   hit_rate: number;
+  paper_bets: number;
+  paper_profit: number;
+  paper_roi: number;
   brier_score: number;
   log_loss: number;
 };
@@ -215,6 +221,7 @@ export default function AnalyticsPage() {
   const accuracyTrendData = accuracyTrend.map((point) => ({
     date: point.date.slice(5),
     hitRate: roundPct(point.hit_rate),
+    paperRoi: roundPct(point.paper_roi),
     brierScore: point.brier_score,
     settledEvents: point.settled_events,
   }));
@@ -293,6 +300,13 @@ export default function AnalyticsPage() {
           <div className="stat-value">{formatDecimal(accuracy?.brier_score)}</div>
           <div className="stat-sub">Lower is better</div>
         </div>
+        <div className="stat-card accent">
+          <div className="stat-label">Paper ROI</div>
+          <div className="stat-value" style={{ color: (accuracy?.paper_profit ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
+            {formatPct(accuracy?.paper_roi ?? 0)}
+          </div>
+          <div className="stat-sub">{formatSignedCurrency(accuracy?.paper_profit ?? 0)} across {accuracy?.paper_bets ?? 0} top picks</div>
+        </div>
         <div className="stat-card yellow">
           <div className="stat-label">Artifacts</div>
           <div className="stat-value">{models.filter((model) => model.artifact_exists).length}</div>
@@ -338,6 +352,7 @@ export default function AnalyticsPage() {
               <YAxis />
               <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
               <Line type="monotone" dataKey="hitRate" name="Hit rate %" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="paperRoi" name="Paper ROI %" stroke="var(--accent)" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -484,6 +499,19 @@ function formatDecimal(value?: number | null): string {
   }
 
   return value.toFixed(3);
+}
+
+function formatSignedCurrency(value: number): string {
+  const formatted = new Intl.NumberFormat("en-AU", {
+    style: "currency",
+    currency: "AUD",
+  }).format(Math.abs(value));
+
+  if (value === 0) {
+    return formatted;
+  }
+
+  return `${value > 0 ? "+" : "-"}${formatted}`;
 }
 
 function formatRawProbability(value: number): string {
