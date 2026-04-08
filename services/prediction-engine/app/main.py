@@ -14,6 +14,7 @@ from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MOD
 import app.data.scraper as racing_scraper
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.storage as storage
 
 app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0")
 
@@ -107,6 +108,14 @@ def _model_metadata(name: str, predictor, feature_columns: List[str], model_path
         "artifact_exists": os.path.exists(model_path),
     }
 
+@app.get("/api/predictions/recent")
+def get_recent_predictions(limit: int = 50):
+    return {"predictions": storage.get_recent_predictions(limit)}
+
+@app.get("/api/predictions/summary")
+def get_prediction_summary():
+    return {"summary": storage.get_prediction_summary()}
+
 # --- RACING ENDPOINTS ---
 
 @app.get("/api/races/today")
@@ -137,6 +146,21 @@ def predict_race(race: Race):
             
         predictions.sort(key=lambda x: x["win_probability"], reverse=True)
         feature_impact = dict(zip(features_keys, [round(imp, 4) for imp in importances]))
+        storage.log_prediction_batch(
+            sport="racing",
+            event_id=race.race_id,
+            event_name=f"{race.venue} R{race.race_number}",
+            predictions=[
+                {
+                    "selection": prediction["name"],
+                    "probability": prediction["win_probability"],
+                    "fair_odds": prediction["fair_odds"],
+                    "payload": prediction,
+                }
+                for prediction in predictions
+            ],
+            feature_impact=feature_impact,
+        )
         
         return {
             "race_id": race.race_id,
@@ -178,14 +202,34 @@ def predict_afl(game: TeamGame):
         # Calculate fair odds
         home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
         away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {
+                    "selection": game.home_team,
+                    "probability": home_probability,
+                    "fair_odds": home_odds,
+                },
+                {
+                    "selection": game.away_team,
+                    "probability": away_probability,
+                    "fair_odds": away_odds,
+                },
+            ],
+            feature_impact=importances,
+        )
         
         return {
             "game_id": game.game_id,
             "predictions": {
                 "home_team": game.home_team,
                 "away_team": game.away_team,
-                "home_win_probability": round(result['home_win_prob'] * 100, 2),
-                "away_win_probability": round(result['away_win_prob'] * 100, 2),
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
                 "fair_odds_away": away_odds
             },
@@ -212,14 +256,34 @@ def predict_nba(game: TeamGame):
         
         home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
         away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+        storage.log_prediction_batch(
+            sport="nba",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {
+                    "selection": game.home_team,
+                    "probability": home_probability,
+                    "fair_odds": home_odds,
+                },
+                {
+                    "selection": game.away_team,
+                    "probability": away_probability,
+                    "fair_odds": away_odds,
+                },
+            ],
+            feature_impact=importances,
+        )
         
         return {
             "game_id": game.game_id,
             "predictions": {
                 "home_team": game.home_team,
                 "away_team": game.away_team,
-                "home_win_probability": round(result['home_win_prob'] * 100, 2),
-                "away_win_probability": round(result['away_win_prob'] * 100, 2),
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
                 "fair_odds_away": away_odds
             },
