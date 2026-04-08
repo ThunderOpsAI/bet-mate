@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 
@@ -18,6 +18,18 @@ export default function NewBetPage() {
   const [odds, setOdds] = useState("");
   const [stake, setStake] = useState("10");
   const [notes, setNotes] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSport(params.get("sport") || "racing");
+    setEventId(params.get("event_id") || "");
+    setEventName(params.get("event_name") || "");
+    setBetType(params.get("bet_type") || "win");
+    setSelection(params.get("selection") || "");
+    setOdds(params.get("odds") || "");
+    setStake(params.get("stake") || "10");
+    setNotes(params.get("notes") || "");
+  }, []);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();

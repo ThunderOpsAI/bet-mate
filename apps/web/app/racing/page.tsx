@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Brain, Trophy, MapPin, ChevronDown, ChevronUp, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
@@ -168,6 +169,7 @@ export default function RacingPage() {
                           <th>Market</th>
                           <th>Win Prob</th>
                           <th>Fair Odds</th>
+                          <th>Paper Bet</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -188,6 +190,21 @@ export default function RacingPage() {
                                 </span>
                               </td>
                               <td className="fair-odds">${p.fair_odds}</td>
+                              <td>
+                                <Link
+                                  className="btn btn-sm btn-secondary"
+                                  href={paperBetHref({
+                                    sport: "racing",
+                                    eventId: race.race_id,
+                                    eventName: `${race.venue} R${race.race_number}`,
+                                    selection: p.name,
+                                    odds: p.fair_odds,
+                                    betType: "win",
+                                  })}
+                                >
+                                  Paper Bet
+                                </Link>
+                              </td>
                             </tr>
                           );
                         })}
@@ -250,4 +267,24 @@ function formatMarketPrice(horse?: HorseData): string {
   }
 
   return `$${horse.betfair_back_price.toFixed(2)}`;
+}
+
+function paperBetHref(params: {
+  sport: string;
+  eventId: string;
+  eventName: string;
+  selection: string;
+  odds: number;
+  betType: string;
+}): string {
+  const search = new URLSearchParams({
+    sport: params.sport,
+    event_id: params.eventId,
+    event_name: params.eventName,
+    selection: params.selection,
+    odds: String(params.odds),
+    bet_type: params.betType,
+  });
+
+  return `/bets/new?${search.toString()}`;
 }

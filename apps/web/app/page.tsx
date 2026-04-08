@@ -190,6 +190,20 @@ export default function DashboardPage() {
                     <div className="prediction-pick-right">
                       <span className="prediction-prob">{p.win_probability}%</span>
                       <span className="prediction-odds">${p.fair_odds}</span>
+                      <Link
+                        className="btn btn-sm btn-secondary"
+                        href={paperBetHref({
+                          sport: "racing",
+                          eventId: race.race_id,
+                          eventName: `${race.venue} R${race.race_number}`,
+                          selection: p.name,
+                          odds: p.fair_odds,
+                          betType: "win",
+                        })}
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        Paper
+                      </Link>
                     </div>
                   </div>
                 ))}
@@ -232,6 +246,38 @@ export default function DashboardPage() {
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
               </div>
+              {pred && (
+                <div className="game-context-row" style={{ marginTop: "0.75rem" }}>
+                  <Link
+                    className="btn btn-sm btn-secondary"
+                    href={paperBetHref({
+                      sport: "afl",
+                      eventId: game.game_id,
+                      eventName: `${game.home_team} vs ${game.away_team}`,
+                      selection: game.home_team,
+                      odds: pred.predictions.fair_odds_home,
+                      betType: "head_to_head",
+                    })}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Paper Home
+                  </Link>
+                  <Link
+                    className="btn btn-sm btn-secondary"
+                    href={paperBetHref({
+                      sport: "afl",
+                      eventId: game.game_id,
+                      eventName: `${game.home_team} vs ${game.away_team}`,
+                      selection: game.away_team,
+                      odds: pred.predictions.fair_odds_away,
+                      betType: "head_to_head",
+                    })}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Paper Away
+                  </Link>
+                </div>
+              )}
               {pred?.ai_insights_context && (
                 <div className="ai-insight-badge">
                   <Brain size={12} /> {pred.ai_insights_context}
@@ -270,6 +316,38 @@ export default function DashboardPage() {
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
               </div>
+              {pred && (
+                <div className="game-context-row" style={{ marginTop: "0.75rem" }}>
+                  <Link
+                    className="btn btn-sm btn-secondary"
+                    href={paperBetHref({
+                      sport: "nba",
+                      eventId: game.game_id,
+                      eventName: `${game.home_team} vs ${game.away_team}`,
+                      selection: game.home_team,
+                      odds: pred.predictions.fair_odds_home,
+                      betType: "head_to_head",
+                    })}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Paper Home
+                  </Link>
+                  <Link
+                    className="btn btn-sm btn-secondary"
+                    href={paperBetHref({
+                      sport: "nba",
+                      eventId: game.game_id,
+                      eventName: `${game.home_team} vs ${game.away_team}`,
+                      selection: game.away_team,
+                      odds: pred.predictions.fair_odds_away,
+                      betType: "head_to_head",
+                    })}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    Paper Away
+                  </Link>
+                </div>
+              )}
               {pred?.ai_insights_context && (
                 <div className="ai-insight-badge">
                   <Brain size={12} /> {pred.ai_insights_context}
@@ -286,4 +364,24 @@ export default function DashboardPage() {
       </div>
     </div>
   );
+}
+
+function paperBetHref(params: {
+  sport: string;
+  eventId: string;
+  eventName: string;
+  selection: string;
+  odds: number;
+  betType: string;
+}): string {
+  const search = new URLSearchParams({
+    sport: params.sport,
+    event_id: params.eventId,
+    event_name: params.eventName,
+    selection: params.selection,
+    odds: String(params.odds),
+    bet_type: params.betType,
+  });
+
+  return `/bets/new?${search.toString()}`;
 }

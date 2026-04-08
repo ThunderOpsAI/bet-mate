@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Brain, CircleDot, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
@@ -193,6 +194,38 @@ export default function AFLPage() {
                     Squiggle: {game.squiggle_tip} {formatSquiggleConfidence(game.squiggle_confidence)}
                   </span>
                 )}
+                {pred && (
+                  <>
+                    <Link
+                      className="btn btn-sm btn-secondary"
+                      href={paperBetHref({
+                        sport: "afl",
+                        eventId: game.game_id,
+                        eventName: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: pred.predictions.fair_odds_home,
+                        betType: "head_to_head",
+                      })}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Paper Bet Home
+                    </Link>
+                    <Link
+                      className="btn btn-sm btn-secondary"
+                      href={paperBetHref({
+                        sport: "afl",
+                        eventId: game.game_id,
+                        eventName: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: pred.predictions.fair_odds_away,
+                        betType: "head_to_head",
+                      })}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Paper Bet Away
+                    </Link>
+                  </>
+                )}
               </div>
 
               {/* Expanded: Feature Impact */}
@@ -284,4 +317,24 @@ function formatLiveStatus(status: "connecting" | "connected" | "reconnecting"): 
   }
 
   return "connecting";
+}
+
+function paperBetHref(params: {
+  sport: string;
+  eventId: string;
+  eventName: string;
+  selection: string;
+  odds: number;
+  betType: string;
+}): string {
+  const search = new URLSearchParams({
+    sport: params.sport,
+    event_id: params.eventId,
+    event_name: params.eventName,
+    selection: params.selection,
+    odds: String(params.odds),
+    bet_type: params.betType,
+  });
+
+  return `/bets/new?${search.toString()}`;
 }

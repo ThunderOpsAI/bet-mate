@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Brain, Zap, BarChart3 } from "lucide-react";
+import Link from "next/link";
 
 const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
@@ -124,6 +125,38 @@ export default function NBAPage() {
                 <span className="context-chip">DRTG H:{game.features.home_drtg}</span>
                 <span className="context-chip">{game.features.home_b2b ? "⚡ Home B2B" : "✅ Home Rested"}</span>
                 <span className="context-chip">{game.features.away_b2b ? "⚡ Away B2B" : "✅ Away Rested"}</span>
+                {pred && (
+                  <>
+                    <Link
+                      className="btn btn-sm btn-secondary"
+                      href={paperBetHref({
+                        sport: "nba",
+                        eventId: game.game_id,
+                        eventName: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: pred.predictions.fair_odds_home,
+                        betType: "head_to_head",
+                      })}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Paper Bet Home
+                    </Link>
+                    <Link
+                      className="btn btn-sm btn-secondary"
+                      href={paperBetHref({
+                        sport: "nba",
+                        eventId: game.game_id,
+                        eventName: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: pred.predictions.fair_odds_away,
+                        betType: "head_to_head",
+                      })}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      Paper Bet Away
+                    </Link>
+                  </>
+                )}
               </div>
 
               {/* Expanded Details */}
@@ -196,4 +229,24 @@ export default function NBAPage() {
 
 function formatFeatureName(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function paperBetHref(params: {
+  sport: string;
+  eventId: string;
+  eventName: string;
+  selection: string;
+  odds: number;
+  betType: string;
+}): string {
+  const search = new URLSearchParams({
+    sport: params.sport,
+    event_id: params.eventId,
+    event_name: params.eventName,
+    selection: params.selection,
+    odds: String(params.odds),
+    bet_type: params.betType,
+  });
+
+  return `/bets/new?${search.toString()}`;
 }
