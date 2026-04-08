@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Activity, BarChart3, Database, Target } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
@@ -66,26 +66,44 @@ type RecentPrediction = {
   settled_at: string | null;
 };
 
+type AccuracyTrendPoint = {
+  date: string;
+  sport: string;
+  settled_predictions: number;
+  settled_events: number;
+  top_pick_wins: number;
+  hit_rate: number;
+  brier_score: number;
+  log_loss: number;
+};
+
 export default function AnalyticsPage() {
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [predictionSummary, setPredictionSummary] = useState<PredictionSummary[]>([]);
   const [accuracy, setAccuracy] = useState<AccuracyMetrics | null>(null);
+  const [accuracyTrend, setAccuracyTrend] = useState<AccuracyTrendPoint[]>([]);
   const [recentPredictions, setRecentPredictions] = useState<RecentPrediction[]>([]);
+  const [selectedSport, setSelectedSport] = useState("all");
   const [loading, setLoading] = useState(true);
   const [syncingResults, setSyncingResults] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadAnalytics = async (showLoading = true) => {
+  const loadAnalytics = async (showLoading = true, sportFilter = selectedSport) => {
     try {
       if (showLoading) {
         setLoading(true);
       }
       setError(null);
-      const [metadataResponse, summaryResponse, accuracyResponse, recentResponse] = await Promise.all([
+      const sportQuery = sportFilter === "all" ? "" : `?sport=${encodeURIComponent(sportFilter)}`;
+      const trendQuery = sportFilter === "all"
+        ? "?days=30"
+        : `?days=30&sport=${encodeURIComponent(sportFilter)}`;
+      const [metadataResponse, summaryResponse, accuracyResponse, trendResponse, recentResponse] = await Promise.all([
         fetch(`${ML_API}/api/models/metadata`),
         fetch(`${ML_API}/api/predictions/summary`).catch(() => null),
-        fetch(`${ML_API}/api/predictions/accuracy`).catch(() => null),
+        fetch(`${ML_API}/api/predictions/accuracy${sportQuery}`).catch(() => null),
+        fetch(`${ML_API}/api/predictions/accuracy/trend${trendQuery}`).catch(() => null),
         fetch(`${ML_API}/api/predictions/recent?limit=20`).catch(() => null),
       ]);
 
@@ -103,6 +121,10 @@ export default function AnalyticsPage() {
         const accuracyData = await accuracyResponse.json();
         setAccuracy(accuracyData?.accuracy ?? null);
       }
+      if (trendResponse?.ok) {
+        const trendData = await trendResponse.json();
+        setAccuracyTrend(trendData?.trend ?? []);
+      }
       if (recentResponse?.ok) {
         const recentData = await recentResponse.json();
         setRecentPredictions(recentData?.predictions ?? []);
@@ -118,7 +140,7 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     loadAnalytics();
-  }, []);
+  }, [selectedSport]);
 
   const syncResults = async () => {
     try {
@@ -138,7 +160,7 @@ export default function AnalyticsPage() {
       const data = await response.json();
       setAccuracy(data?.accuracy ?? null);
       setPredictionSummary(data?.summary ?? []);
-      await loadAnalytics(false);
+      await loadAnalytics(false, selectedSport);
 
       const settled = data?.ingestion?.settled ?? 0;
       const skipped = data?.ingestion?.skipped_unmatched ?? 0;
@@ -175,13 +197,26 @@ export default function AnalyticsPage() {
   const historicalModels = models.filter((model) => model.training_source?.includes("historical")).length;
   const totalRows = models.reduce((sum, model) => sum + (model.training_rows ?? 0), 0);
   const totalFeatures = models.reduce((sum, model) => sum + model.feature_count, 0);
-  const loggedPredictions = predictionSummary.reduce((sum, sport) => sum + sport.prediction_count, 0);
   const settledEvents = accuracy?.settled_events ?? 0;
   const hitRate = accuracy?.hit_rate ?? 0;
+  const sportOptions = ["all", "afl", "nba", "racing"];
+  const filteredPredictionSummary = selectedSport === "all"
+    ? predictionSummary
+    : predictionSummary.filter((sport) => sport.sport === selectedSport);
+  const loggedPredictions = filteredPredictionSummary.reduce((sum, sport) => sum + sport.prediction_count, 0);
+  const filteredRecentPredictions = selectedSport === "all"
+    ? recentPredictions
+    : recentPredictions.filter((prediction) => prediction.sport === selectedSport);
   const calibrationChartData = (accuracy?.calibration ?? []).map((bucket) => ({
     bucket: bucket.bucket,
     predicted: roundPct(bucket.avg_predicted),
     observed: roundPct(bucket.observed_rate),
+  }));
+  const accuracyTrendData = accuracyTrend.map((point) => ({
+    date: point.date.slice(5),
+    hitRate: roundPct(point.hit_rate),
+    brierScore: point.brier_score,
+    settledEvents: point.settled_events,
   }));
   const accuracyBySportData = (accuracy?.by_sport ?? []).map((sport) => ({
     name: formatFeatureName(sport.sport),
@@ -209,6 +244,19 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      <div className="filter-bar">
+        {sportOptions.map((sport) => (
+          <button
+            key={sport}
+            className={`filter-chip ${selectedSport === sport ? "active" : ""}`}
+            onClick={() => setSelectedSport(sport)}
+            type="button"
+          >
+            {formatFeatureName(sport)}
+          </button>
+        ))}
+      </div>
+
       <div className="stats-grid">
         <div className="stat-card green">
           <div className="stat-label"><Activity size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Loaded Models</div>
@@ -228,7 +276,7 @@ export default function AnalyticsPage() {
         <div className="stat-card green">
           <div className="stat-label">Prediction Log</div>
           <div className="stat-value">{loggedPredictions.toLocaleString("en-AU")}</div>
-          <div className="stat-sub">{predictionSummary.length} sports tracked</div>
+          <div className="stat-sub">{filteredPredictionSummary.length} sports tracked</div>
         </div>
         <div className="stat-card blue">
           <div className="stat-label">Settled Events</div>
@@ -280,6 +328,21 @@ export default function AnalyticsPage() {
         </div>
       )}
 
+      {accuracyTrendData.length > 0 && (
+        <div className="chart-container">
+          <h4>Top Pick Hit Rate Trend</h4>
+          <ResponsiveContainer width="100%" height={260}>
+            <LineChart data={accuracyTrendData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
+              <Line type="monotone" dataKey="hitRate" name="Hit rate %" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
       {calibrationChartData.length > 0 && (
         <div className="chart-container">
           <h4>Calibration Buckets</h4>
@@ -297,7 +360,7 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {recentPredictions.length > 0 && (
+      {filteredRecentPredictions.length > 0 && (
         <div className="chart-container">
           <h4>Recent Prediction Log</h4>
           <div className="table-wrap">
@@ -313,7 +376,7 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody>
-                {recentPredictions.map((prediction) => (
+                {filteredRecentPredictions.map((prediction) => (
                   <tr key={prediction.id}>
                     <td>{formatFeatureName(prediction.sport)}</td>
                     <td>{prediction.event_name}</td>
@@ -329,11 +392,11 @@ export default function AnalyticsPage() {
         </div>
       )}
 
-      {predictionSummary.length > 0 && (
+      {filteredPredictionSummary.length > 0 && (
         <div className="chart-container">
           <h4>Logged Predictions By Sport</h4>
           <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={predictionSummary.map((sport) => ({
+            <BarChart data={filteredPredictionSummary.map((sport) => ({
               name: formatFeatureName(sport.sport),
               predictions: sport.prediction_count,
             }))}>

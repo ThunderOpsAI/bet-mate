@@ -135,6 +135,10 @@ def get_prediction_summary():
 def get_prediction_accuracy(sport: Optional[str] = None):
     return {"accuracy": storage.get_prediction_accuracy(sport)}
 
+@app.get("/api/predictions/accuracy/trend")
+def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30):
+    return {"trend": storage.get_prediction_accuracy_trend(sport, days)}
+
 @app.get("/api/predictions/results/recent")
 def get_recent_prediction_results(limit: int = 50):
     return {"results": storage.get_recent_results(limit)}

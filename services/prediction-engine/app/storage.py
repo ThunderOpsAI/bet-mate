@@ -366,6 +366,87 @@ def get_prediction_accuracy(sport: Optional[str] = None) -> Dict[str, Any]:
     return summary
 
 
+def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+    sport = sport.strip().lower() if sport else None
+    days = max(1, min(int(days), 365))
+    with _connect() as conn:
+        if sport:
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    sport,
+                    event_id,
+                    probability,
+                    actual_outcome,
+                    settled_at
+                FROM prediction_log
+                WHERE sport = ? AND actual_outcome IS NOT NULL AND settled_at IS NOT NULL
+                ORDER BY settled_at ASC, id ASC
+                """,
+                (sport,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT
+                    id,
+                    sport,
+                    event_id,
+                    probability,
+                    actual_outcome,
+                    settled_at
+                FROM prediction_log
+                WHERE actual_outcome IS NOT NULL AND settled_at IS NOT NULL
+                ORDER BY settled_at ASC, id ASC
+                """
+            ).fetchall()
+
+    buckets = {}
+    for row in rows:
+        settled_at = row["settled_at"] or ""
+        day = settled_at[:10]
+        if len(day) != 10:
+            continue
+
+        probability = _probability_fraction(row["probability"])
+        outcome = max(0.0, min(float(row["actual_outcome"]), 1.0))
+        bucket = buckets.setdefault(day, {
+            "date": day,
+            "settled_predictions": 0,
+            "brier_sum": 0.0,
+            "log_loss_sum": 0.0,
+            "events": {},
+        })
+        bucket["settled_predictions"] += 1
+        bucket["brier_sum"] += (probability - outcome) ** 2
+        bucket["log_loss_sum"] += _log_loss(probability, outcome)
+        bucket["events"].setdefault((row["sport"], row["event_id"]), []).append(row)
+
+    trend = []
+    for day, bucket in sorted(buckets.items()):
+        top_picks = [
+            max(event_rows, key=lambda row: (_probability_fraction(row["probability"]), row["id"]))
+            for event_rows in bucket["events"].values()
+        ]
+        top_pick_wins = sum(1 for row in top_picks if float(row["actual_outcome"]) >= 1.0)
+        settled_events = len(top_picks)
+        settled_predictions = bucket["settled_predictions"]
+
+        trend.append({
+            "date": day,
+            "sport": sport or "all",
+            "settled_predictions": settled_predictions,
+            "settled_events": settled_events,
+            "top_pick_wins": top_pick_wins,
+            "hit_rate": round(top_pick_wins / settled_events, 4) if settled_events else 0.0,
+            "brier_score": round(bucket["brier_sum"] / settled_predictions, 4) if settled_predictions else 0.0,
+            "log_loss": round(bucket["log_loss_sum"] / settled_predictions, 4) if settled_predictions else 0.0,
+        })
+
+    return trend[-days:]
+
+
 def _connect():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)

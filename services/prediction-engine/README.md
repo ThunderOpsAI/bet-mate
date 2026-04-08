@@ -36,6 +36,7 @@ Read accuracy metrics:
 ```bash
 curl http://localhost:8000/api/predictions/accuracy
 curl http://localhost:8000/api/predictions/accuracy?sport=afl
+curl "http://localhost:8000/api/predictions/accuracy/trend?sport=afl&days=30"
 ```
 
 Ingest completed AFL and NBA results from the configured data sources and settle any matching logged predictions:
