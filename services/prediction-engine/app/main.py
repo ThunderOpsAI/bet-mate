@@ -63,7 +63,7 @@ def startup_event():
         print("Initializing Racing ML Model...")
         racing_predictor.train()
         print("Initializing AFL ML Model...")
-        afl_predictor.train()
+        afl_predictor.load_or_train()
         print("Initializing NBA ML Model...")
         nba_predictor.train()
         print("All ML Models Initialized successfully.")

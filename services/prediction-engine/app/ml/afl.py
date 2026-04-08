@@ -7,6 +7,8 @@ import pickle
 import os
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "afl_model.pkl")
+HISTORICAL_TRAINING_SOURCE = 'squiggle_historical'
+SYNTHETIC_TRAINING_SOURCE = 'synthetic'
 
 FEATURE_COLUMNS = [
     'home_win_streak',
@@ -41,6 +43,8 @@ class AFLPredictor:
         self.model = None
         self.scaler = StandardScaler()
         self.feature_columns = FEATURE_COLUMNS
+        self.training_source = None
+        self.training_rows = 0
         
     def generate_mock_data(self, num_samples=5000):
         """Generate pseudo-random historical data for AFL games."""
@@ -81,8 +85,11 @@ class AFLPredictor:
         
         return data[FEATURE_COLUMNS + ['home_win']]
 
-    def train(self):
-        df = self.generate_mock_data()
+    def train(self, training_rows=None):
+        df, training_source = self._get_training_frame(training_rows)
+        if df is None:
+            return
+
         X = df[FEATURE_COLUMNS]
         y = df['home_win']
         
@@ -97,28 +104,31 @@ class AFLPredictor:
             n_estimators=250
         )
         self.model.fit(X_train, y_train)
+        self.training_source = training_source
+        self.training_rows = len(df)
         
         with open(MODEL_PATH, 'wb') as f:
             pickle.dump({
                 'model': self.model,
                 'scaler': self.scaler,
                 'feature_columns': FEATURE_COLUMNS,
+                'training_source': training_source,
+                'training_rows': len(df),
             }, f)
             
-        print("Trained AFL XGBoost Engine successfully.")
+        print(f"Trained AFL XGBoost Engine successfully using {training_source} ({len(df)} rows).")
+
+    def load_or_train(self):
+        if self._load_existing_artifacts() and self.training_source == HISTORICAL_TRAINING_SOURCE:
+            print(f"Loaded AFL XGBoost Engine trained on {self.training_rows} historical rows.")
+            return
+
+        self.train()
         
     def predict(self, game_features):
         """game_features is a dict of features for a single game"""
         if self.model is None:
-            if os.path.exists(MODEL_PATH):
-                with open(MODEL_PATH, 'rb') as f:
-                    artifacts = pickle.load(f)
-                    if artifacts.get('feature_columns') != FEATURE_COLUMNS:
-                        self.train()
-                    else:
-                        self.model = artifacts['model']
-                        self.scaler = artifacts['scaler']
-            else:
+            if not self._load_existing_artifacts():
                 self.train()
                 
         df = self._prepare_features(game_features)
@@ -144,3 +154,64 @@ class AFLPredictor:
 
         df['squiggle_home_signal'] = df['squiggle_home_signal'].clip(lower=0.0, upper=1.0)
         return df[FEATURE_COLUMNS]
+
+    def _get_training_frame(self, training_rows):
+        if training_rows is None:
+            training_rows = self._fetch_historical_training_rows()
+
+        if training_rows:
+            df = pd.DataFrame(training_rows)
+            missing_columns = [column for column in FEATURE_COLUMNS + ['home_win'] if column not in df.columns]
+            if not missing_columns:
+                df = self._coerce_training_frame(df)
+                if len(df) >= 80 and df['home_win'].nunique() == 2:
+                    return df, HISTORICAL_TRAINING_SOURCE
+
+                print("[Squiggle] Historical AFL data did not have enough class balance for training")
+            else:
+                print(f"[Squiggle] Historical AFL data missing columns: {missing_columns}")
+
+        existing = self._load_existing_artifacts()
+        if existing:
+            print("Loaded existing AFL XGBoost Engine because historical training data was unavailable.")
+            return None, None
+
+        print("Falling back to synthetic AFL training data.")
+        return self.generate_mock_data(), SYNTHETIC_TRAINING_SOURCE
+
+    def _coerce_training_frame(self, df):
+        for column, default in FEATURE_DEFAULTS.items():
+            df[column] = pd.to_numeric(df[column], errors='coerce').fillna(default)
+
+        df['squiggle_home_signal'] = df['squiggle_home_signal'].clip(lower=0.0, upper=1.0)
+        df['home_win'] = pd.to_numeric(df['home_win'], errors='coerce').fillna(0).astype(int)
+        return df[FEATURE_COLUMNS + ['home_win']]
+
+    def _fetch_historical_training_rows(self):
+        try:
+            from app.data.afl_scraper import fetch_historical_afl_training_data
+
+            return fetch_historical_afl_training_data()
+        except Exception as e:
+            print(f"[Squiggle] Historical AFL training fetch failed: {e}")
+            return []
+
+    def _load_existing_artifacts(self):
+        if not os.path.exists(MODEL_PATH):
+            return False
+
+        try:
+            with open(MODEL_PATH, 'rb') as f:
+                artifacts = pickle.load(f)
+
+            if artifacts.get('feature_columns') != FEATURE_COLUMNS:
+                return False
+
+            self.model = artifacts['model']
+            self.scaler = artifacts['scaler']
+            self.training_source = artifacts.get('training_source')
+            self.training_rows = artifacts.get('training_rows', 0)
+            return True
+        except Exception as e:
+            print(f"AFL model load failed: {e}")
+            return False
