@@ -1,20 +1,18 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, DollarSign, Home, List, LogOut, Settings, Trophy } from "lucide-react";
-import { useAuth } from "../providers/AuthProvider";
+import { BarChart3, Home, Trophy, Zap, CircleDot } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/bets", label: "My Bets", icon: List },
-  { href: "/bankroll", label: "Bankroll", icon: DollarSign },
+  { href: "/racing", label: "Racing", icon: Trophy },
+  { href: "/afl", label: "AFL", icon: CircleDot },
+  { href: "/nba", label: "NBA", icon: Zap },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
 
   return (
     <>
@@ -37,14 +35,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           </ul>
         </nav>
         <div className="sidebar-footer">
-          {user && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span>{user.username}</span>
-              <button onClick={logout} className="btn btn-sm btn-secondary" style={{ gap: "0.3rem" }}>
-                <LogOut size={14} /> Logout
-              </button>
-            </div>
-          )}
+          <div className="engine-status">
+            <span className="live-dot" />
+            <span>ML Engine Active</span>
+          </div>
           <p style={{ marginTop: "0.75rem" }}>18+ | Gamble Responsibly</p>
         </div>
       </aside>
