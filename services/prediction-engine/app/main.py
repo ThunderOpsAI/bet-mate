@@ -114,6 +114,18 @@ class PaperBetSettleInput(BaseModel):
 
 
 
+@app.get("/")
+def root():
+    return {
+        "message": "BetMate Advanced ML Prediction Engine is online.",
+        "version": "2.0.0",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "metadata": "/api/models/metadata"
+        }
+    }
+
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "advanced-ml-engine"}
