@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Activity, BarChart3, Database, Target } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -95,7 +95,7 @@ export default function AnalyticsPage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const loadAnalytics = async (showLoading = true, sportFilter = selectedSport) => {
+  const loadAnalytics = useCallback(async (showLoading = true, sportFilter = selectedSport) => {
     try {
       if (showLoading) {
         setLoading(true);
@@ -142,11 +142,13 @@ export default function AnalyticsPage() {
         setLoading(false);
       }
     }
-  };
+  }, [selectedSport]);
 
   useEffect(() => {
+    const controller = new AbortController();
     loadAnalytics();
-  }, [selectedSport]);
+    return () => controller.abort();
+  }, [loadAnalytics]);
 
   const syncResults = async () => {
     try {

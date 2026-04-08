@@ -7,3 +7,6 @@ pandas
 numpy
 python-dotenv
 requests
+psycopg2-binary
+pytest
+httpx
