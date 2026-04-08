@@ -1,2 +1,9 @@
-fastapi==0.115.0
-uvicorn==0.31.0
+fastapi
+uvicorn
+pydantic
+scikit-learn
+xgboost
+pandas
+numpy
+python-dotenv
+requests

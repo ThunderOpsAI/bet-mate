@@ -1,146 +1,288 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "./providers/AuthProvider";
-import { TrendingUp, DollarSign, Target, Zap, MapPin, Clock, ChevronRight, Plus } from "lucide-react";
+import { Trophy, Zap, CircleDot, ChevronRight, Activity, Brain, TrendingUp, BarChart3 } from "lucide-react";
 import Link from "next/link";
 
-type RacePick = { horseName: string; winProbability: number; confidence: string };
-type Race = { id: string; raceNumber: number; postTime: string; distance: number; topPicks: RacePick[] };
-type Meeting = { venueName: string; raceDate: string; races: Race[] };
+const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
 
-const fmt = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(n);
+type RaceSummary = {
+  race_id: string;
+  venue: string;
+  race_number: number;
+  distance: number;
+  horses: any[];
+};
+
+type AFLGame = {
+  game_id: string;
+  home_team: string;
+  away_team: string;
+  features: Record<string, number>;
+};
+
+type NBAGame = {
+  game_id: string;
+  home_team: string;
+  away_team: string;
+  features: Record<string, number>;
+};
 
 export default function DashboardPage() {
-  const { user, token } = useAuth();
   const router = useRouter();
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [bankroll, setBankroll] = useState<any>(null);
+  const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [aflGames, setAFLGames] = useState<AFLGame[]>([]);
+  const [nbaGames, setNBAGames] = useState<NBAGame[]>([]);
+  const [racePredictions, setRacePredictions] = useState<Record<string, any>>({});
+  const [aflPredictions, setAFLPredictions] = useState<Record<string, any>>({});
+  const [nbaPredictions, setNBAPredictions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
-
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+  const [engineStatus, setEngineStatus] = useState<"online" | "offline">("offline");
 
   useEffect(() => {
-    if (!token) return;
-    const headers = { Authorization: `Bearer ${token}` };
+    const load = async () => {
+      try {
+        // Check engine health
+        const healthRes = await fetch(`${ML_API}/health`);
+        if (healthRes.ok) setEngineStatus("online");
 
-    Promise.all([
-      fetch(`${API}/races/today`).then((r) => r.json()),
-      fetch(`${API}/user/bankroll`, { headers }).then((r) => r.ok ? r.json() : null),
-    ])
-      .then(([racesData, bankrollData]) => {
-        setMeetings(racesData?.meetings ?? []);
-        setBankroll(bankrollData?.bankroll ?? null);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [token, API]);
+        // Fetch all data in parallel
+        const [racesRes, aflRes, nbaRes] = await Promise.all([
+          fetch(`${ML_API}/api/races/today`).then(r => r.json()),
+          fetch(`${ML_API}/api/afl/games/upcoming`).then(r => r.json()),
+          fetch(`${ML_API}/api/nba/games/today`).then(r => r.json()),
+        ]);
+
+        const fetchedRaces: RaceSummary[] = racesRes?.races ?? [];
+        const fetchedAFL: AFLGame[] = aflRes?.games ?? [];
+        const fetchedNBA: NBAGame[] = nbaRes?.games ?? [];
+
+        setRaces(fetchedRaces);
+        setAFLGames(fetchedAFL);
+        setNBAGames(fetchedNBA);
+
+        // Get predictions for first 3 races
+        const racePredsMap: Record<string, any> = {};
+        for (const race of fetchedRaces.slice(0, 3)) {
+          try {
+            const res = await fetch(`${ML_API}/api/predict/racing`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(race),
+            });
+            if (res.ok) {
+              racePredsMap[race.race_id] = await res.json();
+            }
+          } catch { /* skip */ }
+        }
+        setRacePredictions(racePredsMap);
+
+        // Get AFL predictions
+        const aflPredsMap: Record<string, any> = {};
+        for (const game of fetchedAFL.slice(0, 3)) {
+          try {
+            const res = await fetch(`${ML_API}/api/predict/afl`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(game),
+            });
+            if (res.ok) {
+              aflPredsMap[game.game_id] = await res.json();
+            }
+          } catch { /* skip */ }
+        }
+        setAFLPredictions(aflPredsMap);
+
+        // Get NBA predictions
+        const nbaPredsMap: Record<string, any> = {};
+        for (const game of fetchedNBA.slice(0, 3)) {
+          try {
+            const res = await fetch(`${ML_API}/api/predict/nba`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(game),
+            });
+            if (res.ok) {
+              nbaPredsMap[game.game_id] = await res.json();
+            }
+          } catch { /* skip */ }
+        }
+        setNBAPredictions(nbaPredsMap);
+
+      } catch (e) {
+        console.error("Failed to load ML data:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   if (loading) {
     return (
-      <div>
-        <div className="stats-grid">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="stat-card"><div className="skeleton" style={{ height: 60 }} /></div>
-          ))}
-        </div>
-        <div className="races-grid">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="card"><div className="skeleton" style={{ height: 120 }} /></div>
-          ))}
+      <div className="dashboard-loading">
+        <div className="loading-pulse">
+          <Brain size={48} />
+          <p>Training ML Models & Loading Predictions...</p>
         </div>
       </div>
     );
   }
 
-  const bk = bankroll;
-
   return (
     <div>
-      {/* Stats */}
+      {/* Engine Status Banner */}
+      <div className={`engine-banner ${engineStatus}`}>
+        <Activity size={16} />
+        <span>ML Prediction Engine: <strong>{engineStatus === "online" ? "Online" : "Offline"}</strong></span>
+        {engineStatus === "online" && <span className="engine-models">3 XGBoost Models Active</span>}
+      </div>
+
+      {/* Stats Overview */}
       <div className="stats-grid">
         <div className="stat-card accent">
-          <div className="stat-label"><DollarSign size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Balance</div>
-          <div className="stat-value">{fmt(bk?.current ?? user?.currentBankroll ?? 0)}</div>
-          <div className="stat-sub">{bk ? `Started at ${fmt(bk.starting)}` : ""}</div>
+          <div className="stat-label"><Trophy size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Races Today</div>
+          <div className="stat-value">{races.length}</div>
+          <div className="stat-sub">{new Set(races.map(r => r.venue)).size} venues</div>
         </div>
         <div className="stat-card green">
-          <div className="stat-label"><TrendingUp size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Net Profit</div>
-          <div className="stat-value" style={{ color: (bk?.netProfit ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
-            {bk ? fmt(bk.netProfit) : "$0.00"}
-          </div>
-          <div className="stat-sub">{bk ? `ROI: ${bk.roi}%` : ""}</div>
+          <div className="stat-label"><CircleDot size={14} style={{ display: "inline", verticalAlign: "middle" }} /> AFL Games</div>
+          <div className="stat-value">{aflGames.length}</div>
+          <div className="stat-sub">This round</div>
         </div>
         <div className="stat-card blue">
-          <div className="stat-label"><Target size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Win Rate</div>
-          <div className="stat-value">{bk?.winRate ?? 0}%</div>
-          <div className="stat-sub">{bk ? `${bk.wonBets}W / ${bk.totalBets - bk.wonBets}L` : "No bets yet"}</div>
+          <div className="stat-label"><Zap size={14} style={{ display: "inline", verticalAlign: "middle" }} /> NBA Games</div>
+          <div className="stat-value">{nbaGames.length}</div>
+          <div className="stat-sub">Tonight</div>
         </div>
         <div className="stat-card yellow">
-          <div className="stat-label"><Zap size={14} style={{ display: "inline", verticalAlign: "middle" }} /> Total Bets</div>
-          <div className="stat-value">{bk?.totalBets ?? 0}</div>
-          <div className="stat-sub">{bk ? `Staked: ${fmt(bk.totalStaked)}` : ""}</div>
+          <div className="stat-label"><Brain size={14} style={{ display: "inline", verticalAlign: "middle" }} /> ML Models</div>
+          <div className="stat-value">3</div>
+          <div className="stat-sub">XGBoost Ensemble</div>
         </div>
       </div>
 
-      {/* Quick actions */}
-      <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.5rem", flexWrap: "wrap" }}>
-        <Link href="/bets/new" className="btn btn-primary"><Plus size={16} /> Log a Bet</Link>
-      </div>
-
-      {/* Today's Races */}
+      {/* Racing Section */}
       <div className="section-header">
-        <h3>🏇 Today&apos;s Races</h3>
+        <h3>🏇 Top Racing Predictions</h3>
+        <Link href="/racing" className="btn btn-sm btn-secondary">View All <ChevronRight size={14} /></Link>
       </div>
-
-      {meetings.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon"><MapPin size={48} /></div>
-          <h4>No races scheduled today</h4>
-          <p>Check back when meeting data is available.</p>
-        </div>
-      ) : (
-        meetings.map((meeting) => (
-          <div key={`${meeting.venueName}-${meeting.raceDate}`} className="venue-group">
-            <h3><MapPin size={18} /> {meeting.venueName} <span className="badge badge-accent">{meeting.raceDate}</span></h3>
-            <div className="races-grid">
-              {meeting.races.map((race) => (
-                <div key={race.id} className="race-card" onClick={() => router.push(`/races/${race.id}`)}>
-                  <div className="race-header">
-                    <span className="race-number">Race {race.raceNumber}</span>
-                    <div className="race-meta">
-                      <span><Clock size={13} style={{ verticalAlign: "middle" }} /> {new Date(race.postTime).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" })}</span>
-                      <span>{race.distance}m</span>
+      <div className="predictions-grid">
+        {races.slice(0, 3).map(race => {
+          const pred = racePredictions[race.race_id];
+          const top3 = pred?.predictions?.slice(0, 3) ?? [];
+          return (
+            <div key={race.race_id} className="prediction-card" onClick={() => router.push("/racing")}>
+              <div className="prediction-card-header">
+                <div>
+                  <span className="prediction-venue">{race.venue}</span>
+                  <span className="prediction-race">Race {race.race_number}</span>
+                </div>
+                <span className="badge badge-accent">{race.distance}m</span>
+              </div>
+              <div className="prediction-picks">
+                {top3.map((p: any, i: number) => (
+                  <div key={p.horse_id} className="prediction-pick-row">
+                    <div className="prediction-pick-left">
+                      <span className={`pick-rank rank-${i + 1}`}>{i + 1}</span>
+                      <span className="prediction-horse-name">{p.name}</span>
+                    </div>
+                    <div className="prediction-pick-right">
+                      <span className="prediction-prob">{p.win_probability}%</span>
+                      <span className="prediction-odds">${p.fair_odds}</span>
                     </div>
                   </div>
-                  <ul className="picks-list">
-                    {race.topPicks.map((pick, i) => (
-                      <li key={pick.horseName} className="pick-row">
-                        <span className="pick-name">
-                          <span className={`pick-rank rank-${i + 1}`}>{i + 1}</span>
-                          {pick.horseName}
-                        </span>
-                        <span className="pick-prob" style={{ color: i === 0 ? "var(--green)" : "var(--text-secondary)" }}>
-                          {(pick.winProbability * 100).toFixed(0)}%
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div style={{ marginTop: "0.75rem", display: "flex", justifyContent: "flex-end" }}>
-                    <span style={{ fontSize: "0.8rem", color: "var(--accent)", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                      View Details <ChevronRight size={14} />
-                    </span>
-                  </div>
+                ))}
+              </div>
+              {pred?.ai_insights_context && (
+                <div className="ai-insight-badge">
+                  <Brain size={12} /> {pred.ai_insights_context}
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        ))
-      )}
+          );
+        })}
+      </div>
+
+      {/* AFL Section */}
+      <div className="section-header" style={{ marginTop: "2rem" }}>
+        <h3>🏈 AFL Predictions</h3>
+        <Link href="/afl" className="btn btn-sm btn-secondary">View All <ChevronRight size={14} /></Link>
+      </div>
+      <div className="predictions-grid">
+        {aflGames.slice(0, 3).map(game => {
+          const pred = aflPredictions[game.game_id];
+          const homePct = pred?.predictions?.home_win_probability ?? 50;
+          const awayPct = pred?.predictions?.away_win_probability ?? 50;
+          const homeWins = homePct > awayPct;
+          return (
+            <div key={game.game_id} className="prediction-card game-card-variant" onClick={() => router.push("/afl")}>
+              <div className="game-matchup">
+                <div className={`game-team ${homeWins ? "favoured" : ""}`}>
+                  <span className="team-name">{game.home_team}</span>
+                  <span className="team-prob">{homePct}%</span>
+                </div>
+                <div className="game-vs">VS</div>
+                <div className={`game-team ${!homeWins ? "favoured" : ""}`}>
+                  <span className="team-name">{game.away_team}</span>
+                  <span className="team-prob">{awayPct}%</span>
+                </div>
+              </div>
+              <div className="game-prob-bar">
+                <div className="prob-fill home" style={{ width: `${homePct}%` }} />
+                <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
+              </div>
+              {pred?.ai_insights_context && (
+                <div className="ai-insight-badge">
+                  <Brain size={12} /> {pred.ai_insights_context}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* NBA Section */}
+      <div className="section-header" style={{ marginTop: "2rem" }}>
+        <h3>🏀 NBA Predictions</h3>
+        <Link href="/nba" className="btn btn-sm btn-secondary">View All <ChevronRight size={14} /></Link>
+      </div>
+      <div className="predictions-grid">
+        {nbaGames.slice(0, 3).map(game => {
+          const pred = nbaPredictions[game.game_id];
+          const homePct = pred?.predictions?.home_win_probability ?? 50;
+          const awayPct = pred?.predictions?.away_win_probability ?? 50;
+          const homeWins = homePct > awayPct;
+          return (
+            <div key={game.game_id} className="prediction-card game-card-variant" onClick={() => router.push("/nba")}>
+              <div className="game-matchup">
+                <div className={`game-team ${homeWins ? "favoured" : ""}`}>
+                  <span className="team-name">{game.home_team}</span>
+                  <span className="team-prob">{homePct}%</span>
+                </div>
+                <div className="game-vs">VS</div>
+                <div className={`game-team ${!homeWins ? "favoured" : ""}`}>
+                  <span className="team-name">{game.away_team}</span>
+                  <span className="team-prob">{awayPct}%</span>
+                </div>
+              </div>
+              <div className="game-prob-bar">
+                <div className="prob-fill home" style={{ width: `${homePct}%` }} />
+                <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
+              </div>
+              {pred?.ai_insights_context && (
+                <div className="ai-insight-badge">
+                  <Brain size={12} /> {pred.ai_insights_context}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Disclaimer */}
       <div className="disclaimer">
-        ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Predictions are not guarantees. Past performance does not indicate future results. Please gamble responsibly. If you need help, visit <a href="https://www.gamblinghelponline.org.au/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--yellow)", textDecoration: "underline" }}>Gambling Help Online</a>.
+        ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Predictions are generated by machine learning models and are not guarantees. Past performance does not indicate future results. Please gamble responsibly. If you need help, visit <a href="https://www.gamblinghelponline.org.au/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--yellow)", textDecoration: "underline" }}>Gambling Help Online</a>.
       </div>
     </div>
   );

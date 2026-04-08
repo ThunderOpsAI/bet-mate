@@ -803,3 +803,778 @@ tr:hover td {
   fill: var(--text-muted) !important;
   font-size: 0.75rem !important;
 }
+
+/* =============================================
+   ML PREDICTION ENGINE STYLES
+   ============================================= */
+
+/* ---- Live Badge ---- */
+.header-live-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: var(--green);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.5); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+}
+
+.engine-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--green);
+  font-weight: 500;
+}
+
+/* ---- Engine Banner ---- */
+.engine-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-sm);
+  margin-bottom: 1.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.engine-banner.online {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  color: var(--green);
+}
+
+.engine-banner.offline {
+  background: var(--red-bg);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  color: var(--red);
+}
+
+.engine-models {
+  margin-left: auto;
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+/* ---- Loading State ---- */
+.dashboard-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+}
+
+.loading-pulse {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  color: var(--accent);
+  animation: breathe 2s ease-in-out infinite;
+}
+
+.loading-pulse p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; transform: scale(0.97); }
+  50% { opacity: 1; transform: scale(1.03); }
+}
+
+/* ---- Predictions Grid (Dashboard) ---- */
+.predictions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* ---- Prediction Card (Racing on Dashboard) ---- */
+.prediction-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.prediction-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), #a78bfa);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.prediction-card:hover {
+  border-color: rgba(99, 102, 241, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(99, 102, 241, 0.08);
+}
+
+.prediction-card:hover::before {
+  opacity: 1;
+}
+
+.prediction-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.prediction-venue {
+  font-weight: 700;
+  font-size: 1rem;
+  display: block;
+}
+
+.prediction-race {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.prediction-picks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.prediction-pick-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+}
+
+.prediction-pick-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.prediction-pick-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.prediction-horse-name {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.prediction-prob {
+  font-weight: 700;
+  font-size: 0.9rem;
+  color: var(--green);
+}
+
+.prediction-odds {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ---- AI Insight Badge ---- */
+.ai-insight-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  color: var(--accent-hover);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.ai-insight-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(167, 139, 250, 0.06));
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  color: var(--accent-hover);
+  font-size: 0.85rem;
+  margin-top: 1rem;
+}
+
+/* ---- Game Card (AFL / NBA on Dashboard) ---- */
+.game-card-variant {
+  padding: 1rem 1.25rem;
+}
+
+.game-matchup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.game-team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.game-team .team-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.game-team .team-prob {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-top: 0.25rem;
+}
+
+.game-team.favoured .team-prob {
+  color: var(--green);
+}
+
+.game-vs {
+  font-weight: 800;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  padding: 0 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+/* ---- Probability Bar ---- */
+.game-prob-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+  background: var(--bg-glass);
+}
+
+.game-prob-bar.large {
+  height: 8px;
+  border-radius: 4px;
+  margin-bottom: 0.75rem;
+}
+
+.prob-fill {
+  transition: width 0.8s ease;
+}
+
+.prob-fill.home {
+  background: linear-gradient(90deg, var(--green), #34d399);
+}
+
+.prob-fill.away {
+  background: linear-gradient(90deg, var(--red), #f87171);
+}
+
+.prob-fill.home.nba {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.prob-fill.away.nba {
+  background: linear-gradient(90deg, #f97316, #fb923c);
+}
+
+/* ---- Filter Bar ---- */
+.filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.filter-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.filter-chip.active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+  color: var(--accent-hover);
+}
+
+/* ---- Race Detail Card (Racing page) ---- */
+.race-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.race-detail-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: all var(--transition);
+}
+
+.race-detail-card:hover {
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.race-detail-card.expanded {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 8px 32px rgba(99, 102, 241, 0.06);
+}
+
+.race-detail-header {
+  padding: 1rem 1.25rem;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.race-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.race-venue-badge {
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+.race-number-lg {
+  font-weight: 800;
+  font-size: 1.1rem;
+  color: var(--accent);
+}
+
+.race-detail-preview {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.preview-pick {
+  font-weight: 500;
+}
+
+.rank-1-text { color: var(--accent-hover); }
+.rank-2-text { color: var(--blue); }
+.rank-3-text { color: var(--yellow); }
+
+.race-detail-body {
+  padding: 0 1.25rem 1.25rem;
+  border-top: 1px solid var(--border);
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Field Table ---- */
+.field-table-wrap {
+  overflow-x: auto;
+  margin: 1rem 0;
+}
+
+.field-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.field-table th {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+}
+
+.field-table td {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.field-table tr:hover td {
+  background: var(--bg-glass);
+}
+
+.top-pick-row.rank-1-row td { background: rgba(99, 102, 241, 0.04); }
+.top-pick-row.rank-2-row td { background: rgba(59, 130, 246, 0.03); }
+.top-pick-row.rank-3-row td { background: rgba(245, 158, 11, 0.03); }
+
+.horse-name-cell {
+  font-weight: 600;
+}
+
+.prob-badge {
+  display: inline-flex;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+}
+
+.prob-badge.prob-top {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--green);
+}
+
+.fair-odds {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* ---- Feature Impact ---- */
+.feature-impact-section {
+  margin-top: 1.25rem;
+  padding: 1rem;
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+}
+
+.feature-impact-section h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  margin-bottom: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.feature-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.feature-bar-row {
+  display: grid;
+  grid-template-columns: 140px 1fr 50px;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.feature-label {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.feature-bar-track {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.feature-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--accent), #a78bfa);
+  transition: width 0.6s ease;
+}
+
+.feature-bar-fill.afl {
+  background: linear-gradient(90deg, var(--green), #34d399);
+}
+
+.feature-bar-fill.nba {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.feature-value {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-align: right;
+  font-weight: 500;
+}
+
+/* ---- Game Prediction Card (Full Page) ---- */
+.game-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.game-prediction-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.game-prediction-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--green), #34d399);
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.game-prediction-card.nba-variant::before {
+  background: linear-gradient(90deg, #3b82f6, #f97316);
+}
+
+.game-prediction-card:hover {
+  border-color: rgba(16, 185, 129, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(16, 185, 129, 0.06);
+}
+
+.game-prediction-card.nba-variant:hover {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 12px 40px rgba(59, 130, 246, 0.06);
+}
+
+.game-prediction-card:hover::before {
+  opacity: 1;
+}
+
+.game-prediction-card.expanded {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.game-prediction-card.nba-variant.expanded {
+  border-color: rgba(59, 130, 246, 0.35);
+}
+
+.game-matchup-header {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: 1rem;
+}
+
+.team-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem;
+}
+
+.team-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.team-name-lg {
+  font-weight: 700;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.team-prob-lg {
+  font-size: 1.75rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+}
+
+.team-block.favoured .team-prob-lg {
+  color: var(--green);
+}
+
+.nba-variant .team-block.favoured .team-prob-lg {
+  color: #3b82f6;
+}
+
+.team-odds {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.vs-divider {
+  display: flex;
+  align-items: center;
+  padding: 0 0.75rem;
+}
+
+.vs-divider span {
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+}
+
+/* ---- Game Context Row ---- */
+.game-context-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.context-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: var(--bg-glass);
+  color: var(--text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+/* ---- Game Expanded Section ---- */
+.game-expanded-section {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 0.75rem;
+  animation: slideDown 0.3s ease;
+}
+
+/* ---- Stats Compare (NBA) ---- */
+.stats-compare {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 1rem;
+  background: var(--bg-glass);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.compare-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.compare-row:last-child {
+  border-bottom: none;
+}
+
+.compare-label {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.compare-home {
+  text-align: right;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.compare-away {
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* ---- Mobile Responsive (new components) ---- */
+@media (max-width: 768px) {
+  .predictions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .game-matchup-header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .vs-divider {
+    justify-content: center;
+    padding: 0.25rem 0;
+  }
+
+  .race-detail-preview {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .feature-bar-row {
+    grid-template-columns: 100px 1fr 45px;
+  }
+
+  .team-name-lg {
+    font-size: 0.95rem;
+  }
+
+  .team-prob-lg {
+    font-size: 1.4rem;
+  }
+
+  .game-context-row {
+    justify-content: center;
+  }
+}
