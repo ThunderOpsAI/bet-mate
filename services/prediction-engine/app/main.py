@@ -257,6 +257,10 @@ def get_paper_bets(status: Optional[str] = None, sport: Optional[str] = None, li
 def get_paper_bet_summary(sport: Optional[str] = None):
     return {"summary": storage.get_paper_bet_summary(sport)}
 
+@app.get("/api/paper-bets/trend")
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30):
+    return {"trend": storage.get_paper_bet_trend(sport, days)}
+
 @app.post("/api/paper-bets")
 def create_paper_bet(bet: PaperBetInput):
     try:

@@ -450,6 +450,75 @@ def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+    sport = sport.strip().lower() if sport else None
+    days = max(1, min(int(days), 365))
+    conditions = ["status != 'PENDING'", "settled_at IS NOT NULL"]
+    params = []
+
+    if sport and sport != "all":
+        conditions.append("sport = ?")
+        params.append(sport)
+
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM paper_bet_log
+            WHERE {' AND '.join(conditions)}
+            ORDER BY settled_at ASC, id ASC
+            """,
+            tuple(params),
+        ).fetchall()
+
+    buckets = {}
+    for bet in [_row_to_paper_bet(row) for row in rows]:
+        settled_at = bet["settled_at"] or ""
+        day = settled_at[:10]
+        if len(day) != 10:
+            continue
+
+        bucket = buckets.setdefault(day, {
+            "date": day,
+            "settled_bets": 0,
+            "decision_bets": 0,
+            "settled_staked": 0.0,
+            "total_returned": 0.0,
+            "net_profit": 0.0,
+        })
+        bucket["settled_bets"] += 1
+        bucket["net_profit"] += bet["profit"] or 0.0
+
+        if bet["status"] in {"WON", "LOST"}:
+            bucket["decision_bets"] += 1
+            bucket["settled_staked"] += bet["stake"]
+            bucket["total_returned"] += bet["payout"] or 0.0
+
+    trend = []
+    cumulative_staked = 0.0
+    cumulative_profit = 0.0
+    for day, bucket in sorted(buckets.items()):
+        settled_staked = bucket["settled_staked"]
+        net_profit = bucket["net_profit"]
+        cumulative_staked += settled_staked
+        cumulative_profit += net_profit
+        trend.append({
+            "date": day,
+            "sport": sport or "all",
+            "settled_bets": bucket["settled_bets"],
+            "decision_bets": bucket["decision_bets"],
+            "settled_staked": round(settled_staked, 2),
+            "total_returned": round(bucket["total_returned"], 2),
+            "net_profit": round(net_profit, 2),
+            "roi": round(net_profit / settled_staked, 4) if settled_staked > 0 else 0.0,
+            "cumulative_staked": round(cumulative_staked, 2),
+            "cumulative_profit": round(cumulative_profit, 2),
+            "cumulative_roi": round(cumulative_profit / cumulative_staked, 4) if cumulative_staked > 0 else 0.0,
+        })
+
+    return trend[-days:]
+
+
 def settle_paper_bet(
     bet_id: int,
     status: str,

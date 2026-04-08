@@ -74,4 +74,5 @@ When `/api/predictions/results` or `/api/predictions/results/ingest` settles the
 ```bash
 curl http://localhost:8000/api/paper-bets
 curl http://localhost:8000/api/paper-bets/summary
+curl "http://localhost:8000/api/paper-bets/trend?sport=afl&days=30"
 ```
