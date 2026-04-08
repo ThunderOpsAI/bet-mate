@@ -6,7 +6,11 @@ from sklearn.preprocessing import StandardScaler
 import pickle
 import os
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "racing_model.pkl")
+from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
+
+MODEL_FILENAME = "racing_model.pkl"
+MODEL_PATH = model_path(MODEL_FILENAME)
+LEGACY_MODEL_PATH = legacy_model_path(MODEL_FILENAME)
 SYNTHETIC_TRAINING_SOURCE = 'synthetic_market_prior'
 
 FEATURE_COLUMNS = [
@@ -93,7 +97,8 @@ class RacingPredictor:
         self.training_source = SYNTHETIC_TRAINING_SOURCE
         self.training_rows = len(df)
         
-        # Save model and scaler
+        # Save model and scaler outside the source tree so startup training does not dirty git.
+        ensure_model_dir()
         with open(MODEL_PATH, 'wb') as f:
             pickle.dump({
                 'model': self.model,
@@ -104,23 +109,20 @@ class RacingPredictor:
             }, f)
             
         print("Trained Racing XGBoost Engine successfully.")
+
+    def load_or_train(self):
+        if self._load_existing_artifacts():
+            print(f"Loaded Racing XGBoost Engine trained on {self.training_rows} rows.")
+            return
+
+        self.train()
         
     def predict(self, horses_data):
         """
         horses_data is a list of dicts with features
         """
         if self.model is None:
-            if os.path.exists(MODEL_PATH):
-                with open(MODEL_PATH, 'rb') as f:
-                    artifacts = pickle.load(f)
-                    if artifacts.get('feature_columns') != FEATURE_COLUMNS:
-                        self.train()
-                    else:
-                        self.model = artifacts['model']
-                        self.scaler = artifacts['scaler']
-                        self.training_source = artifacts.get('training_source')
-                        self.training_rows = artifacts.get('training_rows', 0)
-            else:
+            if not self._load_existing_artifacts():
                 self.train()
                 
         df = self._prepare_features(horses_data)
@@ -156,3 +158,29 @@ class RacingPredictor:
             ].clip(lower=0.01)
 
         return df[FEATURE_COLUMNS]
+
+    def _load_existing_artifacts(self):
+        for artifact_path in [MODEL_PATH, LEGACY_MODEL_PATH]:
+            if not os.path.exists(artifact_path):
+                continue
+
+            try:
+                with open(artifact_path, 'rb') as f:
+                    artifacts = pickle.load(f)
+
+                if artifacts.get('feature_columns') != FEATURE_COLUMNS:
+                    continue
+
+                self.model = artifacts['model']
+                self.scaler = artifacts['scaler']
+                self.training_source = artifacts.get('training_source')
+                self.training_rows = artifacts.get('training_rows', 0)
+                if artifact_path != MODEL_PATH:
+                    ensure_model_dir()
+                    with open(MODEL_PATH, 'wb') as f:
+                        pickle.dump(artifacts, f)
+                return True
+            except Exception as e:
+                print(f"Racing model load failed from {artifact_path}: {e}")
+
+        return False
