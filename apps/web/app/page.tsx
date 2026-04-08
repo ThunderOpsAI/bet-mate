@@ -3,8 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trophy, Zap, CircleDot, ChevronRight, Activity, Brain, TrendingUp, BarChart3 } from "lucide-react";
 import Link from "next/link";
-
-const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
+import { ML_API } from "./lib/mlApi";
 
 type RaceSummary = {
   race_id: string;
@@ -28,6 +27,12 @@ type NBAGame = {
   features: Record<string, number>;
 };
 
+type PredictionEntry = readonly [string, any];
+
+function isPredictionEntry(entry: PredictionEntry | null): entry is PredictionEntry {
+  return entry !== null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [races, setRaces] = useState<RaceSummary[]>([]);
@@ -40,82 +45,113 @@ export default function DashboardPage() {
   const [engineStatus, setEngineStatus] = useState<"online" | "offline">("offline");
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        // Check engine health
-        const healthRes = await fetch(`${ML_API}/health`);
-        if (healthRes.ok) setEngineStatus("online");
+    let cancelled = false;
 
-        // Fetch all data in parallel
-        const [racesRes, aflRes, nbaRes] = await Promise.all([
-          fetch(`${ML_API}/api/races/today`).then(r => r.json()),
-          fetch(`${ML_API}/api/afl/games/upcoming`).then(r => r.json()),
-          fetch(`${ML_API}/api/nba/games/today`).then(r => r.json()),
-        ]);
-
-        const fetchedRaces: RaceSummary[] = racesRes?.races ?? [];
-        const fetchedAFL: AFLGame[] = aflRes?.games ?? [];
-        const fetchedNBA: NBAGame[] = nbaRes?.games ?? [];
-
-        setRaces(fetchedRaces);
-        setAFLGames(fetchedAFL);
-        setNBAGames(fetchedNBA);
-
-        // Get predictions for first 3 races
-        const racePredsMap: Record<string, any> = {};
-        for (const race of fetchedRaces.slice(0, 3)) {
+    const loadRacePredictions = async (fetchedRaces: RaceSummary[]) => {
+      const entries = await Promise.all(
+        fetchedRaces.slice(0, 3).map(async (race) => {
           try {
             const res = await fetch(`${ML_API}/api/predict/racing`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(race),
             });
-            if (res.ok) {
-              racePredsMap[race.race_id] = await res.json();
-            }
-          } catch { /* skip */ }
-        }
-        setRacePredictions(racePredsMap);
+            if (!res.ok) return null;
+            return [race.race_id, await res.json()] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
 
-        // Get AFL predictions
-        const aflPredsMap: Record<string, any> = {};
-        for (const game of fetchedAFL.slice(0, 3)) {
+      if (!cancelled) {
+        setRacePredictions(Object.fromEntries(entries.filter(isPredictionEntry)));
+      }
+    };
+
+    const loadAFLPredictions = async (fetchedAFL: AFLGame[]) => {
+      const entries = await Promise.all(
+        fetchedAFL.slice(0, 3).map(async (game) => {
           try {
             const res = await fetch(`${ML_API}/api/predict/afl`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(game),
             });
-            if (res.ok) {
-              aflPredsMap[game.game_id] = await res.json();
-            }
-          } catch { /* skip */ }
-        }
-        setAFLPredictions(aflPredsMap);
+            if (!res.ok) return null;
+            return [game.game_id, await res.json()] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
 
-        // Get NBA predictions
-        const nbaPredsMap: Record<string, any> = {};
-        for (const game of fetchedNBA.slice(0, 3)) {
+      if (!cancelled) {
+        setAFLPredictions(Object.fromEntries(entries.filter(isPredictionEntry)));
+      }
+    };
+
+    const loadNBAPredictions = async (fetchedNBA: NBAGame[]) => {
+      const entries = await Promise.all(
+        fetchedNBA.slice(0, 3).map(async (game) => {
           try {
             const res = await fetch(`${ML_API}/api/predict/nba`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(game),
             });
-            if (res.ok) {
-              nbaPredsMap[game.game_id] = await res.json();
-            }
-          } catch { /* skip */ }
-        }
-        setNBAPredictions(nbaPredsMap);
+            if (!res.ok) return null;
+            return [game.game_id, await res.json()] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
 
+      if (!cancelled) {
+        setNBAPredictions(Object.fromEntries(entries.filter(isPredictionEntry)));
+      }
+    };
+
+    const load = async () => {
+      try {
+        const [healthRes, racesRes, aflRes, nbaRes] = await Promise.all([
+          fetch(`${ML_API}/health`).catch(() => null),
+          fetch(`${ML_API}/api/races/today`).then(r => r.json()),
+          fetch(`${ML_API}/api/afl/games/upcoming`).then(r => r.json()),
+          fetch(`${ML_API}/api/nba/games/today`).then(r => r.json()),
+        ]);
+
+        if (!cancelled) {
+          setEngineStatus(healthRes?.ok ? "online" : "offline");
+        }
+
+        const fetchedRaces: RaceSummary[] = racesRes?.races ?? [];
+        const fetchedAFL: AFLGame[] = aflRes?.games ?? [];
+        const fetchedNBA: NBAGame[] = nbaRes?.games ?? [];
+
+        if (!cancelled) {
+          setRaces(fetchedRaces);
+          setAFLGames(fetchedAFL);
+          setNBAGames(fetchedNBA);
+          setLoading(false);
+        }
+
+        void loadRacePredictions(fetchedRaces);
+        void loadAFLPredictions(fetchedAFL);
+        void loadNBAPredictions(fetchedNBA);
       } catch (e) {
         console.error("Failed to load ML data:", e);
-      } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
     load();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (loading) {

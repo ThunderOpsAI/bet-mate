@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { Brain, CircleDot, BarChart3 } from "lucide-react";
 import Link from "next/link";
-
-const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
+import { ML_API } from "../lib/mlApi";
 
 type AFLGame = {
   game_id: string;

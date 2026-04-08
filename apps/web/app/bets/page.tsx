@@ -2,8 +2,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon } from "lucide-react";
 import Link from "next/link";
-
-const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
+import { ML_API } from "../lib/mlApi";
 
 type PaperBet = {
   id: number;

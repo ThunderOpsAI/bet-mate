@@ -2,8 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Activity, BarChart3, Database, Target } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-
-const ML_API = process.env.NEXT_PUBLIC_ML_API ?? "http://localhost:8000";
+import { ML_API } from "../lib/mlApi";
 
 type ModelMetadata = {
   name: string;

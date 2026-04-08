@@ -19,7 +19,7 @@ import app.storage as storage
 
 # CORS — configurable for deployment; defaults to localhost dev
 _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
 
 
 @asynccontextmanager
