@@ -2,7 +2,7 @@ import json
 import math
 import os
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from app.database import get_connection, init_database
 from app.time_utils import is_melbourne_premium_day, today_melbourne
@@ -899,7 +899,7 @@ def ensure_default_strategy_profiles() -> None:
                     profile["profile_key"],
                     profile["display_name"],
                     _dumps_json(profile["rule_set"]),
-                    1 if profile["is_editable"] else 0,
+                    bool(profile["is_editable"]),
                     created_at,
                     created_at,
                 ),
@@ -1351,6 +1351,8 @@ def _ensure_schema(conn) -> None:
 
 def _row_to_strategy_profile(row) -> Dict[str, Any]:
     rule_set = _loads_json(row["rule_set_json"])
+    if not isinstance(rule_set, dict):
+        rule_set = {}
     return {
         "id": row["id"],
         "profile_key": row["profile_key"],
@@ -1386,7 +1388,9 @@ def _row_to_system_bet(row) -> Dict[str, Any]:
 
 
 def _hydrate_strategy_card(conn, run_row) -> Dict[str, Any]:
-    run_payload = _loads_json(run_row["run_payload_json"] or "{}")
+    run_payload = _loads_json(run_row["run_payload_json"] or {})
+    if not isinstance(run_payload, dict):
+        run_payload = {}
     profile_row = conn.execute(
         "SELECT * FROM strategy_profiles WHERE profile_key = ?",
         (run_row["profile_key"],),
@@ -1811,11 +1815,17 @@ def _dedupe_prediction_log(conn) -> None:
     )
 
 
-def _loads_json(value: str) -> Dict[str, Any]:
+def _loads_json(value: Optional[Union[str, Dict[str, Any], List[Any]]]) -> Any:
+    if value is None:
+        return {}
+
+    if isinstance(value, (dict, list)):
+        return value
+
     try:
         parsed = json.loads(value)
-        return parsed if isinstance(parsed, dict) else {}
-    except json.JSONDecodeError:
+        return parsed if isinstance(parsed, (dict, list)) else {}
+    except (TypeError, json.JSONDecodeError):
         return {}
 
 

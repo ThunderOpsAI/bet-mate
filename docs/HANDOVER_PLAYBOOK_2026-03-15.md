@@ -84,7 +84,9 @@ Minimum keys to run comfortably:
 
 Optional for later phases:
 - `REDIS_URL`
-- `ANTHROPIC_API_KEY`
+- `GEMINI_API_KEY`
+- `BETMATE_BOB_MODEL=gemini-2.5-flash`
+- `BETMATE_BOB_TIMEOUT_SECONDS=30`
 - sports API keys (`RACING_API_KEY`, `NBA_API_KEY`, `AFL_API_KEY`)
 
 ---
@@ -278,4 +280,3 @@ MVP is done when:
 ## 18) One-Line Mission
 
 Build the most trusted, fast, and clear racing prediction + performance tracker for everyday punters, with zero ambiguity about risks and zero fake confidence in outcomes.
-

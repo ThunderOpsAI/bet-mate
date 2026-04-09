@@ -419,6 +419,42 @@ class TestStrategyStorage:
             "aggressive",
         }
 
+    def test_default_profile_seed_uses_boolean_editable_flag(self, monkeypatch):
+        inserted_rows = []
+
+        class FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchall(self):
+                return self._rows
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                if "SELECT profile_key FROM strategy_profiles" in sql:
+                    return FakeResult([])
+                if "INSERT INTO strategy_profiles" in sql:
+                    inserted_rows.append(params)
+                    return FakeResult([])
+                raise AssertionError(f"Unexpected SQL: {sql}")
+
+            def commit(self):
+                return None
+
+        class FakeContextManager:
+            def __enter__(self):
+                return FakeConn()
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr(storage, "_connect", lambda: FakeContextManager())
+
+        storage.ensure_default_strategy_profiles()
+
+        assert inserted_rows
+        assert all(isinstance(params[3], bool) for params in inserted_rows)
+
     def test_james_profile_round_trips(self):
         updated = storage.update_strategy_profile(
             "james",
@@ -572,3 +608,106 @@ class TestStrategyStorage:
         assert len(rows) == 1
         assert rows[0]["window_start"] == "2026-02-01"
         assert rows[0]["window_end"] == "2026-03-02"
+
+
+class TestPostgresJsonCompatibility:
+    def test_loads_json_accepts_native_jsonb_values(self):
+        assert storage._loads_json({"edge": 0.08}) == {"edge": 0.08}
+        assert storage._loads_json(["afl", "nba"]) == ["afl", "nba"]
+        assert storage._loads_json('{"edge": 0.08}') == {"edge": 0.08}
+        assert storage._loads_json(None) == {}
+
+    def test_row_helpers_accept_native_jsonb_rows(self):
+        profile = storage._row_to_strategy_profile(
+            {
+                "id": 1,
+                "profile_key": "bob",
+                "display_name": "Betmate Bob",
+                "rule_set_json": {"min_edge": 0.05},
+                "is_editable": False,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+            }
+        )
+        prediction = storage._row_to_prediction(
+            {
+                "id": 1,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+                "sport": "afl",
+                "event_id": "game-1",
+                "event_name": "A vs B",
+                "selection": "A",
+                "probability": 0.6,
+                "fair_odds": 1.8,
+                "actual_outcome": None,
+                "result_status": None,
+                "settled_at": None,
+                "payload_json": {"confidence": "high"},
+                "feature_impact_json": {"home_ground": 0.12},
+            }
+        )
+        result = storage._row_to_result(
+            {
+                "id": 1,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+                "completed_at": "2026-04-10T12:00:00+00:00",
+                "sport": "afl",
+                "event_id": "game-1",
+                "event_name": "A vs B",
+                "winner_selection": "A",
+                "result_payload_json": {"winner_selection": "A"},
+            }
+        )
+
+        assert profile["rule_set"]["min_edge"] == 0.05
+        assert prediction["payload"]["confidence"] == "high"
+        assert prediction["feature_impact"]["home_ground"] == 0.12
+        assert result["payload"]["winner_selection"] == "A"
+
+    def test_hydrate_strategy_card_accepts_native_run_payload(self):
+        class FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+            def fetchall(self):
+                return self._rows
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                if "SELECT * FROM strategy_profiles" in sql:
+                    return FakeResult([{"display_name": "Betmate Bob"}])
+                if "FROM system_bets" in sql:
+                    return FakeResult([])
+                raise AssertionError(f"Unexpected SQL: {sql}")
+
+        card = storage._hydrate_strategy_card(
+            FakeConn(),
+            {
+                "id": 1,
+                "profile_key": "bob",
+                "run_date": "2026-04-10",
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": 0.0,
+                "candidate_count": 0,
+                "selected_count": 0,
+                "skipped_count": 0,
+                "run_payload_json": {
+                    "bankroll_available": 250.0,
+                    "skipped_opportunities": [{"selection": "A"}],
+                    "sport_mix": {"afl": 1.0},
+                    "expected_edge": 0.08,
+                },
+                "created_at": "2026-04-10T00:00:00+00:00",
+            },
+        )
+
+        assert card["bankroll_available"] == 250.0
+        assert card["skipped_opportunities"] == [{"selection": "A"}]
+        assert card["sport_mix"] == {"afl": 1.0}
+        assert card["expected_edge"] == 0.08

@@ -4,7 +4,7 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform f
 
 The application provides:
 - Data-driven predictions and probabilities
-- Explainable AI insights via Claude
+- Explainable AI insights via Gemini
 - Exotic bet calculators and strategy tools
 - Bankroll tracking and performance analytics
 
@@ -19,7 +19,7 @@ BetMate does **not** facilitate betting or handle payments. Users place bets thr
 - **Backend:** Node.js (API Gateway), Python FastAPI (Prediction Engine)
 - **Database:** PostgreSQL + Prisma
 - **Caching & Jobs:** Redis + BullMQ
-- **AI:** Anthropic Claude API
+- **AI:** Google Gemini API
 - **Monorepo:** pnpm + Turborepo
 
 ---
