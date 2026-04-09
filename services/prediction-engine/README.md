@@ -2,6 +2,25 @@
 
 FastAPI service for racing, AFL, and NBA model predictions.
 
+## Nightly Strategy Runner
+
+Generate daily strategy cards, ingest completed AFL/NBA results, and run the gated profile auto-tune loop:
+
+```bash
+cd services/prediction-engine
+python -m app.nightly
+```
+
+Useful flags:
+
+```bash
+python -m app.nightly --date 2026-04-10
+python -m app.nightly --profiles bob,james --skip-ingest
+python -m app.nightly --sports afl,nba --max-results 100
+```
+
+The auto-tune step is hard-gated. It will not run for a profile until that profile has at least 30 distinct Melbourne-calendar settlement days in `system_bets`.
+
 ## Prediction Settlement
 
 Prediction requests are logged in SQLite at `BETMATE_DB_PATH`, or under `runtime/betmate.sqlite3` by default. Rows are deduped by `sport + event_id + selection` so repeat page loads refresh the same open prediction instead of inflating metrics. Once a prediction is settled, its probability is frozen for accuracy reporting.

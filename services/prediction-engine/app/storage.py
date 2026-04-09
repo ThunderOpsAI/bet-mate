@@ -1,10 +1,114 @@
 import json
 import math
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from app.database import get_connection, init_database
+from app.time_utils import is_melbourne_premium_day, today_melbourne
+
+
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head"}
+DEFAULT_STANDARD_BANKROLL = 250.0
+DEFAULT_PREMIUM_BANKROLL = 500.0
+DEFAULT_STRATEGY_PROFILES = [
+    {
+        "profile_key": "bob",
+        "display_name": "Betmate Bob",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "min_edge": 0.05,
+            "min_confidence": "medium",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 60.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 2,
+            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "notes": "Balanced. Flagship profile.",
+        },
+    },
+    {
+        "profile_key": "james",
+        "display_name": "James",
+        "is_editable": True,
+        "rule_set": {
+            "profile_key": "james",
+            "display_name": "James",
+            "min_edge": 0.08,
+            "min_confidence": "medium",
+            "max_bets_per_day": 8,
+            "max_stake_per_bet": 80.0,
+            "kelly_fraction": 0.35,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 3,
+            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "notes": "High action. Editable by admin.",
+        },
+    },
+    {
+        "profile_key": "conservative",
+        "display_name": "Conservative",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "conservative",
+            "display_name": "Conservative",
+            "min_edge": 0.10,
+            "min_confidence": "high",
+            "max_bets_per_day": 3,
+            "max_stake_per_bet": 35.0,
+            "kelly_fraction": 0.15,
+            "allowed_markets": ["win", "head_to_head"],
+            "allow_multis": False,
+            "max_multi_legs": 1,
+            "sport_weights": {"racing": 0.5, "afl": 0.25, "nba": 0.25},
+            "notes": "Low variance. Top confidence only.",
+        },
+    },
+    {
+        "profile_key": "neutral",
+        "display_name": "Neutral",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "neutral",
+            "display_name": "Neutral",
+            "min_edge": 0.06,
+            "min_confidence": "medium",
+            "max_bets_per_day": 4,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.20,
+            "allowed_markets": ["win", "place", "head_to_head"],
+            "allow_multis": False,
+            "max_multi_legs": 1,
+            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "notes": "Disciplined. No multis.",
+        },
+    },
+    {
+        "profile_key": "aggressive",
+        "display_name": "Aggressive",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "aggressive",
+            "display_name": "Aggressive",
+            "min_edge": 0.04,
+            "min_confidence": "low",
+            "max_bets_per_day": 10,
+            "max_stake_per_bet": 90.0,
+            "kelly_fraction": 0.50,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "notes": "High action, wider net.",
+        },
+    },
+]
 
 
 def log_prediction_batch(
@@ -196,6 +300,7 @@ def settle_prediction_result(
             raise ValueError("winner_selection did not match any logged prediction selection")
 
         _settle_paper_bets_for_event(conn, sport, event_id, completed_at)
+        _settle_system_bets_for_event(conn, sport, event_id, completed_at)
 
         conn.execute(
             """
@@ -289,12 +394,15 @@ def create_paper_bet(
     bet_type: str = "win",
     notes: Optional[str] = None,
     prediction_log_id: Optional[int] = None,
+    origin: str = "user",
+    system_bet_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     sport = sport.strip().lower()
     event_id = event_id.strip()
     event_name = event_name.strip()
     selection = selection.strip()
     bet_type = bet_type.strip().lower() or "win"
+    origin = (origin or "user").strip().lower()
     stake = float(stake)
     odds = _optional_float(odds)
 
@@ -338,9 +446,11 @@ def create_paper_bet(
                 status,
                 payout,
                 profit,
-                notes
+                notes,
+                origin,
+                system_bet_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
@@ -358,6 +468,8 @@ def create_paper_bet(
                 payout,
                 profit,
                 notes,
+                origin,
+                system_bet_id,
             ),
         )
         conn.commit()
@@ -763,9 +875,388 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
     return trend[-days:]
 
 
+def ensure_default_strategy_profiles() -> None:
+    with _connect() as conn:
+        rows = conn.execute("SELECT profile_key FROM strategy_profiles").fetchall()
+        existing = {row["profile_key"] for row in rows}
+        created_at = datetime.now(timezone.utc).isoformat()
+        for profile in DEFAULT_STRATEGY_PROFILES:
+            if profile["profile_key"] in existing:
+                continue
+            conn.execute(
+                """
+                INSERT INTO strategy_profiles (
+                    profile_key,
+                    display_name,
+                    rule_set_json,
+                    is_editable,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile["profile_key"],
+                    profile["display_name"],
+                    _dumps_json(profile["rule_set"]),
+                    1 if profile["is_editable"] else 0,
+                    created_at,
+                    created_at,
+                ),
+            )
+        conn.commit()
+
+
+def list_strategy_profiles() -> List[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM strategy_profiles
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    return [_row_to_strategy_profile(row) for row in rows]
+
+
+def get_strategy_profile(profile_key: str) -> Optional[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM strategy_profiles
+            WHERE profile_key = ?
+            """,
+            (profile_key,),
+        ).fetchone()
+    return _row_to_strategy_profile(row) if row else None
+
+
+def update_strategy_profile(profile_key: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    existing = get_strategy_profile(profile_key)
+    if not existing:
+        raise ValueError("strategy profile not found")
+    if not existing["is_editable"] or profile_key != "james":
+        raise ValueError("only the james profile is editable")
+
+    rule_set = {**existing["rule_set"], **updates}
+    _validate_rule_set(rule_set)
+
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE strategy_profiles
+            SET display_name = ?, rule_set_json = ?, updated_at = ?
+            WHERE profile_key = ?
+            """,
+            (
+                str(rule_set["display_name"]),
+                _dumps_json(rule_set),
+                updated_at,
+                profile_key,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM strategy_profiles WHERE profile_key = ?",
+            (profile_key,),
+        ).fetchone()
+    return _row_to_strategy_profile(row)
+
+
+def get_strategy_card(profile_key: str, run_date: str) -> Optional[Dict[str, Any]]:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
+            """,
+            (profile_key, run_date),
+        ).fetchone()
+        if not row:
+            return None
+        return _hydrate_strategy_card(conn, row)
+
+
+def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE run_date = ?
+            ORDER BY id ASC
+            """,
+            (run_date,),
+        ).fetchall()
+        return [_hydrate_strategy_card(conn, row) for row in rows]
+
+
+def save_strategy_card(card: Dict[str, Any]) -> Dict[str, Any]:
+    ensure_default_strategy_profiles()
+    profile_key = str(card["profile_key"])
+    run_date = str(card["card_date"])
+    existing = get_strategy_card(profile_key, run_date)
+    if existing:
+        return existing
+
+    run_payload = {
+        "bankroll_available": card["bankroll_available"],
+        "skipped_opportunities": card.get("skipped_opportunities", []),
+        "sport_mix": card.get("sport_mix", {}),
+        "expected_edge": card.get("expected_edge", 0.0),
+        "selected_bets": card.get("selected_bets", []),
+    }
+    created_at = datetime.now(timezone.utc).isoformat()
+    bankroll_standard = float(card.get("bankroll_standard", DEFAULT_STANDARD_BANKROLL))
+    bankroll_premium = float(card.get("bankroll_premium", DEFAULT_PREMIUM_BANKROLL))
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO daily_strategy_runs (
+                profile_key,
+                run_date,
+                bankroll_standard,
+                bankroll_premium,
+                total_allocated,
+                candidate_count,
+                selected_count,
+                skipped_count,
+                run_payload_json,
+                created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile_key,
+                run_date,
+                bankroll_standard,
+                bankroll_premium,
+                float(card.get("total_allocated", 0.0)),
+                int(card.get("candidate_count", 0)),
+                len(card.get("selected_bets", [])),
+                len(card.get("skipped_opportunities", [])),
+                _dumps_json(run_payload),
+                created_at,
+            ),
+        )
+        run_row = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
+            """,
+            (profile_key, run_date),
+        ).fetchone()
+        run_id = run_row["id"]
+
+        for bet in card.get("selected_bets", []):
+            conn.execute(
+                """
+                INSERT INTO system_bets (
+                    run_id,
+                    profile_key,
+                    sport,
+                    event_id,
+                    event_name,
+                    market_type,
+                    selection,
+                    model_probability,
+                    odds_used,
+                    odds_source,
+                    edge,
+                    stake,
+                    status,
+                    payout,
+                    profit,
+                    settled_at,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    profile_key,
+                    bet["sport"],
+                    bet["event_id"],
+                    bet["event_name"],
+                    bet["market_type"],
+                    bet["selection"],
+                    float(bet["model_probability"]),
+                    float(bet["odds_used"]),
+                    bet["odds_source"],
+                    float(bet["edge"]),
+                    float(bet["stake"]),
+                    bet.get("status", "pending"),
+                    _optional_float(bet.get("payout")),
+                    _optional_float(bet.get("profit")),
+                    bet.get("settled_at"),
+                    created_at,
+                ),
+            )
+
+        conn.commit()
+        return _hydrate_strategy_card(conn, run_row)
+
+
+def list_system_bets(profile_key: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
+    params: list[Any] = []
+    where_clause = ""
+    if profile_key:
+        where_clause = "WHERE profile_key = ?"
+        params.append(profile_key)
+
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM system_bets
+            {where_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+    return [_row_to_system_bet(row) for row in rows]
+
+
+def get_profile_performance(profile_key: str) -> Dict[str, Any]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM system_bets
+            WHERE profile_key = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (profile_key,),
+        ).fetchall()
+
+    bets = [_row_to_system_bet(row) for row in rows]
+    settled = [bet for bet in bets if bet["status"] != "pending"]
+    decision_bets = [bet for bet in bets if bet["status"] in {"won", "lost"}]
+    total_staked = sum(bet["stake"] for bet in decision_bets)
+    net_profit = sum((bet["profit"] or 0.0) for bet in settled)
+    return {
+        "profile_key": profile_key,
+        "total_bets": len(bets),
+        "settled_bets": len(settled),
+        "won_bets": sum(1 for bet in bets if bet["status"] == "won"),
+        "lost_bets": sum(1 for bet in bets if bet["status"] == "lost"),
+        "void_bets": sum(1 for bet in bets if bet["status"] == "void"),
+        "total_staked": round(total_staked, 2),
+        "net_profit": round(net_profit, 2),
+        "roi": round(net_profit / total_staked, 4) if total_staked > 0 else 0.0,
+    }
+
+
+def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] = None) -> Dict[str, Any]:
+    profile = get_strategy_profile(profile_key)
+    if not profile:
+        raise ValueError("strategy profile not found")
+
+    effective_reference_date = reference_date or today_melbourne().isoformat()
+
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM system_bets
+            WHERE profile_key = ? AND settled_at IS NOT NULL
+            ORDER BY settled_at ASC, id ASC
+            """,
+            (profile_key,),
+        ).fetchall()
+
+    bets = [
+        bet
+        for bet in [_row_to_system_bet(row) for row in rows]
+        if (bet["settled_at"] or "")[:10] <= effective_reference_date
+    ]
+    settled_days = sorted({(bet["settled_at"] or "")[:10] for bet in bets if bet.get("settled_at")})
+    if len(settled_days) < 30:
+        return {
+            "ran": False,
+            "reason": "minimum 30 settled calendar days not met",
+            "settled_days": len(settled_days),
+            "reference_date": effective_reference_date,
+        }
+
+    window_end = effective_reference_date
+    window_start = settled_days[-30]
+    window_bets = [bet for bet in bets if window_start <= (bet["settled_at"] or "")[:10] <= window_end]
+    if not window_bets:
+        return {
+            "ran": False,
+            "reason": "no settled bets in tuning window",
+            "settled_days": len(settled_days),
+            "reference_date": effective_reference_date,
+        }
+
+    before = dict(profile["rule_set"])
+    after = dict(before)
+    roi = sum((bet["profit"] or 0.0) for bet in window_bets if bet["status"] != "pending")
+    staked = sum(bet["stake"] for bet in window_bets if bet["status"] in {"won", "lost"})
+    window_roi = roi / staked if staked > 0 else 0.0
+
+    after["kelly_fraction"] = round(min(0.75, max(0.05, before["kelly_fraction"] + (0.05 if window_roi > 0 else -0.05))), 2)
+    after["min_edge"] = round(min(0.2, max(0.01, before["min_edge"] + (-0.01 if window_roi > 0 else 0.01))), 2)
+    after["sport_weights"] = _retune_sport_weights(window_bets, before["sport_weights"])
+    _validate_rule_set(after)
+
+    updated_profile = update_strategy_profile(profile_key, after) if profile["is_editable"] else _write_noneditable_profile(profile_key, after)
+    improvement_metric = round(window_roi, 4)
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO auto_tune_log (
+                profile_key,
+                tuned_at,
+                window_start,
+                window_end,
+                settled_bets_in_window,
+                params_before,
+                params_after,
+                improvement_metric
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile_key,
+                datetime.now(timezone.utc).isoformat(),
+                window_start,
+                window_end,
+                len(window_bets),
+                _dumps_json(before),
+                _dumps_json(after),
+                improvement_metric,
+            ),
+        )
+        conn.commit()
+
+    return {
+        "ran": True,
+        "window_start": window_start,
+        "window_end": window_end,
+        "settled_bets_in_window": len(window_bets),
+        "settled_days": len(settled_days),
+        "profile": updated_profile,
+        "improvement_metric": improvement_metric,
+    }
+
+
 def init_db() -> None:
     """Initialize the database schema once. Delegates to database module."""
     init_database()
+    ensure_default_strategy_profiles()
 
 
 def _connect():
@@ -858,6 +1349,79 @@ def _ensure_schema(conn) -> None:
     conn.commit()
 
 
+def _row_to_strategy_profile(row) -> Dict[str, Any]:
+    rule_set = _loads_json(row["rule_set_json"])
+    return {
+        "id": row["id"],
+        "profile_key": row["profile_key"],
+        "display_name": row["display_name"],
+        "rule_set": rule_set,
+        "is_editable": bool(row["is_editable"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _row_to_system_bet(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "run_id": row["run_id"],
+        "profile_key": row["profile_key"],
+        "sport": row["sport"],
+        "event_id": row["event_id"],
+        "event_name": row["event_name"],
+        "market_type": row["market_type"],
+        "selection": row["selection"],
+        "model_probability": float(row["model_probability"]),
+        "odds_used": float(row["odds_used"]),
+        "odds_source": row["odds_source"],
+        "edge": float(row["edge"]),
+        "stake": float(row["stake"]),
+        "status": row["status"],
+        "payout": _optional_float(row["payout"]),
+        "profit": _optional_float(row["profit"]),
+        "settled_at": row["settled_at"],
+        "created_at": row["created_at"],
+    }
+
+
+def _hydrate_strategy_card(conn, run_row) -> Dict[str, Any]:
+    run_payload = _loads_json(run_row["run_payload_json"] or "{}")
+    profile_row = conn.execute(
+        "SELECT * FROM strategy_profiles WHERE profile_key = ?",
+        (run_row["profile_key"],),
+    ).fetchone()
+    bets = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE run_id = ?
+        ORDER BY id ASC
+        """,
+        (run_row["id"],),
+    ).fetchall()
+    selected_bets = [_row_to_system_bet(row) for row in bets]
+    performance = get_profile_performance(run_row["profile_key"])
+    return {
+        "profile_key": run_row["profile_key"],
+        "display_name": profile_row["display_name"] if profile_row else run_row["profile_key"],
+        "card_date": run_row["run_date"],
+        "bankroll_available": float(run_payload.get("bankroll_available") or (run_row["bankroll_premium"] if is_melbourne_premium_day(run_row["run_date"]) else run_row["bankroll_standard"])),
+        "bankroll_standard": float(run_row["bankroll_standard"]),
+        "bankroll_premium": float(run_row["bankroll_premium"]),
+        "total_allocated": round(float(run_row["total_allocated"] or 0.0), 2),
+        "candidate_count": int(run_row["candidate_count"] or 0),
+        "selected_count": int(run_row["selected_count"] or 0),
+        "skipped_count": int(run_row["skipped_count"] or 0),
+        "selected_bets": selected_bets,
+        "skipped_opportunities": run_payload.get("skipped_opportunities", []),
+        "sport_mix": run_payload.get("sport_mix", {}),
+        "expected_edge": float(run_payload.get("expected_edge", 0.0)),
+        "performance": performance if performance["settled_bets"] > 0 else None,
+        "created_at": run_row["created_at"],
+    }
+
+
 def _row_to_prediction(row) -> Dict[str, Any]:
     return {
         "id": row["id"],
@@ -909,6 +1473,8 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "payout": _optional_float(row["payout"]),
         "profit": _optional_float(row["profit"]),
         "notes": row["notes"],
+        "origin": row["origin"] if "origin" in row else "user",
+        "system_bet_id": row["system_bet_id"] if "system_bet_id" in row else None,
     }
 
 
@@ -1119,6 +1685,36 @@ def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: st
         )
 
 
+def _settle_system_bets_for_event(conn, sport: str, event_id: str, settled_at: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE sport = ? AND event_id = ? AND status = 'pending'
+        """,
+        (sport, event_id),
+    ).fetchall()
+
+    for bet in rows:
+        prediction = _find_prediction_for_bet(conn, sport, event_id, bet["selection"])
+        if not prediction or prediction["actual_outcome"] is None:
+            continue
+
+        status, payout, profit = _bet_settlement(
+            float(bet["stake"]),
+            float(bet["odds_used"]),
+            float(prediction["actual_outcome"]),
+        )
+        conn.execute(
+            """
+            UPDATE system_bets
+            SET status = ?, payout = ?, profit = ?, settled_at = ?
+            WHERE id = ?
+            """,
+            (status.lower(), payout, profit, settled_at, bet["id"]),
+        )
+
+
 def _bet_settlement(stake: float, odds: float, outcome: float):
     if outcome >= 1.0:
         payout = stake * odds
@@ -1137,6 +1733,69 @@ def _ensure_column(conn, table_name: str, column_name: str, column_type: str) ->
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
     if column_name not in columns:
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+
+
+def _write_noneditable_profile(profile_key: str, rule_set: Dict[str, Any]) -> Dict[str, Any]:
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE strategy_profiles
+            SET display_name = ?, rule_set_json = ?, updated_at = ?
+            WHERE profile_key = ?
+            """,
+            (rule_set["display_name"], _dumps_json(rule_set), updated_at, profile_key),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM strategy_profiles WHERE profile_key = ?", (profile_key,)).fetchone()
+    return _row_to_strategy_profile(row)
+
+
+def _validate_rule_set(rule_set: Dict[str, Any]) -> None:
+    required_keys = {
+        "profile_key",
+        "display_name",
+        "min_edge",
+        "min_confidence",
+        "max_bets_per_day",
+        "max_stake_per_bet",
+        "kelly_fraction",
+        "allowed_markets",
+        "allow_multis",
+        "max_multi_legs",
+        "sport_weights",
+        "notes",
+    }
+    missing = required_keys - set(rule_set.keys())
+    if missing:
+        raise ValueError(f"rule set missing keys: {', '.join(sorted(missing))}")
+    if rule_set["min_confidence"] not in CONFIDENCE_ORDER:
+        raise ValueError("min_confidence must be one of: low, medium, high")
+    markets = set(rule_set["allowed_markets"])
+    if not markets or not markets.issubset(ALLOWED_MARKETS):
+        raise ValueError("allowed_markets contains unsupported market types")
+    sport_weights = rule_set["sport_weights"]
+    weight_sum = sum(float(sport_weights.get(sport, 0.0)) for sport in ("racing", "afl", "nba"))
+    if abs(weight_sum - 1.0) > 0.001:
+        raise ValueError("sport_weights must sum to 1.0")
+
+
+def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Dict[str, float]) -> Dict[str, float]:
+    profits = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
+    stakes = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
+    for bet in window_bets:
+        if bet["status"] not in {"won", "lost"}:
+            continue
+        profits[bet["sport"]] += bet["profit"] or 0.0
+        stakes[bet["sport"]] += bet["stake"]
+
+    raw = {}
+    for sport in ("racing", "afl", "nba"):
+        roi = profits[sport] / stakes[sport] if stakes[sport] > 0 else 0.0
+        raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
+
+    total = sum(raw.values()) or 1.0
+    return {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl", "nba")}
 
 
 def _dedupe_prediction_log(conn) -> None:

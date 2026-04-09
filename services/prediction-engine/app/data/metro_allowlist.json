@@ -1,0 +1,86 @@
+{
+  "flemington": {
+    "venue": "Flemington",
+    "state": "VIC",
+    "region": "VIC",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["flemington"]
+  },
+  "caulfield": {
+    "venue": "Caulfield",
+    "state": "VIC",
+    "region": "VIC",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["caulfield"]
+  },
+  "moonee_valley": {
+    "venue": "Moonee Valley",
+    "state": "VIC",
+    "region": "VIC",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["moonee valley", "mvrc"]
+  },
+  "sandown": {
+    "venue": "Sandown",
+    "state": "VIC",
+    "region": "VIC",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["sandown", "sandown hillside", "sandown lakeside"]
+  },
+  "randwick": {
+    "venue": "Randwick",
+    "state": "NSW",
+    "region": "NSW",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["randwick", "royal randwick"]
+  },
+  "rosehill": {
+    "venue": "Rosehill",
+    "state": "NSW",
+    "region": "NSW",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["rosehill", "rosehill gardens"]
+  },
+  "canterbury": {
+    "venue": "Canterbury",
+    "state": "NSW",
+    "region": "NSW",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["canterbury", "canterbury park"]
+  },
+  "warwick_farm": {
+    "venue": "Warwick Farm",
+    "state": "NSW",
+    "region": "NSW",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["warwick farm"]
+  },
+  "eagle_farm": {
+    "venue": "Eagle Farm",
+    "state": "QLD",
+    "region": "QLD",
+    "active_days": ["wed", "fri", "sat", "sun"],
+    "aliases": ["eagle farm"]
+  },
+  "doomben": {
+    "venue": "Doomben",
+    "state": "QLD",
+    "region": "QLD",
+    "active_days": ["wed", "fri", "sat", "sun"],
+    "aliases": ["doomben"]
+  },
+  "ascot": {
+    "venue": "Ascot",
+    "state": "WA",
+    "region": "WA",
+    "active_days": ["wed", "fri", "sat", "sun"],
+    "aliases": ["ascot", "ascot-wa"]
+  },
+  "belmont_park": {
+    "venue": "Belmont Park",
+    "state": "WA",
+    "region": "WA",
+    "active_days": ["wed", "fri", "sat", "sun"],
+    "aliases": ["belmont park", "belmont"]
+  }
+}

@@ -277,11 +277,80 @@ def _run_sqlite_schema(conn):
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_profiles (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_key TEXT NOT NULL UNIQUE,
+            display_name TEXT NOT NULL,
+            rule_set_json TEXT NOT NULL,
+            is_editable INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_strategy_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_key TEXT NOT NULL,
+            run_date TEXT NOT NULL,
+            bankroll_standard REAL NOT NULL DEFAULT 250.00,
+            bankroll_premium REAL NOT NULL DEFAULT 500.00,
+            total_allocated REAL,
+            candidate_count INTEGER,
+            selected_count INTEGER,
+            skipped_count INTEGER,
+            run_payload_json TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(profile_key, run_date)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS system_bets (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL,
+            profile_key TEXT NOT NULL,
+            sport TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            market_type TEXT NOT NULL,
+            selection TEXT NOT NULL,
+            model_probability REAL NOT NULL,
+            odds_used REAL NOT NULL,
+            odds_source TEXT NOT NULL,
+            edge REAL NOT NULL,
+            stake REAL NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            payout REAL,
+            profit REAL,
+            settled_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(run_id) REFERENCES daily_strategy_runs(id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auto_tune_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_key TEXT NOT NULL,
+            tuned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            window_start TEXT NOT NULL,
+            window_end TEXT NOT NULL,
+            settled_bets_in_window INTEGER NOT NULL,
+            params_before TEXT NOT NULL,
+            params_after TEXT NOT NULL,
+            improvement_metric REAL
+        )
+    """)
+
     # Ensure columns exist for schema migrations
     _ensure_sqlite_column(conn, "prediction_log", "updated_at", "TEXT")
     _ensure_sqlite_column(conn, "prediction_log", "actual_outcome", "REAL")
     _ensure_sqlite_column(conn, "prediction_log", "result_status", "TEXT")
     _ensure_sqlite_column(conn, "prediction_log", "settled_at", "TEXT")
+    _ensure_sqlite_column(conn, "paper_bet_log", "origin", "TEXT DEFAULT 'user'")
+    _ensure_sqlite_column(conn, "paper_bet_log", "system_bet_id", "INTEGER")
 
     # Indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
@@ -291,6 +360,9 @@ def _run_sqlite_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_event ON system_bets (sport, event_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_profile ON system_bets (profile_key, created_at)")
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_log_unique_selection
         ON prediction_log (sport, event_id, selection)
@@ -367,6 +439,75 @@ def _run_pg_schema(cursor):
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS strategy_profiles (
+            id SERIAL PRIMARY KEY,
+            profile_key TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            rule_set_json JSONB NOT NULL,
+            is_editable BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_strategy_runs (
+            id SERIAL PRIMARY KEY,
+            profile_key TEXT NOT NULL REFERENCES strategy_profiles(profile_key),
+            run_date DATE NOT NULL,
+            bankroll_standard DOUBLE PRECISION NOT NULL DEFAULT 250.00,
+            bankroll_premium DOUBLE PRECISION NOT NULL DEFAULT 500.00,
+            total_allocated DOUBLE PRECISION,
+            candidate_count INTEGER,
+            selected_count INTEGER,
+            skipped_count INTEGER,
+            run_payload_json JSONB,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE(profile_key, run_date)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS system_bets (
+            id SERIAL PRIMARY KEY,
+            run_id INTEGER NOT NULL REFERENCES daily_strategy_runs(id),
+            profile_key TEXT NOT NULL,
+            sport TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            event_name TEXT NOT NULL,
+            market_type TEXT NOT NULL,
+            selection TEXT NOT NULL,
+            model_probability DOUBLE PRECISION NOT NULL,
+            odds_used DOUBLE PRECISION NOT NULL,
+            odds_source TEXT NOT NULL,
+            edge DOUBLE PRECISION NOT NULL,
+            stake DOUBLE PRECISION NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            payout DOUBLE PRECISION,
+            profit DOUBLE PRECISION,
+            settled_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auto_tune_log (
+            id SERIAL PRIMARY KEY,
+            profile_key TEXT NOT NULL,
+            tuned_at TIMESTAMPTZ DEFAULT NOW(),
+            window_start DATE NOT NULL,
+            window_end DATE NOT NULL,
+            settled_bets_in_window INTEGER NOT NULL,
+            params_before JSONB NOT NULL,
+            params_after JSONB NOT NULL,
+            improvement_metric DOUBLE PRECISION
+        )
+    """)
+
+    cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'user'")
+    cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS system_bet_id INTEGER REFERENCES system_bets(id)")
+
     # Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
@@ -375,6 +516,9 @@ def _run_pg_schema(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_event ON system_bets (sport, event_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_profile ON system_bets (profile_key, created_at)")
     cursor.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_log_unique_selection
         ON prediction_log (sport, event_id, selection)

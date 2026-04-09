@@ -3,6 +3,8 @@ Storage layer unit tests.
 Covers prediction logging, settlement, dedupe, paper bets, accuracy metrics.
 """
 
+from datetime import date, timedelta
+
 import pytest
 import app.storage as storage
 
@@ -347,3 +349,226 @@ class TestPaperBetTrend:
         trend = storage.get_paper_bet_trend(days=30)
         if trend:
             assert trend[-1]["cumulative_profit"] == 50.0
+
+
+class TestStrategyStorage:
+    def _save_system_card(self, profile_key: str, run_date: str, event_id: str, stake: float = 20.0):
+        storage.save_strategy_card(
+            {
+                "profile_key": profile_key,
+                "display_name": storage.get_strategy_profile(profile_key)["display_name"],
+                "card_date": run_date,
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": stake,
+                "candidate_count": 1,
+                "selected_bets": [
+                    {
+                        "sport": "afl",
+                        "event_id": event_id,
+                        "event_name": f"{event_id} A vs B",
+                        "market_type": "head_to_head",
+                        "selection": "A",
+                        "model_probability": 0.6,
+                        "odds_used": 1.8,
+                        "odds_source": "model_implied",
+                        "edge": 0.08,
+                        "stake": stake,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": {"afl": 1.0},
+                "expected_edge": 0.08,
+            }
+        )
+
+    def _seed_tunable_profile_history(self, profile_key: str = "james", days: int = 30):
+        start_day = date(2026, 2, 1)
+        for index in range(days):
+            run_date = (start_day + timedelta(days=index)).isoformat()
+            event_id = f"{profile_key}-history-{index}"
+            storage.log_prediction_batch(
+                sport="afl",
+                event_id=event_id,
+                event_name=f"{event_id} A vs B",
+                predictions=[
+                    {"selection": "A", "probability": 60, "fair_odds": 1.8},
+                    {"selection": "B", "probability": 40, "fair_odds": 2.2},
+                ],
+            )
+            self._save_system_card(profile_key, run_date, event_id, stake=20.0)
+            storage.settle_prediction_result(
+                sport="afl",
+                event_id=event_id,
+                winner_selection="A",
+                completed_at=f"{run_date}T12:00:00+11:00",
+            )
+
+    def test_default_profiles_seeded(self):
+        profiles = storage.list_strategy_profiles()
+        assert {profile["profile_key"] for profile in profiles} == {
+            "bob",
+            "james",
+            "conservative",
+            "neutral",
+            "aggressive",
+        }
+
+    def test_james_profile_round_trips(self):
+        updated = storage.update_strategy_profile(
+            "james",
+            {
+                "display_name": "James Test",
+                "min_edge": 0.09,
+                "sport_weights": {"racing": 0.5, "afl": 0.25, "nba": 0.25},
+            },
+        )
+        assert updated["display_name"] == "James Test"
+        assert updated["rule_set"]["min_edge"] == 0.09
+        assert updated["rule_set"]["sport_weights"]["racing"] == 0.5
+
+    def test_strategy_card_save_is_idempotent(self):
+        card = {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "card_date": "2026-04-09",
+            "bankroll_available": 250.0,
+            "bankroll_standard": 250.0,
+            "bankroll_premium": 500.0,
+            "total_allocated": 25.0,
+            "candidate_count": 3,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "g1",
+                    "event_name": "A vs B",
+                    "market_type": "head_to_head",
+                    "selection": "A",
+                    "model_probability": 0.6,
+                    "odds_used": 1.9,
+                    "odds_source": "model_implied",
+                    "edge": 0.08,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+            "skipped_opportunities": [],
+            "sport_mix": {"afl": 1.0},
+            "expected_edge": 0.08,
+        }
+
+        first = storage.save_strategy_card(card)
+        second = storage.save_strategy_card(card)
+
+        assert first["card_date"] == second["card_date"]
+        assert len(storage.list_system_bets(profile_key="bob")) == 1
+
+    def test_system_bets_settle_separately_from_prediction_log(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="system-1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 1.67},
+                {"selection": "B", "probability": 40, "fair_odds": 2.5},
+            ],
+        )
+        storage.save_strategy_card(
+            {
+                "profile_key": "bob",
+                "display_name": "Betmate Bob",
+                "card_date": "2026-04-09",
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": 20.0,
+                "candidate_count": 2,
+                "selected_bets": [
+                    {
+                        "sport": "afl",
+                        "event_id": "system-1",
+                        "event_name": "A vs B",
+                        "market_type": "head_to_head",
+                        "selection": "A",
+                        "model_probability": 0.6,
+                        "odds_used": 1.67,
+                        "odds_source": "model_implied",
+                        "edge": 0.05,
+                        "stake": 20.0,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": {"afl": 1.0},
+                "expected_edge": 0.05,
+            }
+        )
+
+        storage.settle_prediction_result(sport="afl", event_id="system-1", winner_selection="A")
+
+        bets = storage.list_system_bets(profile_key="bob")
+        assert bets[0]["status"] == "won"
+        assert bets[0]["profit"] > 0
+
+    def test_strategy_card_performance_stays_null_until_system_bets_settle(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="bob-performance-1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 1.8},
+                {"selection": "B", "probability": 40, "fair_odds": 2.2},
+            ],
+        )
+        self._save_system_card("bob", "2026-04-09", "bob-performance-1", stake=25.0)
+
+        pending_card = storage.get_strategy_card("bob", "2026-04-09")
+        assert pending_card["performance"] is None
+
+        storage.settle_prediction_result(
+            sport="afl",
+            event_id="bob-performance-1",
+            winner_selection="A",
+            completed_at="2026-04-09T18:00:00+10:00",
+        )
+
+        settled_card = storage.get_strategy_card("bob", "2026-04-09")
+        assert settled_card["performance"] is not None
+        assert settled_card["performance"]["settled_bets"] == 1
+        assert settled_card["performance"]["roi"] > 0
+
+    def test_auto_tune_respects_30_day_gate(self):
+        result = storage.auto_tune_strategy_profile("james", reference_date="2026-04-09")
+        assert result["ran"] is False
+
+    def test_auto_tune_updates_profile_and_writes_log(self):
+        before = storage.get_strategy_profile("james")["rule_set"]
+        self._seed_tunable_profile_history("james", days=30)
+
+        result = storage.auto_tune_strategy_profile("james", reference_date="2026-03-02")
+
+        assert result["ran"] is True
+        assert result["settled_days"] == 30
+        assert result["profile"]["rule_set"]["kelly_fraction"] != before["kelly_fraction"]
+        assert result["profile"]["rule_set"]["min_edge"] != before["min_edge"]
+
+        with storage._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM auto_tune_log WHERE profile_key = ? ORDER BY id DESC",
+                ("james",),
+            ).fetchall()
+
+        assert len(rows) == 1
+        assert rows[0]["window_start"] == "2026-02-01"
+        assert rows[0]["window_end"] == "2026-03-02"

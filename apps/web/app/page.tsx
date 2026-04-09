@@ -10,6 +10,9 @@ type RaceSummary = {
   venue: string;
   race_number: number;
   distance: number;
+  meeting_type?: "metro" | "provincial" | "country" | "unknown";
+  meeting_region?: string;
+  meeting_date?: string;
   horses: any[];
 };
 
@@ -213,6 +216,11 @@ export default function DashboardPage() {
                 <div>
                   <span className="prediction-venue">{race.venue}</span>
                   <span className="prediction-race">Race {race.race_number}</span>
+                  {(race.meeting_region || race.meeting_type) && (
+                    <div className="context-chip" style={{ marginTop: "0.4rem" }}>
+                      {[race.meeting_region, race.meeting_type].filter(Boolean).join(" • ")}
+                    </div>
+                  )}
                 </div>
                 <span className="badge badge-accent">{race.distance}m</span>
               </div>

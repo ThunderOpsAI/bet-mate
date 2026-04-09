@@ -15,6 +15,8 @@ type HorseData = {
   days_since_last_race: number;
   betfair_back_price?: number;
   betfair_implied_prob?: number;
+  jockey_name?: string | null;
+  data_source?: "betfair" | "racing_australia" | "mock";
 };
 
 type Race = {
@@ -22,6 +24,11 @@ type Race = {
   venue: string;
   race_number: number;
   distance: number;
+  start_time?: string;
+  meeting_type?: "metro" | "provincial" | "country" | "unknown";
+  meeting_region?: string;
+  meeting_date?: string;
+  data_source?: "betfair" | "racing_australia" | "mock";
   horses: HorseData[];
 };
 
@@ -141,6 +148,15 @@ export default function RacingPage() {
                   <span className="badge badge-accent">{race.distance}m</span>
                   <span className="badge badge-muted">{race.horses.length} runners</span>
                   <span className="badge badge-blue">{trackConditions[race.horses[0]?.track_condition] ?? "Good"}</span>
+                  {race.meeting_type && race.meeting_type !== "unknown" && (
+                    <span className="badge badge-green">{race.meeting_type.toUpperCase()}</span>
+                  )}
+                  {race.meeting_region && race.meeting_region !== "unknown" && (
+                    <span className="badge badge-muted">{race.meeting_region}</span>
+                  )}
+                  {race.meeting_date && (
+                    <span className="badge badge-muted">{race.meeting_date}</span>
+                  )}
                 </div>
                 <div className="race-detail-preview">
                   {top3.map((p, i) => (
@@ -161,6 +177,7 @@ export default function RacingPage() {
                         <tr>
                           <th>#</th>
                           <th>Horse</th>
+                          <th>Jockey</th>
                           <th>Barrier</th>
                           <th>Weight</th>
                           <th>Form</th>
@@ -178,6 +195,7 @@ export default function RacingPage() {
                             <tr key={p.horse_id} className={i < 3 ? `top-pick-row rank-${i+1}-row` : ""}>
                               <td><span className={`pick-rank rank-${Math.min(i + 1, 4)}`}>{i + 1}</span></td>
                               <td className="horse-name-cell">{p.name}</td>
+                              <td>{horse?.jockey_name ?? "TBA"}</td>
                               <td>{horse?.barrier ?? "-"}</td>
                               <td>{horse?.weight ?? "-"}kg</td>
                               <td>{((horse?.past_win_rate ?? 0) * 100).toFixed(1)}%</td>

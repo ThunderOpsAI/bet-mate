@@ -10,6 +10,15 @@ import os
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
 from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
+from app.bob import (
+    bob_request_in_scope,
+    build_bob_provider_from_env,
+    build_bob_system_prompt,
+    build_local_bob_fallback,
+    sanitize_bob_messages,
+)
+from app.strategy import StrategyService
+from app.time_utils import today_melbourne
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -54,6 +63,8 @@ app.add_middleware(
 racing_predictor = RacingPredictor()
 afl_predictor = AFLPredictor()
 nba_predictor = NBAPredictor()
+strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor)
+bob_provider = build_bob_provider_from_env()
 
 # --- Schemas ---
 
@@ -68,6 +79,8 @@ class Horse(BaseModel):
     days_since_last_race: int
     betfair_back_price: float = 0.0
     betfair_implied_prob: float = 0.0
+    jockey_name: Optional[str] = None
+    data_source: str = "betfair"
 
 class Race(BaseModel):
     race_id: str
@@ -75,6 +88,12 @@ class Race(BaseModel):
     race_number: int
     distance: int
     horses: List[Horse]
+    start_time: str = ""
+    market_name: str = ""
+    meeting_type: str = "unknown"
+    meeting_region: str = "unknown"
+    meeting_date: str = ""
+    data_source: str = "betfair"
 
 class TeamGame(BaseModel):
     game_id: str
@@ -111,6 +130,30 @@ class PaperBetInput(BaseModel):
 class PaperBetSettleInput(BaseModel):
     status: str
     payout: Optional[float] = None
+
+
+class StrategyProfilePatchInput(BaseModel):
+    display_name: Optional[str] = None
+    min_edge: Optional[float] = None
+    min_confidence: Optional[str] = None
+    max_bets_per_day: Optional[int] = None
+    max_stake_per_bet: Optional[float] = None
+    kelly_fraction: Optional[float] = None
+    allowed_markets: Optional[List[str]] = None
+    allow_multis: Optional[bool] = None
+    max_multi_legs: Optional[int] = None
+    sport_weights: Optional[Dict[str, float]] = None
+    notes: Optional[str] = None
+
+
+class BobChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class BobChatRequest(BaseModel):
+    messages: List[BobChatMessage]
+    date: Optional[str] = None
 
 
 
@@ -325,6 +368,111 @@ def delete_paper_bet(bet_id: int):
         raise HTTPException(status_code=404, detail="paper bet not found")
 
     return {"deleted": True, "summary": storage.get_paper_bet_summary()}
+
+
+@app.get("/api/strategy-profiles")
+def list_strategy_profiles():
+    return {"profiles": storage.list_strategy_profiles()}
+
+
+@app.get("/api/strategy-profiles/{profile_key}")
+def get_strategy_profile(profile_key: str):
+    profile = storage.get_strategy_profile(profile_key)
+    if not profile:
+        raise HTTPException(status_code=404, detail="strategy profile not found")
+    return profile
+
+
+@app.patch("/api/strategy-profiles/james")
+def patch_james_strategy_profile(payload: StrategyProfilePatchInput):
+    updates = {key: value for key, value in payload.model_dump().items() if value is not None}
+    try:
+        profile = storage.update_strategy_profile("james", updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return profile
+
+
+@app.get("/api/strategy-cards")
+def get_strategy_cards(date: Optional[str] = None):
+    run_date = date or today_melbourne().isoformat()
+    try:
+        cards = strategy_service.get_or_create_cards(run_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"cards": cards}
+
+
+@app.get("/api/strategy-cards/{profile_key}")
+def get_strategy_card(profile_key: str, date: Optional[str] = None):
+    run_date = date or today_melbourne().isoformat()
+    try:
+        card = strategy_service.get_or_create_card(profile_key, run_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return card
+
+
+@app.get("/api/system-bets")
+def get_system_bets(profile_key: Optional[str] = None, limit: int = 200):
+    return {"bets": storage.list_system_bets(profile_key=profile_key, limit=limit)}
+
+
+@app.post("/api/bob/chat")
+async def bob_chat(request: BobChatRequest):
+    today_date = today_melbourne().isoformat()
+    run_date = request.date or today_date
+    messages = sanitize_bob_messages([message.model_dump() for message in request.messages])
+    if not bob_request_in_scope(messages, run_date, today_date):
+        return {
+            "message": "Bob only explains today's Bob card, why bets qualified or were skipped, profile differences, bankroll allocation, and paper-bet context.",
+            "card_date": run_date,
+            "scope": "refused",
+        }
+
+    bob_card = strategy_service.get_or_create_card("bob", run_date)
+    all_cards = strategy_service.get_or_create_cards(run_date)
+    event_ids = {bet["event_id"] for bet in bob_card.get("selected_bets", [])}
+    relevant_predictions = [
+        prediction
+        for prediction in storage.get_recent_predictions(limit=500)
+        if prediction["event_id"] in event_ids
+    ]
+    bob_context = {
+        "card_date": run_date,
+        "strategy_card": bob_card,
+        "all_profile_cards": [
+            {
+                "profile_key": card["profile_key"],
+                "display_name": card["display_name"],
+                "total_allocated": card["total_allocated"],
+                "selected_count": len(card.get("selected_bets", [])),
+                "expected_edge": card.get("expected_edge", 0.0),
+            }
+            for card in all_cards
+        ],
+        "model_signals": relevant_predictions,
+    }
+    if bob_provider is None:
+        return {
+            "message": build_local_bob_fallback(messages, bob_context),
+            "card_date": run_date,
+            "scope": "local_fallback",
+        }
+
+    try:
+        answer = await bob_provider.complete(
+            system_prompt=build_bob_system_prompt(bob_context),
+            messages=messages,
+            max_tokens=1000,
+        )
+        return {"message": answer, "card_date": run_date, "scope": "provider"}
+    except Exception:
+        return {
+            "message": build_local_bob_fallback(messages, bob_context),
+            "card_date": run_date,
+            "scope": "provider_fallback",
+        }
 
 # --- RACING ENDPOINTS ---
 
