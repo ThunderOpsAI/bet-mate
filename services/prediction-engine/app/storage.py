@@ -997,12 +997,12 @@ def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
         return [_hydrate_strategy_card(conn, row) for row in rows]
 
 
-def save_strategy_card(card: Dict[str, Any]) -> Dict[str, Any]:
+def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str, Any]:
     ensure_default_strategy_profiles()
     profile_key = str(card["profile_key"])
     run_date = str(card["card_date"])
     existing = get_strategy_card(profile_key, run_date)
-    if existing:
+    if existing and not replace:
         return existing
 
     run_payload = {
@@ -1017,35 +1017,90 @@ def save_strategy_card(card: Dict[str, Any]) -> Dict[str, Any]:
     bankroll_premium = float(card.get("bankroll_premium", DEFAULT_PREMIUM_BANKROLL))
 
     with _connect() as conn:
-        conn.execute(
+        existing_run_row = conn.execute(
             """
-            INSERT INTO daily_strategy_runs (
-                profile_key,
-                run_date,
-                bankroll_standard,
-                bankroll_premium,
-                total_allocated,
-                candidate_count,
-                selected_count,
-                skipped_count,
-                run_payload_json,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
             """,
-            (
-                profile_key,
-                run_date,
-                bankroll_standard,
-                bankroll_premium,
-                float(card.get("total_allocated", 0.0)),
-                int(card.get("candidate_count", 0)),
-                len(card.get("selected_bets", [])),
-                len(card.get("skipped_opportunities", [])),
-                _dumps_json(run_payload),
-                created_at,
-            ),
-        )
+            (profile_key, run_date),
+        ).fetchone()
+        if existing_run_row and replace:
+            conn.execute(
+                """
+                UPDATE paper_bet_log
+                SET system_bet_id = NULL
+                WHERE system_bet_id IN (
+                    SELECT id
+                    FROM system_bets
+                    WHERE run_id = ?
+                )
+                """,
+                (existing_run_row["id"],),
+            )
+            conn.execute(
+                """
+                DELETE FROM system_bets
+                WHERE run_id = ?
+                """,
+                (existing_run_row["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE daily_strategy_runs
+                SET bankroll_standard = ?,
+                    bankroll_premium = ?,
+                    total_allocated = ?,
+                    candidate_count = ?,
+                    selected_count = ?,
+                    skipped_count = ?,
+                    run_payload_json = ?,
+                    created_at = ?
+                WHERE id = ?
+                """,
+                (
+                    bankroll_standard,
+                    bankroll_premium,
+                    float(card.get("total_allocated", 0.0)),
+                    int(card.get("candidate_count", 0)),
+                    len(card.get("selected_bets", [])),
+                    len(card.get("skipped_opportunities", [])),
+                    _dumps_json(run_payload),
+                    created_at,
+                    existing_run_row["id"],
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO daily_strategy_runs (
+                    profile_key,
+                    run_date,
+                    bankroll_standard,
+                    bankroll_premium,
+                    total_allocated,
+                    candidate_count,
+                    selected_count,
+                    skipped_count,
+                    run_payload_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_key,
+                    run_date,
+                    bankroll_standard,
+                    bankroll_premium,
+                    float(card.get("total_allocated", 0.0)),
+                    int(card.get("candidate_count", 0)),
+                    len(card.get("selected_bets", [])),
+                    len(card.get("skipped_opportunities", [])),
+                    _dumps_json(run_payload),
+                    created_at,
+                ),
+            )
+
         run_row = conn.execute(
             """
             SELECT *
@@ -1406,23 +1461,23 @@ def _sport_allocation_from_legs(legs: List[Dict[str, Any]]) -> Dict[str, float]:
 def _row_to_system_bet(row) -> Dict[str, Any]:
     bet = {
         "id": row["id"],
-        "run_id": row["run_id"],
+        "run_id": row["run_id"] if _row_has_key(row, "run_id") else None,
         "profile_key": row["profile_key"],
         "sport": row["sport"],
         "event_id": row["event_id"],
         "event_name": row["event_name"],
         "market_type": row["market_type"],
         "selection": row["selection"],
-        "model_probability": float(row["model_probability"]),
-        "odds_used": float(row["odds_used"]),
+        "model_probability": float(_optional_float(row["model_probability"]) or 0.0),
+        "odds_used": float(_optional_float(row["odds_used"]) or 0.0),
         "odds_source": row["odds_source"],
-        "edge": float(row["edge"]),
-        "stake": float(row["stake"]),
+        "edge": float(_optional_float(row["edge"]) or 0.0),
+        "stake": float(_optional_float(row["stake"]) or 0.0),
         "status": row["status"],
         "payout": _optional_float(row["payout"]),
         "profit": _optional_float(row["profit"]),
         "settled_at": row["settled_at"],
-        "created_at": row["created_at"],
+        "created_at": row["created_at"] if _row_has_key(row, "created_at") else None,
     }
     legs = _system_bet_legs_from_row(row)
     if legs:

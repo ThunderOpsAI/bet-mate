@@ -27,6 +27,7 @@ DEFAULT_TIMEOUT_SECONDS = 10
 
 _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
+TRUE_VALUES = {"1", "true", "yes", "on"}
 
 MOCK_RUNNER_NAMES = [
     "Southern Crown",
@@ -128,19 +129,20 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
     return _metro_allowlist_cache
 
 
-def fetch_today_races(run_date: Optional[str] = None):
+def fetch_today_races(run_date: Optional[str] = None, allow_mock: Optional[bool] = None):
     target_date = _resolve_run_date(run_date)
     target_date_str = target_date.isoformat()
+    should_allow_mock = _should_allow_mock(allow_mock)
     headers = _get_api_headers()
 
     if headers:
         try:
-            races = _fetch_live_races(headers, target_date)
+            races = _fetch_live_races(headers, target_date, allow_mock=should_allow_mock)
         except Exception as exc:
-            print(f"[Betfair] Live fetch failed ({exc}), falling back to mock data")
-            races = _generate_mock_races(target_date)
+            print(f"[Betfair] Live fetch failed ({exc})")
+            races = _fallback_races(target_date, should_allow_mock, reason="live fetch failed")
     else:
-        races = _generate_mock_races(target_date)
+        races = _fallback_races(target_date, should_allow_mock, reason="missing credentials")
 
     final_races = []
     for race in races:
@@ -154,7 +156,27 @@ def fetch_today_races(run_date: Optional[str] = None):
     return final_races
 
 
-def _fetch_live_races(headers, target_date: date):
+def _should_allow_mock(allow_mock: Optional[bool]) -> bool:
+    if allow_mock is not None:
+        return allow_mock
+    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    raw = os.getenv("BETMATE_ALLOW_MOCK_RACING", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    return True
+
+
+def _fallback_races(target_date: date, allow_mock: bool, reason: str) -> list[dict]:
+    if allow_mock:
+        print(f"[Betfair] {reason}, falling back to mock data")
+        return _generate_mock_races(target_date)
+    print(f"[Betfair] {reason}, returning no races because mock data is disabled")
+    return []
+
+
+def _fetch_live_races(headers, target_date: date, allow_mock: bool = True):
     api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
     market_start_time = _betfair_market_time_window(target_date)
     market_filter = {
@@ -184,8 +206,8 @@ def _fetch_live_races(headers, target_date: date):
     markets = response.json()
 
     if not markets:
-        print("[Betfair] No markets returned, using mock data")
-        return _generate_mock_races()
+        print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
+        return _fallback_races(target_date, allow_mock, reason="no markets returned")
 
     market_ids = [market["marketId"] for market in markets]
     prices = _fetch_prices(headers, market_ids)
@@ -272,35 +294,36 @@ def _fetch_prices(headers, market_ids):
         return {}
 
     api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketBook/"
-    payload = {
-        "marketIds": market_ids[:10],
-        "priceProjection": {"priceData": ["EX_BEST_OFFERS"]},
-    }
+    result = {}
 
     try:
-        response = requests.post(
-            api_url,
-            data=json.dumps(payload),
-            headers=headers,
-            timeout=15,
-        )
-        response.raise_for_status()
-        books = response.json()
+        for start in range(0, len(market_ids), 40):
+            payload = {
+                "marketIds": market_ids[start:start + 40],
+                "priceProjection": {"priceData": ["EX_BEST_OFFERS"]},
+            }
+            response = requests.post(
+                api_url,
+                data=json.dumps(payload),
+                headers=headers,
+                timeout=15,
+            )
+            response.raise_for_status()
+            books = response.json()
 
-        result = {}
-        for book in books:
-            mid = book.get("marketId", "")
-            runners_map = {}
-            for runner in book.get("runners", []):
-                sel_id = str(runner.get("selectionId", ""))
-                ex = runner.get("ex", {})
-                back_prices = ex.get("availableToBack", [])
-                lay_prices = ex.get("availableToLay", [])
-                runners_map[sel_id] = {
-                    "back": back_prices[0].get("price", 0) if back_prices else 0,
-                    "lay": lay_prices[0].get("price", 0) if lay_prices else 0,
-                }
-            result[mid] = runners_map
+            for book in books:
+                mid = book.get("marketId", "")
+                runners_map = {}
+                for runner in book.get("runners", []):
+                    sel_id = str(runner.get("selectionId", ""))
+                    ex = runner.get("ex", {})
+                    back_prices = ex.get("availableToBack", [])
+                    lay_prices = ex.get("availableToLay", [])
+                    runners_map[sel_id] = {
+                        "back": back_prices[0].get("price", 0) if back_prices else 0,
+                        "lay": lay_prices[0].get("price", 0) if lay_prices else 0,
+                    }
+                result[mid] = runners_map
         return result
     except Exception as exc:
         print(f"[Betfair] Price fetch error: {exc}")

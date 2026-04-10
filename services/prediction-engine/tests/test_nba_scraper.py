@@ -1,4 +1,5 @@
 import app.data.nba_scraper as nba_scraper
+from app.time_utils import today_melbourne
 
 
 def test_fetch_today_nba_scopes_to_requested_run_date(monkeypatch):
@@ -46,3 +47,11 @@ def test_fetch_today_nba_scopes_to_requested_run_date(monkeypatch):
     assert games[0]["game_id"] == "201"
     assert games[0]["home_team"] == "Los Angeles Lakers"
     assert nba_scraper.fetch_today_nba(run_date="2026-04-11") == []
+
+
+def test_fetch_today_nba_can_disable_mock_fallback(monkeypatch):
+    monkeypatch.setattr(nba_scraper, "BDL_API_KEY", "")
+
+    games = nba_scraper.fetch_today_nba(run_date=today_melbourne().isoformat(), allow_mock=False)
+
+    assert games == []

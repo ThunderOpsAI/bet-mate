@@ -224,8 +224,8 @@ def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
     observed = {}
 
     def record_run_date(sport):
-        def inner(run_date=None):
-            observed[sport] = run_date
+        def inner(run_date=None, allow_mock=None):
+            observed[sport] = {"run_date": run_date, "allow_mock": allow_mock}
             return []
         return inner
 
@@ -247,7 +247,48 @@ def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
 
     assert candidates == []
     assert observed == {
-        "racing": "2026-04-10",
-        "afl": "2026-04-10",
-        "nba": "2026-04-10",
+        "racing": {"run_date": "2026-04-10", "allow_mock": False},
+        "afl": {"run_date": "2026-04-10", "allow_mock": False},
+        "nba": {"run_date": "2026-04-10", "allow_mock": False},
     }
+
+
+def test_mock_backed_existing_card_is_rebuilt(monkeypatch):
+    profile = storage.get_strategy_profile("bob")
+    existing = {
+        "profile_key": "bob",
+        "card_date": "2026-04-10",
+        "selected_bets": [
+            {
+                "sport": "racing",
+                "event_id": "r_0_1",
+                "event_name": "Flemington R1",
+                "selection": "Harbour Light",
+            }
+        ],
+    }
+    saved = {}
+
+    monkeypatch.setattr(storage, "get_strategy_card", lambda profile_key, run_date: existing)
+    monkeypatch.setattr(
+        storage,
+        "get_strategy_profile",
+        lambda profile_key: {
+            "profile_key": profile_key,
+            "display_name": "Betmate Bob",
+            "rule_set": profile["rule_set"],
+        },
+    )
+    monkeypatch.setattr(
+        storage,
+        "save_strategy_card",
+        lambda card, replace=False: saved.setdefault("result", {**card, "replace": replace}),
+    )
+
+    service = StrategyService(racing_predictor=None, afl_predictor=None, nba_predictor=None)
+    monkeypatch.setattr(service, "collect_candidates_for_date", lambda run_date: [])
+
+    card = service.get_or_create_card("bob", "2026-04-10")
+
+    assert card["replace"] is True
+    assert card["card_date"] == "2026-04-10"

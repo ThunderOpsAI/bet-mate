@@ -1,6 +1,6 @@
-import requests
-import random
 import os
+import random
+import requests
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
@@ -13,6 +13,7 @@ BDL_BASE = "https://api.balldontlie.io/nba/v1"
 USER_AGENT = "BetMate - james.jones2086@gmail.com"
 DEFAULT_WIN_PCT = 0.5
 DEFAULT_RATING = 110.0
+TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
 def _bdl_get(endpoint: str, params: dict = None) -> dict:
@@ -249,24 +250,29 @@ def fetch_completed_nba_results(days_back=7, max_results=50):
     return results
 
 
-def fetch_today_nba(run_date=None):
+def fetch_today_nba(run_date=None, allow_mock=None):
     """
     Fetch today's NBA games from Ball Don't Lie API.
     Falls back to mock data if API is unavailable or no key is set.
     """
+    should_allow_mock = _should_allow_mock(allow_mock)
     target_date = resolve_melbourne_date(run_date) if run_date else None
     if BDL_API_KEY:
         try:
-            return _fetch_live_nba(target_date=target_date)
+            return _fetch_live_nba(target_date=target_date, allow_mock=should_allow_mock)
         except Exception as e:
-            print(f"[BallDontLie] Live fetch failed ({e}), using mock data")
+            print(f"[BallDontLie] Live fetch failed ({e})")
 
     if target_date and target_date != today_melbourne():
         return []
-    return _generate_mock_nba(run_date=target_date.isoformat() if target_date else None)
+    return _fallback_games(
+        run_date=target_date.isoformat() if target_date else None,
+        allow_mock=should_allow_mock,
+        reason="missing API key or live fetch failed",
+    )
 
 
-def _fetch_live_nba(target_date=None):
+def _fetch_live_nba(target_date=None, allow_mock=True):
     """Fetch real NBA games and team stats from Ball Don't Lie."""
     if target_date:
         query_dates = [target_date.strftime("%Y-%m-%d")]
@@ -289,8 +295,7 @@ def _fetch_live_nba(target_date=None):
         if target_date:
             print(f"[BallDontLie] No NBA games found for {target_date.isoformat()}")
             return []
-        print("[BallDontLie] No upcoming games found, using mock data")
-        return _generate_mock_nba()
+        return _fallback_games(None, allow_mock, reason="No upcoming NBA games found")
     
     # Fetch season stats for team strength estimation
     season_anchor = target_date or datetime.now()
@@ -342,6 +347,26 @@ def _fetch_live_nba(target_date=None):
     else:
         print(f"[BallDontLie] Loaded {len(games)} NBA games")
     return games
+
+
+def _should_allow_mock(allow_mock) -> bool:
+    if allow_mock is not None:
+        return bool(allow_mock)
+    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    raw = os.getenv("BETMATE_ALLOW_MOCK_NBA", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    return True
+
+
+def _fallback_games(run_date: str | None, allow_mock: bool, reason: str):
+    if allow_mock:
+        print(f"[BallDontLie] {reason}, using mock data")
+        return _generate_mock_nba(run_date=run_date)
+    print(f"[BallDontLie] {reason}, returning no games because mock data is disabled")
+    return []
 
 
 def _get_team_season_stats(season: int) -> dict:

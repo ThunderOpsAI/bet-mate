@@ -514,9 +514,9 @@ async def bob_chat(request: BobChatRequest):
 
 @app.get("/api/races/today")
 def get_today_races(date: Optional[str] = None):
-    """Fetch live/mock data for a Melbourne date (defaults to today)."""
+    """Fetch live race data for a Melbourne date (defaults to today)."""
     try:
-        races = racing_scraper.fetch_today_races(run_date=date)
+        races = racing_scraper.fetch_today_races(run_date=date, allow_mock=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}
@@ -573,7 +573,7 @@ def predict_race(race: Race):
 @app.get("/api/afl/games/upcoming")
 def get_upcoming_afl(date: Optional[str] = None):
     try:
-        games = afl_scraper.fetch_this_week_afl(run_date=date)
+        games = afl_scraper.fetch_this_week_afl(run_date=date, allow_mock=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
@@ -644,7 +644,7 @@ def predict_afl(game: TeamGame):
 @app.get("/api/nba/games/today")
 def get_today_nba(date: Optional[str] = None):
     try:
-        games = nba_scraper.fetch_today_nba(run_date=date)
+        games = nba_scraper.fetch_today_nba(run_date=date, allow_mock=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}

@@ -57,3 +57,11 @@ def test_fetch_this_week_afl_scopes_to_requested_run_date(monkeypatch):
     assert games[0]["game_id"] == "101"
     assert games[0]["home_team"] == "Geelong Cats"
     assert afl_scraper.fetch_this_week_afl(run_date="2026-04-12") == []
+
+
+def test_fetch_this_week_afl_can_disable_mock_fallback(monkeypatch):
+    monkeypatch.setattr(afl_scraper, "_squiggle_get", lambda params: {})
+
+    games = afl_scraper.fetch_this_week_afl(run_date=None, allow_mock=False)
+
+    assert games == []

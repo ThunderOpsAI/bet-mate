@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from itertools import combinations
@@ -13,6 +14,11 @@ from app.time_utils import is_melbourne_premium_day
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+MOCK_EVENT_ID_PATTERNS = (
+    re.compile(r"^r_\d+_\d+$"),
+    re.compile(r"^afl_game_\d+$"),
+    re.compile(r"^nba_game_\d+$"),
+)
 
 
 @dataclass
@@ -23,7 +29,7 @@ class StrategyService:
 
     def get_or_create_card(self, profile_key: str, run_date: str, candidates: Optional[List[Dict[str, Any]]] = None):
         existing = storage.get_strategy_card(profile_key, run_date)
-        if existing:
+        if existing and not card_requires_refresh(existing):
             return existing
 
         profile = storage.get_strategy_profile(profile_key)
@@ -32,18 +38,27 @@ class StrategyService:
 
         candidate_pool = candidates if candidates is not None else self.collect_candidates_for_date(run_date)
         card = build_strategy_card(profile, candidate_pool, run_date)
-        return storage.save_strategy_card(card)
+        return storage.save_strategy_card(card, replace=existing is not None)
 
     def get_or_create_cards(self, run_date: str):
         profiles = storage.list_strategy_profiles()
         existing = {card["profile_key"]: card for card in storage.get_strategy_cards(run_date)}
-        if len(existing) == len(profiles):
+        profiles_needing_refresh = {
+            profile_key
+            for profile_key, card in existing.items()
+            if card_requires_refresh(card)
+        }
+        if len(existing) == len(profiles) and not profiles_needing_refresh:
             return [existing[profile["profile_key"]] for profile in profiles]
 
         candidates = self.collect_candidates_for_date(run_date)
         cards = []
         for profile in profiles:
-            cards.append(existing.get(profile["profile_key"]) or self.get_or_create_card(profile["profile_key"], run_date, candidates))
+            profile_key = profile["profile_key"]
+            if profile_key in existing and profile_key not in profiles_needing_refresh:
+                cards.append(existing[profile_key])
+                continue
+            cards.append(self.get_or_create_card(profile_key, run_date, candidates))
         return cards
 
     def collect_candidates_for_date(self, run_date: str) -> List[Dict[str, Any]]:
@@ -54,7 +69,7 @@ class StrategyService:
         return candidates
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        races = racing_scraper.fetch_today_races(run_date=run_date)
+        races = racing_scraper.fetch_today_races(run_date=run_date, allow_mock=False)
         candidates: List[Dict[str, Any]] = []
         for race in races:
             horses = race.get("horses", [])
@@ -119,7 +134,7 @@ class StrategyService:
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = afl_scraper.fetch_this_week_afl(run_date=run_date)
+        games = afl_scraper.fetch_this_week_afl(run_date=run_date, allow_mock=False)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.afl_predictor.predict(game["features"])
@@ -144,7 +159,7 @@ class StrategyService:
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = nba_scraper.fetch_today_nba(run_date=run_date)
+        games = nba_scraper.fetch_today_nba(run_date=run_date, allow_mock=False)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.nba_predictor.predict(game["features"])
@@ -184,6 +199,14 @@ def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: st
         "edge": round(probability - baseline_probability, 4),
         "confidence": confidence_bucket(probability, probability - baseline_probability),
     }
+
+
+def card_requires_refresh(card: Dict[str, Any]) -> bool:
+    for bet in card.get("selected_bets", []):
+        event_id = str(bet.get("event_id", "")).strip()
+        if any(pattern.match(event_id) for pattern in MOCK_EVENT_ID_PATTERNS):
+            return True
+    return False
 
 
 def build_place_candidates(race: Dict[str, Any], ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

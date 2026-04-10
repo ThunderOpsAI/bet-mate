@@ -117,7 +117,7 @@ class TestDateScopedGameEndpoints:
         monkeypatch.setattr(
             main_mod.afl_scraper,
             "fetch_this_week_afl",
-            lambda run_date=None: [{"game_id": "afl-1", "date": run_date}],
+            lambda run_date=None, allow_mock=None: [{"game_id": "afl-1", "date": run_date}],
         )
 
         response = client.get("/api/afl/games/upcoming?date=2026-04-10")

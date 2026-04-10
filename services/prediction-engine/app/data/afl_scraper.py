@@ -1,6 +1,7 @@
-import requests
 import json
+import os
 import random
+import requests
 from datetime import datetime
 
 from app.time_utils import resolve_melbourne_date, today_melbourne
@@ -11,6 +12,7 @@ USER_AGENT = "BetMate - james.jones2086@gmail.com"
 DEFAULT_AVG_POINTS_FOR = 85.0
 DEFAULT_AVG_POINTS_AGAINST = 80.0
 DEFAULT_REST_DAYS = 7.0
+TRUE_VALUES = {"1", "true", "yes", "on"}
 
 
 def _squiggle_get(params: dict) -> dict:
@@ -317,12 +319,13 @@ def fetch_completed_afl_results(year=None, max_results=50):
     return results
 
 
-def fetch_this_week_afl(run_date=None):
+def fetch_this_week_afl(run_date=None, allow_mock=None):
     """
     Fetch upcoming/recent AFL games from Squiggle and build feature dicts
     that our XGBoost model can consume.
     Falls back to mock data if the API is unreachable.
     """
+    should_allow_mock = _should_allow_mock(allow_mock)
     target_date = resolve_melbourne_date(run_date) if run_date else None
     target_date_str = target_date.isoformat() if target_date else None
     year = target_date.year if target_date else datetime.now().year
@@ -334,8 +337,7 @@ def fetch_this_week_afl(run_date=None):
     if target_date_str:
         if not games_data:
             if target_date == today_melbourne():
-                print(f"[Squiggle] AFL API unavailable for {target_date_str}, falling back to mock data")
-                return _generate_mock_afl(target_date_str)
+                return _fallback_games(target_date_str, should_allow_mock, reason=f"AFL API unavailable for {target_date_str}")
             return []
         raw_games = [
             game for game in raw_games
@@ -354,8 +356,7 @@ def fetch_this_week_afl(run_date=None):
         if target_date_str:
             print(f"[Squiggle] No AFL games found for {target_date_str}")
             return []
-        print("[Squiggle] No games found, falling back to mock data")
-        return _generate_mock_afl()
+        return _fallback_games(None, should_allow_mock, reason="No AFL games found")
 
     # 2. Get standings for form data
     standings_data = _squiggle_get({"q": "standings", "year": year})
@@ -461,6 +462,26 @@ def fetch_this_week_afl(run_date=None):
     else:
         print(f"[Squiggle] Loaded {len(games)} AFL games (Round {games[0].get('round', '?') if games else '?'})")
     return games
+
+
+def _should_allow_mock(allow_mock) -> bool:
+    if allow_mock is not None:
+        return bool(allow_mock)
+    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    raw = os.getenv("BETMATE_ALLOW_MOCK_AFL", "").strip().lower()
+    if raw:
+        return raw in TRUE_VALUES
+    return True
+
+
+def _fallback_games(run_date: str | None, allow_mock: bool, reason: str):
+    if allow_mock:
+        print(f"[Squiggle] {reason}, falling back to mock data")
+        return _generate_mock_afl(run_date)
+    print(f"[Squiggle] {reason}, returning no games because mock data is disabled")
+    return []
 
 
 def _generate_mock_afl(run_date: str | None = None):

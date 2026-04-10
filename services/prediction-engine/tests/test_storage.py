@@ -553,6 +553,80 @@ class TestStrategyStorage:
         assert first["card_date"] == second["card_date"]
         assert len(storage.list_system_bets(profile_key="bob")) == 1
 
+    def test_strategy_card_replace_rewrites_system_bets_and_clears_links(self):
+        original = {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "card_date": "2026-04-09",
+            "bankroll_available": 250.0,
+            "bankroll_standard": 250.0,
+            "bankroll_premium": 500.0,
+            "total_allocated": 25.0,
+            "candidate_count": 1,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "afl_game_1",
+                    "event_name": "Mock A vs Mock B",
+                    "market_type": "head_to_head",
+                    "selection": "Mock A",
+                    "model_probability": 0.6,
+                    "odds_used": 1.9,
+                    "odds_source": "model_implied",
+                    "edge": 0.08,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+            "skipped_opportunities": [],
+            "sport_mix": {"afl": 1.0},
+            "expected_edge": 0.08,
+        }
+        storage.save_strategy_card(original)
+        existing_bet = storage.list_system_bets(profile_key="bob")[0]
+        storage.create_paper_bet(
+            sport="afl",
+            event_id="afl_game_1",
+            event_name="Mock A vs Mock B",
+            selection="Mock A",
+            stake=10.0,
+            odds=1.9,
+            system_bet_id=existing_bet["id"],
+        )
+
+        replacement = {
+            **original,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "38539",
+                    "event_name": "Carlton vs Collingwood",
+                    "market_type": "head_to_head",
+                    "selection": "Collingwood",
+                    "model_probability": 0.61,
+                    "odds_used": 1.8,
+                    "odds_source": "model_implied",
+                    "edge": 0.06,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+        }
+
+        storage.save_strategy_card(replacement, replace=True)
+
+        bets = storage.list_system_bets(profile_key="bob")
+        paper_bets = storage.get_paper_bets(limit=10)
+        assert len(bets) == 1
+        assert bets[0]["event_id"] == "38539"
+        assert paper_bets[0]["system_bet_id"] is None
+
     def test_system_bets_settle_separately_from_prediction_log(self):
         storage.log_prediction_batch(
             sport="afl",
