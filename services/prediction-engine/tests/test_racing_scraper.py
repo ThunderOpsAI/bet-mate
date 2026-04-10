@@ -37,7 +37,7 @@ def test_metro_allowlist_filters_correct_meetings_by_venue_and_weekday(monkeypat
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers: [
+        lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
             _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
             _build_live_race("Bendigo", "2026-07-01T23:30:00Z", ["Blue Monarch", "Velvet Charge"]),
@@ -49,12 +49,13 @@ def test_metro_allowlist_filters_correct_meetings_by_venue_and_weekday(monkeypat
 
     monkeypatch.setattr(scraper, "_fetch_racing_australia_html", raise_timeout)
 
-    races = scraper.fetch_today_races()
+    races = scraper.fetch_today_races(run_date="2026-07-02")
 
-    assert [race["venue"] for race in races] == ["Flemington"]
+    assert [race["venue"] for race in races] == ["Flemington", "Bendigo"]
     assert races[0]["meeting_type"] == "metro"
     assert races[0]["meeting_region"] == "VIC"
     assert races[0]["meeting_date"] == "2026-07-02"
+    assert races[1]["meeting_type"] == "unknown"
 
 
 def test_meeting_context_uses_melbourne_timezone_and_handles_dst_boundary():
@@ -72,7 +73,7 @@ def test_betfair_and_racing_australia_merge_produces_horse_and_jockey_names(monk
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers: [
+        lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
         ],
     )
@@ -88,7 +89,7 @@ def test_betfair_and_racing_australia_merge_produces_horse_and_jockey_names(monk
         """,
     )
 
-    races = scraper.fetch_today_races()
+    races = scraper.fetch_today_races(run_date="2026-07-02")
 
     assert len(races) == 1
     assert races[0]["data_source"] == "racing_australia"
@@ -102,14 +103,14 @@ def test_failed_enrichment_returns_betfair_card_unchanged(monkeypatch):
     base_race = _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"])
 
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
-    monkeypatch.setattr(scraper, "_fetch_live_races", lambda _headers: [base_race])
+    monkeypatch.setattr(scraper, "_fetch_live_races", lambda _headers, _target_date: [base_race])
 
     def raise_timeout(_url: str):
         raise requests.Timeout("skip enrichment")
 
     monkeypatch.setattr(scraper, "_fetch_racing_australia_html", raise_timeout)
 
-    races = scraper.fetch_today_races()
+    races = scraper.fetch_today_races(run_date="2026-07-02")
 
     assert len(races) == 1
     assert races[0]["data_source"] == "betfair"
@@ -126,3 +127,21 @@ def test_mock_responses_do_not_use_placeholder_horse_numbering(monkeypatch):
     for race in races:
         for horse in race["horses"]:
             assert not re.fullmatch(r"Horse \d+", horse["name"])
+
+
+def test_fetch_today_races_filters_out_non_target_dates(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date: [
+            _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+            _build_live_race("Flemington", "2026-07-03T01:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 1
+    assert races[0]["meeting_date"] == "2026-07-02"

@@ -477,9 +477,12 @@ async def bob_chat(request: BobChatRequest):
 # --- RACING ENDPOINTS ---
 
 @app.get("/api/races/today")
-def get_today_races():
-    """Fetch live/mock data for today's races."""
-    races = racing_scraper.fetch_today_races()
+def get_today_races(date: Optional[str] = None):
+    """Fetch live/mock data for a Melbourne date (defaults to today)."""
+    try:
+        races = racing_scraper.fetch_today_races(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}
 
 @app.post("/api/predict/racing")

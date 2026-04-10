@@ -53,7 +53,7 @@ class StrategyService:
         return candidates
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        races = racing_scraper.fetch_today_races()
+        races = racing_scraper.fetch_today_races(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for race in races:
             horses = race.get("horses", [])

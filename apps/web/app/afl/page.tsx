@@ -16,7 +16,7 @@ type AFLGame = {
   hscore?: number | null;
   ascore?: number | null;
   squiggle_tip?: string;
-  squiggle_confidence?: number;
+  squiggle_confidence?: number | string | null;
 };
 
 type AFLScoreUpdate = {
@@ -274,12 +274,17 @@ function formatFeatureName(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-function formatSquiggleConfidence(confidence?: number): string {
-  if (!confidence) {
+function formatSquiggleConfidence(confidence?: number | string | null): string {
+  if (confidence === null || confidence === undefined || confidence === "") {
     return "";
   }
 
-  const confidencePct = confidence > 1 ? confidence : confidence * 100;
+  const numericConfidence = Number(confidence);
+  if (!Number.isFinite(numericConfidence)) {
+    return "";
+  }
+
+  const confidencePct = numericConfidence > 1 ? numericConfidence : numericConfidence * 100;
   return `${confidencePct.toFixed(0)}%`;
 }
 

@@ -1,5 +1,40 @@
 # BetMate — Codex Handoff (8 Apr 2026)
 
+## Update — 10 Apr 2026 (Production Stability + Daily Race Scope)
+
+### What was done today
+
+- Ran full browser E2E checks with Playwright against key web routes and reproduced runtime issues.
+- Fixed an AFL UI runtime crash where `squiggle_confidence` could be a string:
+  - `apps/web/app/afl/page.tsx`
+  - Added numeric coercion/guarding before `.toFixed()`.
+- Implemented date-scoped racing fetch so weekday cards do not load Saturday races:
+  - `services/prediction-engine/app/data/scraper.py`
+  - `fetch_today_races(run_date=...)` now scopes to a Melbourne date.
+  - Betfair query now includes `marketStartTime` `from/to` UTC bounds for the target Melbourne day.
+  - Final race list is filtered to the target `meeting_date`.
+- Adjusted race filtering to keep non-allowlisted venues (not just metro allowlist meetings):
+  - Known venues still get metro metadata from allowlist.
+  - Unknown venues are retained so daily cards include broader race coverage.
+- Wired strategy racing candidates to the strategy run date:
+  - `services/prediction-engine/app/strategy.py`
+  - `_racing_candidates(run_date)` now calls `fetch_today_races(run_date=run_date)`.
+- Extended racing endpoint date support:
+  - `GET /api/races/today?date=YYYY-MM-DD`
+  - Invalid date returns HTTP 400.
+
+### Test verification completed
+
+- `services/prediction-engine/tests/test_racing_scraper.py` → **6 passed**
+- `services/prediction-engine/tests/test_api.py` → **27 passed**
+- `services/prediction-engine/tests/test_strategy.py` → **3 passed**
+
+### v1.5 leftovers (still open)
+
+- `allow_multis` / `max_multi_legs` are present in rule sets but not yet integrated into card allocation (multi candidate builder exists but is not used in final selection path).
+- AFL/NBA candidate collection is still “current window” based, not strictly `run_date` scoped like Racing.
+- Nightly strategy cycle exists (`app/nightly.py`) and is tested, but production scheduling/orchestration is still an ops task.
+
 ## What This App Is
 BetMate is an ML-powered sports prediction platform. It uses XGBoost models to generate win probabilities for Racing, AFL, and NBA, served via a FastAPI backend and rendered in a premium Next.js dashboard.
 
