@@ -41,3 +41,8 @@ docs/betmate-implementation-checklist.docx
 services/prediction-engine/models/
 services/prediction-engine/app/ml/*_model.pkl
 services/prediction-engine/runtime/
+
+# Local Betfair certificate artifacts
+betfair-cert/
+services/prediction-engine/client-2048.crt
+services/prediction-engine/client-2048.key

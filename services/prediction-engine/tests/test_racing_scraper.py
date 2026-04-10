@@ -1,8 +1,24 @@
 import re
+from pathlib import Path
+from typing import Optional
 
 import requests
 
 from app.data import scraper
+
+
+class _DummyLoginResponse:
+    def __init__(self, payload: dict, error: Optional[Exception] = None):
+        self._payload = payload
+        self._error = error
+
+    def raise_for_status(self):
+        if self._error:
+            raise self._error
+        return None
+
+    def json(self):
+        return self._payload
 
 
 def _build_live_race(venue: str, start_time: str, horse_names: list[str]):
@@ -232,3 +248,87 @@ def test_fetch_today_races_filters_out_non_target_dates(monkeypatch):
 
     assert len(races) == 1
     assert races[0]["meeting_date"] == "2026-07-02"
+
+
+def test_login_uses_certificate_auth_when_configured(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "certificate")
+    monkeypatch.setenv("BETFAIR_CERT_PEM", "-----BEGIN CERTIFICATE-----\\ncert\\n-----END CERTIFICATE-----")
+    monkeypatch.setenv("BETFAIR_KEY_PEM", "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----")
+
+    captured = {}
+
+    def fake_post(url, data=None, headers=None, timeout=None, cert=None):
+        captured["url"] = url
+        captured["data"] = data
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        captured["cert"] = cert
+        return _DummyLoginResponse({"sessionToken": "cert-token", "loginStatus": "SUCCESS"})
+
+    monkeypatch.setattr(scraper.requests, "post", fake_post)
+
+    token = scraper._login()
+
+    assert token == "cert-token"
+    assert captured["url"] == scraper.BETFAIR_CERT_LOGIN_URL
+    assert captured["data"] == {"username": "user", "password": "pass"}
+    assert captured["headers"]["X-Application"] == "app-key"
+    assert isinstance(captured["cert"], tuple)
+    assert all(Path(path).is_file() for path in captured["cert"])
+    assert scraper._session_token == "cert-token"
+
+
+def test_login_auto_falls_back_to_interactive_after_certificate_failure(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "auto")
+    monkeypatch.setenv("BETFAIR_CERT_PEM", "-----BEGIN CERTIFICATE-----\\ncert\\n-----END CERTIFICATE-----")
+    monkeypatch.setenv("BETFAIR_KEY_PEM", "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----")
+
+    calls = []
+
+    def fake_post(url, data=None, headers=None, timeout=None, cert=None):
+        calls.append({"url": url, "cert": cert})
+        if url == scraper.BETFAIR_CERT_LOGIN_URL:
+            return _DummyLoginResponse({}, error=requests.HTTPError("403 Client Error: Forbidden"))
+        return _DummyLoginResponse({"token": "interactive-token", "status": "SUCCESS", "error": ""})
+
+    monkeypatch.setattr(scraper.requests, "post", fake_post)
+
+    token = scraper._login()
+
+    assert token == "interactive-token"
+    assert [call["url"] for call in calls] == [
+        scraper.BETFAIR_CERT_LOGIN_URL,
+        scraper.BETFAIR_INTERACTIVE_LOGIN_URL,
+    ]
+    assert calls[0]["cert"] is not None
+    assert calls[1]["cert"] is None
+
+
+def test_login_certificate_mode_requires_certificate_material(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "certificate")
+    monkeypatch.delenv("BETFAIR_CERT_PATH", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PATH", raising=False)
+    monkeypatch.delenv("BETFAIR_CERT_PEM", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PEM", raising=False)
+    monkeypatch.delenv("BETFAIR_CERT_PEM_B64", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PEM_B64", raising=False)
+
+    def fail_post(*args, **kwargs):
+        raise AssertionError("requests.post should not be called without certificate material")
+
+    monkeypatch.setattr(scraper.requests, "post", fail_post)
+
+    assert scraper._login() is None
+    assert scraper._session_token is None

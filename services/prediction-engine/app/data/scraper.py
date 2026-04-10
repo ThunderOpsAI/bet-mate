@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import base64
 import html
+import hashlib
 import json
 import os
 import random
 import re
+import tempfile
 import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Optional, Union
 
 import requests
 from dotenv import load_dotenv
@@ -24,6 +27,10 @@ BETFAIR_PASSWORD = os.getenv("BETFAIR_PASSWORD", "")
 ALLOWLIST_PATH = Path(__file__).with_name("metro_allowlist.json")
 RA_BASE_URL = "https://racingaustralia.horse/ozracing/Acceptances.aspx"
 DEFAULT_TIMEOUT_SECONDS = 10
+BETFAIR_INTERACTIVE_LOGIN_URL = "https://identitysso.betfair.com.au/api/login"
+BETFAIR_CERT_LOGIN_URL = "https://identitysso-cert.betfair.com.au/api/certlogin"
+BETFAIR_AUTH_MODES = {"auto", "interactive", "certificate"}
+BETFAIR_CERT_TEMP_DIR = Path(tempfile.gettempdir()) / "betmate-betfair"
 
 _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
@@ -58,35 +65,106 @@ MOCK_JOCKEYS = [
 def _login():
     global _session_token
 
+    auth_mode = _betfair_auth_mode()
+
+    if auth_mode in {"auto", "certificate"}:
+        client_cert = _betfair_client_certificate()
+        if client_cert:
+            print(f"[Betfair] Login mode {auth_mode}: using certificate auth ({_betfair_certificate_status()})")
+            token = _login_with_certificate(client_cert)
+            if token:
+                _session_token = token
+                return token
+            if auth_mode == "certificate":
+                return None
+            print("[Betfair] Certificate auth failed, falling back to interactive login")
+        elif auth_mode == "certificate":
+            print(
+                f"[Betfair] Certificate auth requested but certificate material is missing "
+                f"({_betfair_certificate_status()})"
+            )
+            return None
+
     if not _betfair_credentials_present():
-        print(f"[Betfair] Credentials missing ({_betfair_credential_status()})")
+        print(f"[Betfair] Credentials missing for interactive login ({_betfair_credential_status()})")
         return None
 
-    login_url = "https://identitysso.betfair.com.au/api/login"
+    if auth_mode == "interactive":
+        print(f"[Betfair] Login mode interactive ({_betfair_credential_status()})")
+    else:
+        print(f"[Betfair] Login mode auto: using interactive login ({_betfair_credential_status()})")
+
+    token = _login_interactive()
+    if token:
+        _session_token = token
+    return token
+
+
+def _login_interactive() -> Optional[str]:
     login_payload = {
         "username": BETFAIR_USERNAME,
         "password": BETFAIR_PASSWORD,
     }
-    login_headers = {
+
+    try:
+        res = requests.post(
+            BETFAIR_INTERACTIVE_LOGIN_URL,
+            data=login_payload,
+            headers=_betfair_login_headers(),
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+        )
+        return _extract_session_token(res, mode="interactive")
+    except Exception as exc:
+        print(f"[Betfair] Interactive login error ({_betfair_credential_status()}): {exc}")
+        return None
+
+
+def _login_with_certificate(client_cert: Union[str, tuple[str, str]]) -> Optional[str]:
+    if not _betfair_credentials_present():
+        print(f"[Betfair] Credentials missing for certificate login ({_betfair_credential_status()})")
+        return None
+
+    login_payload = {
+        "username": BETFAIR_USERNAME,
+        "password": BETFAIR_PASSWORD,
+    }
+
+    try:
+        res = requests.post(
+            BETFAIR_CERT_LOGIN_URL,
+            data=login_payload,
+            headers=_betfair_login_headers(),
+            timeout=DEFAULT_TIMEOUT_SECONDS,
+            cert=client_cert,
+        )
+        return _extract_session_token(res, mode="certificate")
+    except Exception as exc:
+        print(
+            "[Betfair] Certificate login error "
+            f"({_betfair_credential_status()}; {_betfair_certificate_status()}): {exc}"
+        )
+        return None
+
+
+def _betfair_login_headers() -> dict[str, str]:
+    return {
         "X-Application": BETFAIR_APP_KEY,
         "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
     }
 
-    try:
-        res = requests.post(login_url, data=login_payload, headers=login_headers, timeout=DEFAULT_TIMEOUT_SECONDS)
-        res.raise_for_status()
-        auth_data = res.json()
-        token = auth_data.get("token")
-        if token:
-            _session_token = token
-            print("[Betfair] Authenticated successfully")
-            return token
-        print(f"[Betfair] Login failed: {auth_data.get('error', 'unknown')}")
-        return None
-    except Exception as exc:
-        print(f"[Betfair] Login error ({_betfair_credential_status()}): {exc}")
-        return None
+
+def _extract_session_token(response, mode: str) -> Optional[str]:
+    response.raise_for_status()
+    auth_data = response.json()
+    token = auth_data.get("token") or auth_data.get("sessionToken")
+    if token:
+        print(f"[Betfair] Authenticated successfully via {mode} login")
+        return token
+
+    failure = auth_data.get("error") or auth_data.get("loginStatus") or auth_data.get("status") or "unknown"
+    print(f"[Betfair] {mode.capitalize()} login failed: {failure}")
+    return None
 
 
 def _get_api_headers():
@@ -169,8 +247,90 @@ def _should_allow_mock(allow_mock: Optional[bool]) -> bool:
     return True
 
 
+def _betfair_auth_mode() -> str:
+    raw = os.getenv("BETFAIR_AUTH_MODE", "auto").strip().lower()
+    if raw in BETFAIR_AUTH_MODES:
+        return raw
+    if raw:
+        print(f"[Betfair] Unknown BETFAIR_AUTH_MODE={raw!r}, defaulting to auto")
+    return "auto"
+
+
 def _betfair_credentials_present() -> bool:
     return bool(BETFAIR_APP_KEY and BETFAIR_USERNAME and BETFAIR_PASSWORD)
+
+
+def _betfair_client_certificate() -> Optional[Union[str, tuple[str, str]]]:
+    cert_path = _betfair_cert_file_path()
+    key_path = _betfair_key_file_path()
+
+    if key_path and not cert_path:
+        print("[Betfair] Key material configured without a matching certificate")
+        return None
+    if cert_path and key_path:
+        return cert_path, key_path
+    return cert_path or None
+
+
+def _betfair_cert_file_path() -> str:
+    return _resolve_betfair_material_path(
+        path_var="BETFAIR_CERT_PATH",
+        raw_var="BETFAIR_CERT_PEM",
+        b64_var="BETFAIR_CERT_PEM_B64",
+        label="cert",
+    )
+
+
+def _betfair_key_file_path() -> str:
+    return _resolve_betfair_material_path(
+        path_var="BETFAIR_KEY_PATH",
+        raw_var="BETFAIR_KEY_PEM",
+        b64_var="BETFAIR_KEY_PEM_B64",
+        label="key",
+    )
+
+
+def _resolve_betfair_material_path(path_var: str, raw_var: str, b64_var: str, label: str) -> str:
+    raw_path = os.getenv(path_var, "").strip()
+    if raw_path:
+        candidate = Path(raw_path).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+        print(f"[Betfair] {path_var} does not exist or is not a file: {candidate}")
+        return ""
+
+    raw_pem = os.getenv(raw_var, "").strip()
+    if raw_pem:
+        return _write_betfair_temp_material(_normalize_pem_text(raw_pem), label=label)
+
+    encoded_pem = os.getenv(b64_var, "").strip()
+    if encoded_pem:
+        try:
+            decoded = base64.b64decode(encoded_pem).decode("utf-8")
+        except Exception as exc:
+            print(f"[Betfair] Invalid {b64_var}: {exc}")
+            return ""
+        return _write_betfair_temp_material(_normalize_pem_text(decoded), label=label)
+
+    return ""
+
+
+def _normalize_pem_text(value: str) -> str:
+    normalized = value.strip().replace("\\n", "\n")
+    return normalized if normalized.endswith("\n") else f"{normalized}\n"
+
+
+def _write_betfair_temp_material(value: str, label: str) -> str:
+    BETFAIR_CERT_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+    path = BETFAIR_CERT_TEMP_DIR / f"betfair-{label}-{digest}.pem"
+    if not path.exists():
+        path.write_text(value, encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    return str(path)
 
 
 def _betfair_credential_status() -> str:
@@ -179,6 +339,17 @@ def _betfair_credential_status() -> str:
             f"app_key={'yes' if bool(BETFAIR_APP_KEY) else 'no'}",
             f"username={'yes' if bool(BETFAIR_USERNAME) else 'no'}",
             f"password={'yes' if bool(BETFAIR_PASSWORD) else 'no'}",
+        ]
+    )
+
+
+def _betfair_certificate_status() -> str:
+    return ", ".join(
+        [
+            f"cert_path={'yes' if bool(os.getenv('BETFAIR_CERT_PATH', '').strip()) else 'no'}",
+            f"key_path={'yes' if bool(os.getenv('BETFAIR_KEY_PATH', '').strip()) else 'no'}",
+            f"cert_content={'yes' if bool(os.getenv('BETFAIR_CERT_PEM', '').strip() or os.getenv('BETFAIR_CERT_PEM_B64', '').strip()) else 'no'}",
+            f"key_content={'yes' if bool(os.getenv('BETFAIR_KEY_PEM', '').strip() or os.getenv('BETFAIR_KEY_PEM_B64', '').strip()) else 'no'}",
         ]
     )
 
