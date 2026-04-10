@@ -58,8 +58,8 @@ MOCK_JOCKEYS = [
 def _login():
     global _session_token
 
-    if not BETFAIR_APP_KEY or not BETFAIR_USERNAME or not BETFAIR_PASSWORD:
-        print("[Betfair] Missing credentials, falling back to mock data")
+    if not _betfair_credentials_present():
+        print(f"[Betfair] Credentials missing ({_betfair_credential_status()})")
         return None
 
     login_url = "https://identitysso.betfair.com.au/api/login"
@@ -85,7 +85,7 @@ def _login():
         print(f"[Betfair] Login failed: {auth_data.get('error', 'unknown')}")
         return None
     except Exception as exc:
-        print(f"[Betfair] Login error: {exc}")
+        print(f"[Betfair] Login error ({_betfair_credential_status()}): {exc}")
         return None
 
 
@@ -142,7 +142,8 @@ def fetch_today_races(run_date: Optional[str] = None, allow_mock: Optional[bool]
             print(f"[Betfair] Live fetch failed ({exc})")
             races = _fallback_races(target_date, should_allow_mock, reason="live fetch failed")
     else:
-        races = _fallback_races(target_date, should_allow_mock, reason="missing credentials")
+        reason = "authentication unavailable" if _betfair_credentials_present() else "missing credentials"
+        races = _fallback_races(target_date, should_allow_mock, reason=reason)
 
     final_races = []
     for race in races:
@@ -166,6 +167,20 @@ def _should_allow_mock(allow_mock: Optional[bool]) -> bool:
     if raw:
         return raw in TRUE_VALUES
     return True
+
+
+def _betfair_credentials_present() -> bool:
+    return bool(BETFAIR_APP_KEY and BETFAIR_USERNAME and BETFAIR_PASSWORD)
+
+
+def _betfair_credential_status() -> str:
+    return ", ".join(
+        [
+            f"app_key={'yes' if bool(BETFAIR_APP_KEY) else 'no'}",
+            f"username={'yes' if bool(BETFAIR_USERNAME) else 'no'}",
+            f"password={'yes' if bool(BETFAIR_PASSWORD) else 'no'}",
+        ]
+    )
 
 
 def _fallback_races(target_date: date, allow_mock: bool, reason: str) -> list[dict]:
