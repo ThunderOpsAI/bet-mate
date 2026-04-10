@@ -3,6 +3,7 @@
     "venue": "Flemington",
     "state": "VIC",
     "region": "VIC",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["flemington"]
   },
@@ -10,6 +11,7 @@
     "venue": "Caulfield",
     "state": "VIC",
     "region": "VIC",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["caulfield"]
   },
@@ -17,6 +19,7 @@
     "venue": "Moonee Valley",
     "state": "VIC",
     "region": "VIC",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["moonee valley", "mvrc"]
   },
@@ -24,20 +27,71 @@
     "venue": "Sandown",
     "state": "VIC",
     "region": "VIC",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["sandown", "sandown hillside", "sandown lakeside"]
+  },
+  "pakenham": {
+    "venue": "Pakenham",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["pakenham", "pakenham synthetic"]
+  },
+  "cranbourne": {
+    "venue": "Cranbourne",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["cranbourne"]
+  },
+  "geelong": {
+    "venue": "Geelong",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["geelong"]
+  },
+  "ballarat": {
+    "venue": "Ballarat",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["ballarat", "ballarat synthetic"]
+  },
+  "bendigo": {
+    "venue": "Bendigo",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["bendigo"]
+  },
+  "warrnambool": {
+    "venue": "Warrnambool",
+    "state": "VIC",
+    "region": "VIC",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["warrnambool"]
   },
   "randwick": {
     "venue": "Randwick",
     "state": "NSW",
     "region": "NSW",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-    "aliases": ["randwick", "royal randwick"]
+    "aliases": ["randwick", "royal randwick", "randwick kensington", "randwick-kensington"]
   },
   "rosehill": {
     "venue": "Rosehill",
     "state": "NSW",
     "region": "NSW",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["rosehill", "rosehill gardens"]
   },
@@ -45,6 +99,7 @@
     "venue": "Canterbury",
     "state": "NSW",
     "region": "NSW",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["canterbury", "canterbury park"]
   },
@@ -52,13 +107,63 @@
     "venue": "Warwick Farm",
     "state": "NSW",
     "region": "NSW",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["warwick farm"]
+  },
+  "kembla_grange": {
+    "venue": "Kembla Grange",
+    "state": "NSW",
+    "region": "NSW",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["kembla grange"]
+  },
+  "newcastle": {
+    "venue": "Newcastle",
+    "state": "NSW",
+    "region": "NSW",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["newcastle"]
+  },
+  "gosford": {
+    "venue": "Gosford",
+    "state": "NSW",
+    "region": "NSW",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["gosford"]
+  },
+  "hawkesbury": {
+    "venue": "Hawkesbury",
+    "state": "NSW",
+    "region": "NSW",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hawkesbury"]
+  },
+  "canberra": {
+    "venue": "Canberra",
+    "state": "ACT",
+    "region": "ACT",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["canberra"]
+  },
+  "albury": {
+    "venue": "Albury",
+    "state": "NSW",
+    "region": "NSW",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["albury"]
   },
   "eagle_farm": {
     "venue": "Eagle Farm",
     "state": "QLD",
     "region": "QLD",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["eagle farm"]
   },
@@ -66,21 +171,168 @@
     "venue": "Doomben",
     "state": "QLD",
     "region": "QLD",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["doomben"]
+  },
+  "sunshine_coast": {
+    "venue": "Sunshine Coast",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["sunshine coast", "sunshine coast poly", "sunshine coast poly track"]
+  },
+  "gold_coast": {
+    "venue": "Gold Coast",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["gold coast"]
+  },
+  "ipswich": {
+    "venue": "Ipswich",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["ipswich"]
+  },
+  "toowoomba": {
+    "venue": "Toowoomba",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["toowoomba", "toowoomba inner track"]
+  },
+  "rockhampton": {
+    "venue": "Rockhampton",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["rockhampton"]
+  },
+  "townsville": {
+    "venue": "Townsville",
+    "state": "QLD",
+    "region": "QLD",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["townsville"]
   },
   "ascot": {
     "venue": "Ascot",
     "state": "WA",
     "region": "WA",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-    "aliases": ["ascot", "ascot-wa"]
+    "aliases": ["ascot", "ascot wa", "ascot-wa"]
   },
   "belmont_park": {
     "venue": "Belmont Park",
     "state": "WA",
     "region": "WA",
+    "meeting_type": "metro",
     "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
-    "aliases": ["belmont park", "belmont"]
+    "aliases": ["belmont park", "belmont", "belmont wa"]
+  },
+  "pinjarra": {
+    "venue": "Pinjarra",
+    "state": "WA",
+    "region": "WA",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["pinjarra", "pinjarra scarpside"]
+  },
+  "bunbury": {
+    "venue": "Bunbury",
+    "state": "WA",
+    "region": "WA",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["bunbury"]
+  },
+  "northam": {
+    "venue": "Northam",
+    "state": "WA",
+    "region": "WA",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["northam"]
+  },
+  "geraldton": {
+    "venue": "Geraldton",
+    "state": "WA",
+    "region": "WA",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["geraldton"]
+  },
+  "kalgoorlie": {
+    "venue": "Kalgoorlie",
+    "state": "WA",
+    "region": "WA",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["kalgoorlie"]
+  },
+  "morphettville": {
+    "venue": "Morphettville",
+    "state": "SA",
+    "region": "SA",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["morphettville", "morphettville parks"]
+  },
+  "murray_bridge": {
+    "venue": "Murray Bridge",
+    "state": "SA",
+    "region": "SA",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["murray bridge"]
+  },
+  "gawler": {
+    "venue": "Gawler",
+    "state": "SA",
+    "region": "SA",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["gawler"]
+  },
+  "hobart": {
+    "venue": "Hobart",
+    "state": "TAS",
+    "region": "TAS",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hobart", "elwick"]
+  },
+  "launceston": {
+    "venue": "Launceston",
+    "state": "TAS",
+    "region": "TAS",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["launceston"]
+  },
+  "devonport": {
+    "venue": "Devonport",
+    "state": "TAS",
+    "region": "TAS",
+    "meeting_type": "provincial",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["devonport", "devonport synthetic"]
+  },
+  "fannie_bay": {
+    "venue": "Fannie Bay",
+    "state": "NT",
+    "region": "NT",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["fannie bay", "darwin"]
   }
 }

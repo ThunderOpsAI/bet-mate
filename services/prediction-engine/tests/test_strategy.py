@@ -3,6 +3,7 @@ from app.strategy import (
     StrategyService,
     allocate_candidates,
     build_multi_candidate,
+    build_multi_candidates,
     build_place_candidates,
     build_quinella_candidates,
     qualify_candidates,
@@ -167,6 +168,56 @@ def test_allocate_candidates_can_select_multi_when_enabled():
     assert selected[0]["sport"] == "multi"
     assert "Cats" in selected[0]["selection"]
     assert "Lakers" in selected[0]["selection"]
+    assert len(selected[0]["legs"]) == 2
+    assert selected[0]["odds_sources"] == ["model_implied", "model_implied"]
+
+
+def test_build_multi_candidates_only_uses_settleable_markets():
+    candidates = [
+        {
+            "sport": "racing",
+            "event_id": "r1",
+            "event_name": "Flemington R1",
+            "market_type": "place",
+            "selection": "Runner A",
+            "model_probability": 0.55,
+            "market_odds": None,
+            "derived_odds": 1.8,
+            "odds_source": "harville_derived",
+            "edge": 0.05,
+            "confidence": "medium",
+        },
+        {
+            "sport": "racing",
+            "event_id": "r2",
+            "event_name": "Flemington R2",
+            "market_type": "quinella",
+            "selection": "Runner B / Runner C",
+            "model_probability": 0.3,
+            "market_odds": None,
+            "derived_odds": 3.6,
+            "odds_source": "harville_derived",
+            "edge": 0.02,
+            "confidence": "medium",
+        },
+        {
+            "sport": "afl",
+            "event_id": "a1",
+            "event_name": "Cats vs Blues",
+            "market_type": "head_to_head",
+            "selection": "Cats",
+            "model_probability": 0.66,
+            "market_odds": None,
+            "derived_odds": 2.2,
+            "odds_source": "model_implied",
+            "edge": 0.2055,
+            "confidence": "high",
+        },
+    ]
+
+    multis = build_multi_candidates(candidates, _rule_set(max_bets_per_day=3, allow_multis=True, max_multi_legs=3))
+
+    assert multis == []
 
 
 def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):

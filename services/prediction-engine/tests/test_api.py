@@ -51,6 +51,7 @@ class TestRacingEndpoints:
         for race in data["races"]:
             assert "meeting_type" in race
             assert "meeting_region" in race
+            assert "state" in race
             assert "meeting_date" in race
             assert race["data_source"] in {"betfair", "racing_australia", "mock"}
             for horse in race["horses"]:
@@ -68,6 +69,7 @@ class TestRacingEndpoints:
                 "distance": 1400,
                 "meeting_type": "metro",
                 "meeting_region": "VIC",
+                "state": "VIC",
                 "meeting_date": "2026-04-09",
                 "data_source": "betfair",
                 "horses": [

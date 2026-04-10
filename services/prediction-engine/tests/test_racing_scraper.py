@@ -32,7 +32,7 @@ def _build_live_race(venue: str, start_time: str, horse_names: list[str]):
     }
 
 
-def test_target_day_keeps_known_qld_wa_and_unknown_meetings(monkeypatch):
+def test_target_day_keeps_mapped_qld_wa_and_unmapped_meetings(monkeypatch):
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
     monkeypatch.setattr(
         scraper,
@@ -40,7 +40,8 @@ def test_target_day_keeps_known_qld_wa_and_unknown_meetings(monkeypatch):
         lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
             _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
-            _build_live_race("Bendigo", "2026-07-01T23:30:00Z", ["Blue Monarch", "Velvet Charge"]),
+            _build_live_race("Belmont (WA)", "2026-07-01T23:30:00Z", ["Blue Monarch", "Velvet Charge"]),
+            _build_live_race("Mystery Park", "2026-07-01T23:30:00Z", ["Desert Anthem", "Velvet Charge"]),
         ],
     )
 
@@ -51,13 +52,43 @@ def test_target_day_keeps_known_qld_wa_and_unknown_meetings(monkeypatch):
 
     races = scraper.fetch_today_races(run_date="2026-07-02")
 
-    assert [race["venue"] for race in races] == ["Flemington", "Eagle Farm", "Bendigo"]
+    assert [race["venue"] for race in races] == ["Flemington", "Eagle Farm", "Belmont (WA)", "Mystery Park"]
     assert races[0]["meeting_type"] == "metro"
     assert races[0]["meeting_region"] == "VIC"
+    assert races[0]["state"] == "VIC"
     assert races[0]["meeting_date"] == "2026-07-02"
     assert races[1]["meeting_type"] == "metro"
     assert races[1]["meeting_region"] == "QLD"
-    assert races[2]["meeting_type"] == "unknown"
+    assert races[1]["state"] == "QLD"
+    assert races[2]["meeting_type"] == "metro"
+    assert races[2]["meeting_region"] == "WA"
+    assert races[2]["state"] == "WA"
+    assert races[3]["meeting_type"] == "unknown"
+    assert races[3]["meeting_region"] == ""
+    assert races[3]["state"] == ""
+
+
+def test_registry_supports_provincial_and_country_tags(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date: [
+            _build_live_race("Bendigo", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+            _build_live_race("Warrnambool", "2026-07-01T23:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 2
+    assert races[0]["meeting_type"] == "provincial"
+    assert races[0]["meeting_region"] == "VIC"
+    assert races[0]["state"] == "VIC"
+    assert races[1]["meeting_type"] == "country"
+    assert races[1]["meeting_region"] == "VIC"
+    assert races[1]["state"] == "VIC"
 
 
 def test_allowlist_active_days_still_apply_when_config_is_restricted(monkeypatch):
@@ -77,6 +108,7 @@ def test_allowlist_active_days_still_apply_when_config_is_restricted(monkeypatch
                 "venue": "Eagle Farm",
                 "state": "QLD",
                 "region": "QLD",
+                "meeting_type": "metro",
                 "active_days": ["wed"],
                 "aliases": ["eagle farm"],
             }

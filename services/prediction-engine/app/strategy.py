@@ -348,6 +348,10 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
             "profit": None,
             "settled_at": None,
         })
+        if candidate.get("legs"):
+            selected[-1]["legs"] = candidate["legs"]
+        if candidate.get("odds_sources"):
+            selected[-1]["odds_sources"] = candidate["odds_sources"]
         if candidate.get("sport_allocation"):
             selected[-1]["sport_allocation"] = candidate["sport_allocation"]
         _consume_sport_capacity(candidate, per_sport_used, stake)
@@ -501,7 +505,7 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
         return []
 
     max_multi_legs = max(2, int(rule_set.get("max_multi_legs", 1)))
-    eligible = [candidate for candidate in candidates if not candidate.get("legs")]
+    eligible = [candidate for candidate in candidates if not candidate.get("legs") and _candidate_supports_multi_settlement(candidate)]
     if len(eligible) < 2:
         return []
 
@@ -539,6 +543,12 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
     if sport in {"racing", "afl", "nba"}:
         return {sport: 1.0}
     return {}
+
+
+def _candidate_supports_multi_settlement(candidate: Dict[str, Any]) -> bool:
+    sport = str(candidate.get("sport", "")).strip().lower()
+    market_type = str(candidate.get("market_type", "")).strip().lower()
+    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba"})
 
 
 def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:

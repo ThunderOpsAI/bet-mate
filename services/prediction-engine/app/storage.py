@@ -1072,13 +1072,14 @@ def save_strategy_card(card: Dict[str, Any]) -> Dict[str, Any]:
                     odds_source,
                     edge,
                     stake,
+                    legs_json,
                     status,
                     payout,
                     profit,
                     settled_at,
                     created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -1093,6 +1094,7 @@ def save_strategy_card(card: Dict[str, Any]) -> Dict[str, Any]:
                     bet["odds_source"],
                     float(bet["edge"]),
                     float(bet["stake"]),
+                    _dumps_json(bet.get("legs") or []),
                     bet.get("status", "pending"),
                     _optional_float(bet.get("payout")),
                     _optional_float(bet.get("profit")),
@@ -1364,8 +1366,45 @@ def _row_to_strategy_profile(row) -> Dict[str, Any]:
     }
 
 
-def _row_to_system_bet(row) -> Dict[str, Any]:
+def _row_has_key(row, key: str) -> bool:
+    if isinstance(row, dict):
+        return key in row
+    if hasattr(row, "keys"):
+        try:
+            return key in row.keys()
+        except TypeError:
+            pass
+    try:
+        row[key]
+        return True
+    except (IndexError, KeyError, TypeError):
+        return False
+
+
+def _system_bet_legs_from_row(row) -> List[Dict[str, Any]]:
+    if not _row_has_key(row, "legs_json"):
+        return []
+    legs = _loads_json(row["legs_json"])
+    return legs if isinstance(legs, list) else []
+
+
+def _sport_allocation_from_legs(legs: List[Dict[str, Any]]) -> Dict[str, float]:
+    sport_counts: Dict[str, int] = {}
+    for leg in legs:
+        sport = str(leg.get("sport", "")).strip().lower()
+        if sport in {"racing", "afl", "nba"}:
+            sport_counts[sport] = sport_counts.get(sport, 0) + 1
+    leg_count = len(legs)
+    if leg_count <= 0:
+        return {}
     return {
+        sport: round(count / leg_count, 4)
+        for sport, count in sport_counts.items()
+    }
+
+
+def _row_to_system_bet(row) -> Dict[str, Any]:
+    bet = {
         "id": row["id"],
         "run_id": row["run_id"],
         "profile_key": row["profile_key"],
@@ -1385,6 +1424,14 @@ def _row_to_system_bet(row) -> Dict[str, Any]:
         "settled_at": row["settled_at"],
         "created_at": row["created_at"],
     }
+    legs = _system_bet_legs_from_row(row)
+    if legs:
+        bet["legs"] = legs
+        bet["odds_sources"] = [str(leg.get("odds_source", "")) for leg in legs if str(leg.get("odds_source", "")).strip()]
+        sport_allocation = _sport_allocation_from_legs(legs)
+        if sport_allocation:
+            bet["sport_allocation"] = sport_allocation
+    return bet
 
 
 def _hydrate_strategy_card(conn, run_row) -> Dict[str, Any]:
@@ -1477,8 +1524,8 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "payout": _optional_float(row["payout"]),
         "profit": _optional_float(row["profit"]),
         "notes": row["notes"],
-        "origin": row["origin"] if "origin" in row else "user",
-        "system_bet_id": row["system_bet_id"] if "system_bet_id" in row else None,
+        "origin": row["origin"] if _row_has_key(row, "origin") else "user",
+        "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
     }
 
 
@@ -1717,6 +1764,82 @@ def _settle_system_bets_for_event(conn, sport: str, event_id: str, settled_at: s
             """,
             (status.lower(), payout, profit, settled_at, bet["id"]),
         )
+
+    _settle_pending_multi_system_bets(conn, sport, event_id, settled_at)
+
+
+def _settle_pending_multi_system_bets(conn, sport: str, event_id: str, settled_at: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE market_type = 'multi' AND status = 'pending'
+        ORDER BY id ASC
+        """
+    ).fetchall()
+
+    for bet in rows:
+        legs = _system_bet_legs_from_row(bet)
+        if not legs or not _multi_bet_contains_event(legs, sport, event_id):
+            continue
+
+        settlement = _resolve_multi_bet_settlement(conn, bet, legs)
+        if settlement is None:
+            continue
+
+        status, payout, profit = settlement
+        conn.execute(
+            """
+            UPDATE system_bets
+            SET status = ?, payout = ?, profit = ?, settled_at = ?
+            WHERE id = ?
+            """,
+            (status.lower(), payout, profit, settled_at, bet["id"]),
+        )
+
+
+def _multi_bet_contains_event(legs: List[Dict[str, Any]], sport: str, event_id: str) -> bool:
+    return any(
+        str(leg.get("sport", "")).strip().lower() == sport
+        and str(leg.get("event_id", "")).strip() == event_id
+        for leg in legs
+    )
+
+
+def _resolve_multi_bet_settlement(conn, bet, legs: List[Dict[str, Any]]) -> Optional[tuple[str, float, float]]:
+    if not legs:
+        return None
+
+    outcomes: List[Optional[float]] = []
+    for leg in legs:
+        prediction = _find_prediction_for_bet(
+            conn,
+            str(leg.get("sport", "")).strip().lower(),
+            str(leg.get("event_id", "")).strip(),
+            str(leg.get("selection", "")),
+        )
+        if not prediction:
+            outcomes.append(None)
+            continue
+
+        actual_outcome = prediction["actual_outcome"]
+        if actual_outcome is None:
+            outcomes.append(None)
+            continue
+        outcomes.append(float(actual_outcome))
+
+    if any(outcome is not None and outcome <= 0.0 for outcome in outcomes):
+        return "LOST", 0.0, -float(bet["stake"])
+
+    if any(outcome is None for outcome in outcomes):
+        return None
+
+    if all(outcome >= 1.0 for outcome in outcomes):
+        payout = float(bet["stake"]) * float(bet["odds_used"])
+        return "WON", payout, payout - float(bet["stake"])
+
+    # Any non-losing, fully-resolved leg with a partial outcome voids the multi.
+    return "VOID", float(bet["stake"]), 0.0
 
 
 def _bet_settlement(stake: float, odds: float, outcome: float):

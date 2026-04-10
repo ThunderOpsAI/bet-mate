@@ -4,6 +4,32 @@
 
 ### What changed in this chat
 
+- Made multis first-class in persistence and settlement:
+  - `services/prediction-engine/app/strategy.py`
+  - `services/prediction-engine/app/storage.py`
+  - `services/prediction-engine/app/database.py`
+  - Selected multis now retain `legs` through allocation and storage.
+  - `system_bets` now stores `legs_json`.
+  - Multi settlement is deterministic:
+    - wins when all legs win
+    - loses as soon as any leg loses
+    - voids when all resolved legs are non-losing and at least one leg pushes / voids
+- Limited new multis to leg types that can be settled with the current result-ingestion model:
+  - racing `win`
+  - AFL `head_to_head`
+  - NBA `head_to_head`
+- Expanded racing venue classification beyond the original metro-only allowlist:
+  - `services/prediction-engine/app/data/metro_allowlist.json`
+  - Added mapped metro / provincial / country venues across VIC, NSW, QLD, WA, SA, TAS, NT, and ACT.
+  - Added richer alias coverage, including state-suffixed Betfair names like `Belmont (WA)`.
+- Propagated mapped venue metadata into racing cards:
+  - `services/prediction-engine/app/data/scraper.py`
+  - Mapped venues now carry `meeting_type`, `meeting_region`, and `state`.
+- Exposed `state` on the racing API schema:
+  - `services/prediction-engine/app/main.py`
+- Added regression coverage for mapped QLD / WA venues, provincial / country tagging, and unmapped fallback:
+  - `services/prediction-engine/tests/test_racing_scraper.py`
+  - `services/prediction-engine/tests/test_api.py`
 - Integrated multi selection into final strategy card allocation:
   - `services/prediction-engine/app/strategy.py`
   - `allow_multis` and `max_multi_legs` now affect the actual selected card, not just config state.
@@ -25,8 +51,8 @@
 
 ### Validation completed
 
-- `services/prediction-engine/venv/bin/pytest services/prediction-engine/tests/test_racing_scraper.py services/prediction-engine/tests/test_api.py services/prediction-engine/tests/test_strategy.py services/prediction-engine/tests/test_nightly.py services/prediction-engine/tests/test_afl_scraper.py services/prediction-engine/tests/test_nba_scraper.py`
-- Result: `47 passed`
+- `services/prediction-engine/venv/bin/pytest services/prediction-engine/tests/test_racing_scraper.py services/prediction-engine/tests/test_api.py services/prediction-engine/tests/test_strategy.py services/prediction-engine/tests/test_storage.py services/prediction-engine/tests/test_nightly.py services/prediction-engine/tests/test_afl_scraper.py services/prediction-engine/tests/test_nba_scraper.py`
+- Result: `87 passed`
 
 ## Current state
 
@@ -34,7 +60,8 @@
 
 - Daily race fetch is Melbourne-date scoped.
 - Melbourne and Sydney metro venues are tagged through the allowlist.
-- Brisbane and WA metro allowlist entries now default to all days so those meetings can appear whenever Betfair has them for the Melbourne target date.
+- Brisbane and WA mapped venues now default to all days so those meetings can appear whenever Betfair has them for the Melbourne target date.
+- The venue config now classifies mapped meetings as `metro`, `provincial`, or `country` and exposes `state` on each mapped race.
 - Non-allowlisted venues are still retained instead of being dropped.
 
 ### Strategy engine
@@ -42,6 +69,8 @@
 - Racing, AFL, and NBA candidate collection all respect the requested `run_date`.
 - Cross-sport best-edge allocation is working.
 - Multis can now appear in final cards.
+- Multis persist with full leg data and settle across all legs via `system_bets`.
+- New multis are currently constrained to settleable leg types (`racing win`, `afl/nba head_to_head`) until broader market-result logging exists.
 
 ### Nightly cycle
 
@@ -50,61 +79,7 @@
 
 ## Remaining work for next chat
 
-### 1. Tag unknown racing venues properly
-
-This is the main remaining racing gap.
-
-Current behavior:
-- Unknown venues still show in cards, which is good.
-- But if a Betfair venue alias is not in the allowlist, it stays:
-  - `meeting_type: "unknown"`
-  - `meeting_region: ""`
-
-What the next chat should do:
-- Introduce a broader venue registry so QLD/WA venues are explicitly classified, not just included.
-- Best approach:
-  - either expand `metro_allowlist.json` substantially
-  - or move to a proper venue table/JSON registry keyed by normalized aliases
-- Target output per mapped venue:
-  - `meeting_type`: `metro` / `provincial` / `country`
-  - `meeting_region`: `VIC` / `NSW` / `QLD` / `WA` / etc
-  - `state`
-  - `active_days`
-  - aliases from Betfair venue naming
-
-Suggested implementation shape:
-- Add a venue registry file or DB table that covers all commonly observed Betfair AU racing venues.
-- Keep the current “unknown venues still pass through” fallback.
-- Add tests that prove:
-  - a mapped Brisbane venue is tagged `QLD`
-  - a mapped WA venue is tagged `WA`
-  - an unmapped venue still appears rather than being dropped
-
-### 2. Finish multi persistence and settlement
-
-This is the main leftover from strategy v1.5 after allocation was wired.
-
-Current behavior:
-- Multis can be selected into cards.
-- But settlement/storage is still shaped around single-event bets.
-- A selected multi currently has composite card data, but `system_bets` settlement still keys off one `sport + event_id + selection`.
-
-What the next chat should do:
-- Make multis first-class persisted bets.
-- Recommended design:
-  - add `system_bet_legs` table, or
-  - add structured `legs_json` to `system_bets`
-- Then update settlement logic so a multi:
-  - wins only if all legs win
-  - loses if any leg loses
-  - void logic is explicit and deterministic
-
-Files to inspect:
-- `services/prediction-engine/app/strategy.py`
-- `services/prediction-engine/app/storage.py`
-- `services/prediction-engine/app/database.py`
-
-### 3. Production scheduler enablement
+### 1. Production scheduler enablement
 
 Code path exists now, but production still needs an ops decision.
 

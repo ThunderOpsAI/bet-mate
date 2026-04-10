@@ -127,6 +127,7 @@ class Race(BaseModel):
     market_name: str = ""
     meeting_type: str = "unknown"
     meeting_region: str = "unknown"
+    state: str = ""
     meeting_date: str = ""
     data_source: str = "betfair"
 

@@ -111,9 +111,18 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
 
     alias_map = {}
     for entry in raw.values():
-        for alias in entry.get("aliases", []):
-            alias_map[_normalize_name(alias)] = entry
-        alias_map[_normalize_name(entry.get("venue", ""))] = entry
+        normalized_entry = {
+            **entry,
+            "meeting_type": entry.get("meeting_type", "unknown"),
+            "region": entry.get("region") or entry.get("state", ""),
+            "active_days": [day.casefold() for day in entry.get("active_days", [])],
+        }
+        aliases = set(entry.get("aliases", []))
+        aliases.add(entry.get("venue", ""))
+        for alias in aliases:
+            if not alias:
+                continue
+            alias_map[_normalize_name(alias)] = normalized_entry
 
     _metro_allowlist_cache = alias_map
     return _metro_allowlist_cache
@@ -303,7 +312,8 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     meeting_context = _meeting_context_for_start_time(race.get("start_time") or None)
     meeting_date = meeting_context["date"] if race.get("start_time") else (default_meeting_date or meeting_context["date"])
     meeting_region = allowlist_entry.get("region", "") if allowlist_entry else ""
-    meeting_type = "metro" if allowlist_entry else "unknown"
+    meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
+    state = allowlist_entry.get("state", "") if allowlist_entry else ""
     data_source = "mock" if race.get("source") == "mock" else "betfair"
 
     prepared_horses = []
@@ -320,6 +330,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
         **race,
         "meeting_type": meeting_type,
         "meeting_region": meeting_region,
+        "state": state,
         "meeting_date": meeting_date,
         "data_source": data_source,
         "horses": prepared_horses,
@@ -337,7 +348,12 @@ def _is_allowed_meeting(race: dict) -> bool:
 def _lookup_allowlist_entry(venue: str) -> Optional[dict]:
     if not venue:
         return None
-    return load_metro_allowlist().get(_normalize_name(venue))
+    registry = load_metro_allowlist()
+    for key in _venue_lookup_keys(venue):
+        entry = registry.get(key)
+        if entry:
+            return entry
+    return None
 
 
 def _enrich_with_racing_australia(race: dict) -> dict:
@@ -373,7 +389,7 @@ def _enrich_with_racing_australia(race: dict) -> dict:
         normalized_name = _normalize_name(horse.get("name", ""))
         matched = row_map.get(normalized_name)
         enriched = dict(horse)
-        enriched["meeting_type"] = "metro"
+        enriched["meeting_type"] = allowlist_entry.get("meeting_type", "unknown")
         enriched["meeting_region"] = allowlist_entry.get("region", "")
         enriched["meeting_date"] = race["meeting_date"]
         if matched:
@@ -386,8 +402,9 @@ def _enrich_with_racing_australia(race: dict) -> dict:
 
     return {
         **race,
-        "meeting_type": "metro",
+        "meeting_type": allowlist_entry.get("meeting_type", "unknown"),
         "meeting_region": allowlist_entry.get("region", ""),
+        "state": allowlist_entry.get("state", race.get("state", "")),
         "meeting_date": race["meeting_date"],
         "data_source": "racing_australia" if matched_any else race.get("data_source", "betfair"),
         "horses": enriched_horses,
@@ -498,6 +515,24 @@ def _normalize_name(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", ascii_text.casefold())
 
 
+def _venue_lookup_keys(venue: str) -> list[str]:
+    seen = set()
+    keys = []
+
+    def add(candidate: str) -> None:
+        normalized = _normalize_name(candidate)
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            keys.append(normalized)
+
+    add(venue)
+    without_brackets = re.sub(r"\([^)]*\)", " ", venue)
+    add(without_brackets)
+    without_state_suffix = re.sub(r"\b(?:vic|nsw|qld|wa|sa|tas|nt|act)\b", " ", without_brackets, flags=re.IGNORECASE)
+    add(without_state_suffix)
+    return keys
+
+
 def _generate_mock_races(target_date: Optional[date] = None):
     active_date = target_date or today_melbourne()
     rng = random.Random(f"mock-races:{active_date.isoformat()}")
@@ -525,7 +560,7 @@ def _generate_mock_races(target_date: Optional[date] = None):
                     "betfair_back_price": round(rng.uniform(2.2, 16.0), 2),
                     "betfair_implied_prob": 0,
                     "jockey_name": rng.choice(MOCK_JOCKEYS),
-                    "meeting_type": "metro",
+                    "meeting_type": _lookup_allowlist_entry(venue).get("meeting_type", "unknown") if _lookup_allowlist_entry(venue) else "unknown",
                     "meeting_region": _lookup_allowlist_entry(venue).get("region", "") if _lookup_allowlist_entry(venue) else "",
                     "meeting_date": active_date.isoformat(),
                     "data_source": "mock",

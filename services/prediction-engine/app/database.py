@@ -321,6 +321,7 @@ def _run_sqlite_schema(conn):
             odds_source TEXT NOT NULL,
             edge REAL NOT NULL,
             stake REAL NOT NULL,
+            legs_json TEXT,
             status TEXT NOT NULL DEFAULT 'pending',
             payout REAL,
             profit REAL,
@@ -351,6 +352,7 @@ def _run_sqlite_schema(conn):
     _ensure_sqlite_column(conn, "prediction_log", "settled_at", "TEXT")
     _ensure_sqlite_column(conn, "paper_bet_log", "origin", "TEXT DEFAULT 'user'")
     _ensure_sqlite_column(conn, "paper_bet_log", "system_bet_id", "INTEGER")
+    _ensure_sqlite_column(conn, "system_bets", "legs_json", "TEXT")
 
     # Indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
@@ -483,6 +485,7 @@ def _run_pg_schema(cursor):
             odds_source TEXT NOT NULL,
             edge DOUBLE PRECISION NOT NULL,
             stake DOUBLE PRECISION NOT NULL,
+            legs_json JSONB,
             status TEXT NOT NULL DEFAULT 'pending',
             payout DOUBLE PRECISION,
             profit DOUBLE PRECISION,
@@ -507,6 +510,7 @@ def _run_pg_schema(cursor):
 
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'user'")
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS system_bet_id INTEGER REFERENCES system_bets(id)")
+    cursor.execute("ALTER TABLE system_bets ADD COLUMN IF NOT EXISTS legs_json JSONB")
 
     # Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
