@@ -1,5 +1,6 @@
 import app.storage as storage
 from app.strategy import (
+    StrategyService,
     allocate_candidates,
     build_multi_candidate,
     build_place_candidates,
@@ -125,4 +126,77 @@ def test_derived_place_quinella_and_multi_odds_keep_provenance():
     assert quinella_candidates
     assert all(candidate["odds_source"] == "harville_derived" for candidate in place_candidates)
     assert all(candidate["odds_source"] == "harville_derived" for candidate in quinella_candidates)
+    assert multi["market_type"] == "multi"
     assert multi["odds_sources"] == ["harville_derived", "model_implied"]
+
+
+def test_allocate_candidates_can_select_multi_when_enabled():
+    candidates = [
+        {
+            "sport": "afl",
+            "event_id": "a1",
+            "event_name": "Cats vs Blues",
+            "market_type": "head_to_head",
+            "selection": "Cats",
+            "model_probability": 0.66,
+            "market_odds": None,
+            "derived_odds": 2.2,
+            "odds_source": "model_implied",
+            "edge": 0.2055,
+            "confidence": "high",
+        },
+        {
+            "sport": "nba",
+            "event_id": "n1",
+            "event_name": "Lakers vs Suns",
+            "market_type": "head_to_head",
+            "selection": "Lakers",
+            "model_probability": 0.64,
+            "market_odds": None,
+            "derived_odds": 2.18,
+            "odds_source": "model_implied",
+            "edge": 0.1812,
+            "confidence": "high",
+        },
+    ]
+
+    selected = allocate_candidates(candidates, _rule_set(max_bets_per_day=1, allow_multis=True, max_multi_legs=2), 250.0)
+
+    assert len(selected) == 1
+    assert selected[0]["market_type"] == "multi"
+    assert selected[0]["sport"] == "multi"
+    assert "Cats" in selected[0]["selection"]
+    assert "Lakers" in selected[0]["selection"]
+
+
+def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
+    observed = {}
+
+    def record_run_date(sport):
+        def inner(run_date=None):
+            observed[sport] = run_date
+            return []
+        return inner
+
+    monkeypatch.setattr(
+        "app.strategy.racing_scraper.fetch_today_races",
+        record_run_date("racing"),
+    )
+    monkeypatch.setattr(
+        "app.strategy.afl_scraper.fetch_this_week_afl",
+        record_run_date("afl"),
+    )
+    monkeypatch.setattr(
+        "app.strategy.nba_scraper.fetch_today_nba",
+        record_run_date("nba"),
+    )
+
+    service = StrategyService(racing_predictor=None, afl_predictor=None, nba_predictor=None)
+    candidates = service.collect_candidates_for_date("2026-04-10")
+
+    assert candidates == []
+    assert observed == {
+        "racing": "2026-04-10",
+        "afl": "2026-04-10",
+        "nba": "2026-04-10",
+    }

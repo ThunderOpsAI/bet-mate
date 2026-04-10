@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -17,8 +18,9 @@ from app.bob import (
     build_local_bob_fallback,
     sanitize_bob_messages,
 )
+import app.nightly as nightly_runner
 from app.strategy import StrategyService
-from app.time_utils import today_melbourne
+from app.time_utils import now_melbourne, today_melbourne
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -29,10 +31,36 @@ import app.storage as storage
 # CORS — configurable for deployment; defaults to localhost dev
 _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
+NIGHTLY_SCHEDULER_ENABLED = os.getenv("BETMATE_NIGHTLY_SCHEDULER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+NIGHTLY_SCHEDULER_TIME = os.getenv("BETMATE_NIGHTLY_SCHEDULER_TIME", nightly_runner.DEFAULT_SCHEDULER_TIME)
+_nightly_scheduler_task: Optional[asyncio.Task] = None
+
+
+async def _nightly_scheduler_loop():
+    try:
+        scheduled_time = nightly_runner.parse_scheduler_time(NIGHTLY_SCHEDULER_TIME)
+    except ValueError as exc:
+        print(f"Nightly scheduler disabled: {exc}")
+        return
+
+    while True:
+        next_run = nightly_runner.next_scheduler_run(scheduled_time=scheduled_time)
+        sleep_seconds = max(1.0, (next_run - now_melbourne()).total_seconds())
+        print(f"Nightly scheduler sleeping until {next_run.isoformat()}")
+        await asyncio.sleep(sleep_seconds)
+        try:
+            summary = nightly_runner.run_nightly_cycle(
+                strategy_service=strategy_service,
+                run_date=next_run.date().isoformat(),
+            )
+            print(f"Nightly strategy cycle completed for {summary['run_date']}")
+        except Exception as exc:
+            print(f"Nightly strategy cycle failed: {exc}")
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    global _nightly_scheduler_task
     # Startup
     storage.init_db()
     try:
@@ -45,8 +73,15 @@ async def lifespan(application: FastAPI):
         print("All ML Models Initialized successfully.")
     except Exception as e:
         print(f"Startup ML init error: {e}")
+    if NIGHTLY_SCHEDULER_ENABLED:
+        _nightly_scheduler_task = asyncio.create_task(_nightly_scheduler_loop())
     yield
     # Shutdown (nothing to clean up yet)
+    if _nightly_scheduler_task is not None:
+        _nightly_scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _nightly_scheduler_task
+        _nightly_scheduler_task = None
 
 
 app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0", lifespan=lifespan)
@@ -535,8 +570,11 @@ def predict_race(race: Race):
 # --- AFL ENDPOINTS ---
 
 @app.get("/api/afl/games/upcoming")
-def get_upcoming_afl():
-    games = afl_scraper.fetch_this_week_afl()
+def get_upcoming_afl(date: Optional[str] = None):
+    try:
+        games = afl_scraper.fetch_this_week_afl(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
 
 @app.get("/api/afl/games/live")
@@ -603,8 +641,11 @@ def predict_afl(game: TeamGame):
 # --- NBA ENDPOINTS ---
 
 @app.get("/api/nba/games/today")
-def get_today_nba():
-    games = nba_scraper.fetch_today_nba()
+def get_today_nba(date: Optional[str] = None):
+    try:
+        games = nba_scraper.fetch_today_nba(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
 
 @app.post("/api/predict/nba")

@@ -32,7 +32,7 @@ def _build_live_race(venue: str, start_time: str, horse_names: list[str]):
     }
 
 
-def test_metro_allowlist_filters_correct_meetings_by_venue_and_weekday(monkeypatch):
+def test_target_day_keeps_known_qld_wa_and_unknown_meetings(monkeypatch):
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
     monkeypatch.setattr(
         scraper,
@@ -51,11 +51,42 @@ def test_metro_allowlist_filters_correct_meetings_by_venue_and_weekday(monkeypat
 
     races = scraper.fetch_today_races(run_date="2026-07-02")
 
-    assert [race["venue"] for race in races] == ["Flemington", "Bendigo"]
+    assert [race["venue"] for race in races] == ["Flemington", "Eagle Farm", "Bendigo"]
     assert races[0]["meeting_type"] == "metro"
     assert races[0]["meeting_region"] == "VIC"
     assert races[0]["meeting_date"] == "2026-07-02"
-    assert races[1]["meeting_type"] == "unknown"
+    assert races[1]["meeting_type"] == "metro"
+    assert races[1]["meeting_region"] == "QLD"
+    assert races[2]["meeting_type"] == "unknown"
+
+
+def test_allowlist_active_days_still_apply_when_config_is_restricted(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date: [
+            _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_metro_allowlist",
+        lambda force_reload=False: {
+            scraper._normalize_name("Eagle Farm"): {
+                "venue": "Eagle Farm",
+                "state": "QLD",
+                "region": "QLD",
+                "active_days": ["wed"],
+                "aliases": ["eagle farm"],
+            }
+        },
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert races == []
 
 
 def test_meeting_context_uses_melbourne_timezone_and_handles_dst_boundary():

@@ -4,6 +4,8 @@ import os
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
+from app.time_utils import melbourne_date_string, resolve_melbourne_date, today_melbourne
+
 load_dotenv()
 
 BDL_API_KEY = os.getenv("BDL_API_KEY", "")
@@ -247,48 +249,52 @@ def fetch_completed_nba_results(days_back=7, max_results=50):
     return results
 
 
-def fetch_today_nba():
+def fetch_today_nba(run_date=None):
     """
     Fetch today's NBA games from Ball Don't Lie API.
     Falls back to mock data if API is unavailable or no key is set.
     """
+    target_date = resolve_melbourne_date(run_date) if run_date else None
     if BDL_API_KEY:
         try:
-            return _fetch_live_nba()
+            return _fetch_live_nba(target_date=target_date)
         except Exception as e:
             print(f"[BallDontLie] Live fetch failed ({e}), using mock data")
-    
-    return _generate_mock_nba()
+
+    if target_date and target_date != today_melbourne():
+        return []
+    return _generate_mock_nba(run_date=target_date.isoformat() if target_date else None)
 
 
-def _fetch_live_nba():
+def _fetch_live_nba(target_date=None):
     """Fetch real NBA games and team stats from Ball Don't Lie."""
-    today = datetime.now().strftime("%Y-%m-%d")
-    tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
-    
-    # Try today first, then tomorrow if no games today
-    data = _bdl_get("games", {"dates[]": today})
-    games_raw = data.get("data", [])
-    
-    if not games_raw:
-        data = _bdl_get("games", {"dates[]": tomorrow})
+    if target_date:
+        query_dates = [target_date.strftime("%Y-%m-%d")]
+    else:
+        now = datetime.now()
+        query_dates = [
+            (now + timedelta(days=offset)).strftime("%Y-%m-%d")
+            for offset in range(0, 5)
+        ]
+
+    games_raw = []
+    data = {}
+    for query_date in query_dates:
+        data = _bdl_get("games", {"dates[]": query_date})
         games_raw = data.get("data", [])
-    
+        if games_raw:
+            break
+
     if not games_raw:
-        # Try getting next few days
-        for i in range(2, 5):
-            future = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
-            data = _bdl_get("games", {"dates[]": future})
-            games_raw = data.get("data", [])
-            if games_raw:
-                break
-    
-    if not games_raw:
+        if target_date:
+            print(f"[BallDontLie] No NBA games found for {target_date.isoformat()}")
+            return []
         print("[BallDontLie] No upcoming games found, using mock data")
         return _generate_mock_nba()
     
     # Fetch season stats for team strength estimation
-    season = datetime.now().year if datetime.now().month >= 10 else datetime.now().year - 1
+    season_anchor = target_date or datetime.now()
+    season = season_anchor.year if season_anchor.month >= 10 else season_anchor.year - 1
     standings = _get_team_season_stats(season)
     
     games = []
@@ -329,8 +335,12 @@ def _fetch_live_nba():
             "away_score": g.get("visitor_team_score", 0),
             "source": "balldontlie_live",
         })
-    
-    print(f"[BallDontLie] Loaded {len(games)} NBA games")
+
+    if target_date:
+        games = [game for game in games if melbourne_date_string(game.get("date")) == target_date.isoformat()]
+        print(f"[BallDontLie] Loaded {len(games)} NBA games for {target_date.isoformat()}")
+    else:
+        print(f"[BallDontLie] Loaded {len(games)} NBA games")
     return games
 
 
@@ -383,7 +393,7 @@ def _get_team_season_stats(season: int) -> dict:
     return result
 
 
-def _generate_mock_nba():
+def _generate_mock_nba(run_date: str | None = None):
     """Fallback mock data when Ball Don't Lie API is unavailable."""
     teams = [
         "Los Angeles Lakers", "Golden State Warriors", "Boston Celtics",
@@ -411,6 +421,7 @@ def _generate_mock_nba():
                 "home_injuries_impact": round(random.uniform(0, 10), 1),
                 "away_injuries_impact": round(random.uniform(0, 10), 1),
             },
+            "date": f"{run_date or today_melbourne().isoformat()}T10:00:00Z",
             "source": "mock",
         })
     

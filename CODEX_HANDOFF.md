@@ -1,196 +1,120 @@
-# BetMate — Codex Handoff (8 Apr 2026)
+# BetMate — Codex Handoff
 
-## Update — 10 Apr 2026 (Production Stability + Daily Race Scope)
+## Update — 10 Apr 2026
 
-### What was done today
+### What changed in this chat
 
-- Ran full browser E2E checks with Playwright against key web routes and reproduced runtime issues.
-- Fixed an AFL UI runtime crash where `squiggle_confidence` could be a string:
-  - `apps/web/app/afl/page.tsx`
-  - Added numeric coercion/guarding before `.toFixed()`.
-- Implemented date-scoped racing fetch so weekday cards do not load Saturday races:
-  - `services/prediction-engine/app/data/scraper.py`
-  - `fetch_today_races(run_date=...)` now scopes to a Melbourne date.
-  - Betfair query now includes `marketStartTime` `from/to` UTC bounds for the target Melbourne day.
-  - Final race list is filtered to the target `meeting_date`.
-- Adjusted race filtering to keep non-allowlisted venues (not just metro allowlist meetings):
-  - Known venues still get metro metadata from allowlist.
-  - Unknown venues are retained so daily cards include broader race coverage.
-- Wired strategy racing candidates to the strategy run date:
+- Integrated multi selection into final strategy card allocation:
   - `services/prediction-engine/app/strategy.py`
-  - `_racing_candidates(run_date)` now calls `fetch_today_races(run_date=run_date)`.
-- Extended racing endpoint date support:
-  - `GET /api/races/today?date=YYYY-MM-DD`
-  - Invalid date returns HTTP 400.
+  - `allow_multis` and `max_multi_legs` now affect the actual selected card, not just config state.
+- Scoped AFL and NBA candidate collection to the requested Melbourne `run_date`:
+  - `services/prediction-engine/app/strategy.py`
+  - `services/prediction-engine/app/data/afl_scraper.py`
+  - `services/prediction-engine/app/data/nba_scraper.py`
+- Extended live fetch endpoints to accept strict date queries:
+  - `GET /api/afl/games/upcoming?date=YYYY-MM-DD`
+  - `GET /api/nba/games/today?date=YYYY-MM-DD`
+- Added an in-process nightly scheduler path for the FastAPI service:
+  - `services/prediction-engine/app/nightly.py`
+  - `services/prediction-engine/app/main.py`
+  - Env flags:
+    - `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true`
+    - `BETMATE_NIGHTLY_SCHEDULER_TIME=05:00`
+- Changed the default QLD/WA allowlist behavior so Brisbane and WA metro venues are not suppressed on non-Wed/Fri/Sat/Sun cards:
+  - `services/prediction-engine/app/data/metro_allowlist.json`
 
-### Test verification completed
+### Validation completed
 
-- `services/prediction-engine/tests/test_racing_scraper.py` → **6 passed**
-- `services/prediction-engine/tests/test_api.py` → **27 passed**
-- `services/prediction-engine/tests/test_strategy.py` → **3 passed**
+- `services/prediction-engine/venv/bin/pytest services/prediction-engine/tests/test_racing_scraper.py services/prediction-engine/tests/test_api.py services/prediction-engine/tests/test_strategy.py services/prediction-engine/tests/test_nightly.py services/prediction-engine/tests/test_afl_scraper.py services/prediction-engine/tests/test_nba_scraper.py`
+- Result: `47 passed`
 
-### v1.5 leftovers (still open)
+## Current state
 
-- `allow_multis` / `max_multi_legs` are present in rule sets but not yet integrated into card allocation (multi candidate builder exists but is not used in final selection path).
-- AFL/NBA candidate collection is still “current window” based, not strictly `run_date` scoped like Racing.
-- Nightly strategy cycle exists (`app/nightly.py`) and is tested, but production scheduling/orchestration is still an ops task.
+### Racing
 
-## What This App Is
-BetMate is an ML-powered sports prediction platform. It uses XGBoost models to generate win probabilities for Racing, AFL, and NBA, served via a FastAPI backend and rendered in a premium Next.js dashboard.
+- Daily race fetch is Melbourne-date scoped.
+- Melbourne and Sydney metro venues are tagged through the allowlist.
+- Brisbane and WA metro allowlist entries now default to all days so those meetings can appear whenever Betfair has them for the Melbourne target date.
+- Non-allowlisted venues are still retained instead of being dropped.
 
----
+### Strategy engine
 
-## What Was Built Today
+- Racing, AFL, and NBA candidate collection all respect the requested `run_date`.
+- Cross-sport best-edge allocation is working.
+- Multis can now appear in final cards.
 
-### Backend — `services/prediction-engine/` (Python, FastAPI, port 8000)
+### Nightly cycle
 
-**3 XGBoost ML models** trained on synthetic data at startup, serving predictions via REST:
+- `python -m app.nightly` still works.
+- The FastAPI app can also run the nightly cycle automatically if scheduler env vars are enabled.
 
-| Model | File | Features Used |
-|-------|------|--------------|
-| Racing | `app/ml/racing.py` | barrier, weight, past_win_rate, jockey_win_rate, track_condition, days_since_last_race |
-| AFL | `app/ml/afl.py` | home/away win_streak, avg_points_for/against, rest_days, weather, travel_distance |
-| NBA | `app/ml/nba.py` | home/away b2b, win_pct, ORTG, DRTG, injuries_impact |
+## Remaining work for next chat
 
-**3 live API data scrapers:**
+### 1. Tag unknown racing venues properly
 
-| Scraper | File | API | Auth |
-|---------|------|-----|------|
-| Racing | `app/data/scraper.py` | Betfair Exchange AU | Session token via `.env` (BETFAIR_APP_KEY, BETFAIR_USERNAME, BETFAIR_PASSWORD) |
-| AFL | `app/data/afl_scraper.py` | Squiggle (api.squiggle.com.au) | None (public). User-Agent: `BetMate - james.jones2086@gmail.com` |
-| NBA | `app/data/nba_scraper.py` | Ball Don't Lie (api.balldontlie.io) | API key via `.env` (BDL_API_KEY) |
+This is the main remaining racing gap.
 
-All scrapers **gracefully fall back to mock data** if credentials are missing or APIs are down.
+Current behavior:
+- Unknown venues still show in cards, which is good.
+- But if a Betfair venue alias is not in the allowlist, it stays:
+  - `meeting_type: "unknown"`
+  - `meeting_region: ""`
 
-**API endpoints:**
+What the next chat should do:
+- Introduce a broader venue registry so QLD/WA venues are explicitly classified, not just included.
+- Best approach:
+  - either expand `metro_allowlist.json` substantially
+  - or move to a proper venue table/JSON registry keyed by normalized aliases
+- Target output per mapped venue:
+  - `meeting_type`: `metro` / `provincial` / `country`
+  - `meeting_region`: `VIC` / `NSW` / `QLD` / `WA` / etc
+  - `state`
+  - `active_days`
+  - aliases from Betfair venue naming
 
-```
-GET  /health                    → Status check
-GET  /api/races/today           → Fetch live racing fields from Betfair
-POST /api/predict/racing        → Predict win probabilities for a race
-GET  /api/afl/games/upcoming    → Fetch AFL games from Squiggle
-POST /api/predict/afl           → Predict AFL game outcome
-GET  /api/nba/games/today       → Fetch NBA games from Ball Don't Lie
-POST /api/predict/nba           → Predict NBA game outcome
-```
+Suggested implementation shape:
+- Add a venue registry file or DB table that covers all commonly observed Betfair AU racing venues.
+- Keep the current “unknown venues still pass through” fallback.
+- Add tests that prove:
+  - a mapped Brisbane venue is tagged `QLD`
+  - a mapped WA venue is tagged `WA`
+  - an unmapped venue still appears rather than being dropped
 
-**CORS** is configured to allow `http://localhost:3000` and `http://127.0.0.1:3000`.
+### 2. Finish multi persistence and settlement
 
-**Credentials** are in `services/prediction-engine/.env` (gitignored). Contains Betfair login and BDL API key.
+This is the main leftover from strategy v1.5 after allocation was wired.
 
-### Frontend — `apps/web/` (Next.js, port 3000)
+Current behavior:
+- Multis can be selected into cards.
+- But settlement/storage is still shaped around single-event bets.
+- A selected multi currently has composite card data, but `system_bets` settlement still keys off one `sport + event_id + selection`.
 
-- **Dashboard** (`app/page.tsx`) — Overview with stat cards (races, AFL games, NBA games, models), top prediction cards for each sport
-- **Racing** (`app/racing/page.tsx`) — Venue filter tabs, expandable race cards with full field tables, feature importance bars, AI insights
-- **AFL** (`app/afl/page.tsx`) — Matchup cards with home/away probability bars, fair odds, weather/rest/travel context
-- **NBA** (`app/nba/page.tsx`) — Matchup cards with ORTG/DRTG badges, B2B status, probability visualization
-- **CSS** (`app/globals.css`) — 700+ lines of premium dark-mode styling with glassmorphism, gradients, animations
+What the next chat should do:
+- Make multis first-class persisted bets.
+- Recommended design:
+  - add `system_bet_legs` table, or
+  - add structured `legs_json` to `system_bets`
+- Then update settlement logic so a multi:
+  - wins only if all legs win
+  - loses if any leg loses
+  - void logic is explicit and deterministic
 
-Auth has been **bypassed** (AppShell renders children directly, no AuthProvider in layout) to allow ML dashboard access without login.
+Files to inspect:
+- `services/prediction-engine/app/strategy.py`
+- `services/prediction-engine/app/storage.py`
+- `services/prediction-engine/app/database.py`
 
----
+### 3. Production scheduler enablement
 
-## Current State — What Works Right Now
+Code path exists now, but production still needs an ops decision.
 
-| Feature | Status |
-|---------|--------|
-| Betfair live racing data (30+ races from AU venues) | ✅ Working |
-| Squiggle live AFL data (Round 5 fixtures with real teams) | ✅ Working |
-| Ball Don't Lie NBA data | ✅ Key added, should be live |
-| XGBoost predictions for all 3 sports | ✅ Working |
-| CORS between frontend and backend | ✅ Fixed |
-| Dashboard rendering all prediction cards | ✅ Working |
-| Feature importance / explainability | ✅ Working |
+Need to verify:
+- the deployed backend has `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true`
+- only one production instance runs the scheduler
+- logs confirm one cycle per Melbourne day
 
----
+## Notes for the next chat
 
-## What Should Be Next (Priority Order)
-
-### 1. Train Models on Real Historical Data (HIGH)
-Right now the XGBoost models are trained on **synthetic/random data** generated at startup. They produce plausible-looking predictions but aren't accurate. Next step:
-- **Racing:** Use Betfair historical settlement data or scrape racing results to build a real training dataset. Key features: barrier stats by track, jockey/trainer combos, class ratings, distance preferences.
-- **AFL:** Use Squiggle's historical games endpoint (`?q=games;year=2025`) to pull actual results. Build features from real win streaks, scoring averages, home/away splits.
-- **NBA:** Use Ball Don't Lie historical games to build real team performance profiles.
-- Store trained models to disk (currently saved as `.pkl` but re-trained on each startup).
-
-### 2. Incorporate Squiggle Tips as an Ensemble Signal (HIGH)
-Squiggle already aggregates predictions from multiple computer models. The `afl_scraper.py` fetches these as `squiggle_tip` and `squiggle_confidence` but they're **not yet fed into the ML model**. They could be used as:
-- A feature input to XGBoost (the aggregate confidence score)
-- A comparison/validation against our own predictions
-- Displayed in the UI as "market consensus"
-
-### 3. Betfair Implied Probabilities as Features (HIGH)
-The racing scraper already fetches `betfair_back_price` and `betfair_implied_prob` for each horse but these are **not yet used as XGBoost features**. Market-implied probabilities are extremely strong signals. Wire them into the racing model.
-
-### 4. Live Score Tracking via Squiggle SSE (MEDIUM)
-Squiggle has a Server-Sent Events API at `https://sse.squiggle.com.au/games` for real-time score updates. Could add a WebSocket/SSE bridge to show live scores on the dashboard during games.
-
-### 5. Analytics Page (MEDIUM)
-There's an empty Analytics tab in the sidebar. Could display:
-- Model accuracy tracking (predicted vs actual over time)
-- Feature importance trends
-- ROI tracking if users log their bets
-
-### 6. Data Persistence (MEDIUM)
-Currently everything is in-memory. Adding a SQLite or PostgreSQL database would allow:
-- Historical predictions storage
-- Result tracking and model accuracy measurement
-- User bet logging
-
-### 7. AI Chat Integration (LOW)
-The monorepo has an `ai-service` directory. Could connect to Anthropic/OpenAI to provide natural language explanations of predictions using the `feature_impact` data already returned by all endpoints.
-
-### 8. Deployment (LOW)
-- Backend could deploy to Railway/Fly.io
-- Frontend to Vercel
-- Would need to handle CORS for production domains
-
----
-
-## How to Run Locally
-
-```bash
-# Terminal 1 — ML Engine
-cd services/prediction-engine
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 — Dashboard
-cd apps/web
-pnpm install
-pnpm dev
-```
-
-Open http://localhost:3000
-
----
-
-## Key Files Quick Reference
-
-```
-services/prediction-engine/
-├── .env                          # Betfair + BDL credentials (gitignored)
-├── requirements.txt              # fastapi, xgboost, scikit-learn, requests, etc
-├── app/
-│   ├── main.py                   # FastAPI app, CORS, all endpoints
-│   ├── ml/
-│   │   ├── racing.py             # XGBoost racing predictor
-│   │   ├── afl.py                # XGBoost AFL predictor
-│   │   └── nba.py                # XGBoost NBA predictor
-│   └── data/
-│       ├── scraper.py            # Betfair Exchange AU integration
-│       ├── afl_scraper.py        # Squiggle API integration
-│       └── nba_scraper.py        # Ball Don't Lie API integration
-
-apps/web/app/
-├── page.tsx                      # Main dashboard
-├── racing/page.tsx               # Racing predictions page
-├── afl/page.tsx                  # AFL predictions page
-├── nba/page.tsx                  # NBA predictions page
-├── globals.css                   # All premium styling
-├── layout.tsx                    # Root layout (no auth)
-└── components/
-    ├── AppShell.tsx               # Shell with ML Engine badge
-    └── Sidebar.tsx                # Navigation sidebar
-```
+- `docs/V1_5_REVISED_PLAN.md` is still the historical planning reference.
+- This file is now the single current handoff.
+- The old March 2026 handover playbook was stale and should stay deleted.

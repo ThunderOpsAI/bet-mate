@@ -19,6 +19,14 @@ def today_melbourne() -> date:
     return now_melbourne().date()
 
 
+def resolve_melbourne_date(value: date | str | None = None) -> date:
+    if value is None:
+        return today_melbourne()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(value)
+
+
 def melbourne_date_string(value: datetime | str | None = None) -> str:
     if value is None:
         return today_melbourne().isoformat()

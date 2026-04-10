@@ -21,6 +21,20 @@ python -m app.nightly --sports afl,nba --max-results 100
 
 The auto-tune step is hard-gated. It will not run for a profile until that profile has at least 30 distinct Melbourne-calendar settlement days in `system_bets`.
 
+Set `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true` on the FastAPI service to run the same nightly cycle automatically in-process. The default scheduler time is `05:00` Australia/Melbourne and can be changed with `BETMATE_NIGHTLY_SCHEDULER_TIME=HH:MM`.
+
+## Date-Scoped Fetching
+
+All three sport fetch endpoints now accept an optional Melbourne `date` query:
+
+```bash
+curl "http://localhost:8000/api/races/today?date=2026-04-10"
+curl "http://localhost:8000/api/afl/games/upcoming?date=2026-04-10"
+curl "http://localhost:8000/api/nba/games/today?date=2026-04-10"
+```
+
+When a `date` is supplied, AFL and NBA are strict to that day instead of falling forward to the next available slate.
+
 ## Prediction Settlement
 
 Prediction requests are logged in SQLite at `BETMATE_DB_PATH`, or under `runtime/betmate.sqlite3` by default. Rows are deduped by `sport + event_id + selection` so repeat page loads refresh the same open prediction instead of inflating metrics. Once a prediction is settled, its probability is frozen for accuracy reporting.

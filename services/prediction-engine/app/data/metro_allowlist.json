@@ -59,28 +59,28 @@
     "venue": "Eagle Farm",
     "state": "QLD",
     "region": "QLD",
-    "active_days": ["wed", "fri", "sat", "sun"],
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["eagle farm"]
   },
   "doomben": {
     "venue": "Doomben",
     "state": "QLD",
     "region": "QLD",
-    "active_days": ["wed", "fri", "sat", "sun"],
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["doomben"]
   },
   "ascot": {
     "venue": "Ascot",
     "state": "WA",
     "region": "WA",
-    "active_days": ["wed", "fri", "sat", "sun"],
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["ascot", "ascot-wa"]
   },
   "belmont_park": {
     "venue": "Belmont Park",
     "state": "WA",
     "region": "WA",
-    "active_days": ["wed", "fri", "sat", "sun"],
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
     "aliases": ["belmont park", "belmont"]
   }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from itertools import combinations
 from typing import Any, Dict, List, Optional
 
 import app.data.afl_scraper as afl_scraper
@@ -48,8 +49,8 @@ class StrategyService:
     def collect_candidates_for_date(self, run_date: str) -> List[Dict[str, Any]]:
         candidates: List[Dict[str, Any]] = []
         candidates.extend(self._racing_candidates(run_date))
-        candidates.extend(self._afl_candidates())
-        candidates.extend(self._nba_candidates())
+        candidates.extend(self._afl_candidates(run_date))
+        candidates.extend(self._nba_candidates(run_date))
         return candidates
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -117,8 +118,8 @@ class StrategyService:
             candidates.extend(build_quinella_candidates(race, ranked))
         return candidates
 
-    def _afl_candidates(self) -> List[Dict[str, Any]]:
-        games = afl_scraper.fetch_this_week_afl()
+    def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
+        games = afl_scraper.fetch_this_week_afl(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.afl_predictor.predict(game["features"])
@@ -142,8 +143,8 @@ class StrategyService:
             ])
         return candidates
 
-    def _nba_candidates(self) -> List[Dict[str, Any]]:
-        games = nba_scraper.fetch_today_nba()
+    def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
+        games = nba_scraper.fetch_today_nba(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.nba_predictor.predict(game["features"])
@@ -301,17 +302,26 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
         for sport in ("racing", "afl", "nba")
     }
     per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba")}
+    selection_pool = list(candidates)
+    selection_pool.extend(build_multi_candidates(candidates, rule_set))
+    selection_pool.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     remaining_bankroll = bankroll_available
-    selected_events = set()
+    selected_head_to_head_events = set()
+    selected_multi_events = set()
+    selected_single_events = set()
 
-    for candidate in candidates:
+    for candidate in selection_pool:
         if len(selected) >= int(rule_set["max_bets_per_day"]):
             break
-        if candidate["event_id"] in selected_events and candidate["market_type"] == "head_to_head":
+        candidate_event_ids = _candidate_event_ids(candidate)
+        if candidate.get("legs") and candidate_event_ids & (selected_head_to_head_events | selected_multi_events | selected_single_events):
+            continue
+        if candidate["market_type"] == "head_to_head" and candidate["event_id"] in (selected_head_to_head_events | selected_multi_events):
+            continue
+        if candidate["market_type"] != "head_to_head" and candidate["event_id"] in selected_multi_events:
             continue
 
-        sport = candidate["sport"]
-        remaining_sport = per_sport_cap[sport] - per_sport_used[sport]
+        remaining_sport = _remaining_sport_capacity(candidate, per_sport_cap, per_sport_used)
         if remaining_sport <= 0 or remaining_bankroll <= 0:
             continue
 
@@ -338,9 +348,16 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
             "profit": None,
             "settled_at": None,
         })
-        per_sport_used[sport] += stake
+        if candidate.get("sport_allocation"):
+            selected[-1]["sport_allocation"] = candidate["sport_allocation"]
+        _consume_sport_capacity(candidate, per_sport_used, stake)
         remaining_bankroll -= stake
-        selected_events.add(candidate["event_id"])
+        if candidate.get("legs"):
+            selected_multi_events.update(candidate_event_ids)
+        else:
+            selected_single_events.add(candidate["event_id"])
+            if candidate["market_type"] == "head_to_head":
+                selected_head_to_head_events.add(candidate["event_id"])
 
     return selected
 
@@ -350,7 +367,11 @@ def summarize_sport_mix(selected: List[Dict[str, Any]], total_allocated: float):
         return {}
     mix: Dict[str, float] = {}
     for bet in selected:
-        mix[bet["sport"]] = mix.get(bet["sport"], 0.0) + bet["stake"]
+        sport_allocation = bet.get("sport_allocation") or {bet["sport"]: 1.0}
+        for sport, weight in sport_allocation.items():
+            if float(weight) <= 0:
+                continue
+            mix[sport] = mix.get(sport, 0.0) + (bet["stake"] * float(weight))
     return {sport: round(amount / total_allocated, 4) for sport, amount in mix.items()}
 
 
@@ -424,16 +445,116 @@ def build_multi_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
     if not legs:
         return None
     odds = 1.0
-    for leg in legs:
+    combined_probability = 1.0
+    implied_probability = 1.0
+    sport_counts: Dict[str, int] = {}
+    normalized_legs = []
+    for index, leg in enumerate(legs, start=1):
         leg_odds = effective_odds(leg)
         if not leg_odds:
             return None
         odds *= leg_odds
+        leg_probability = _clamp_probability(leg.get("model_probability", 1 / leg_odds))
+        combined_probability *= leg_probability
+        implied_probability *= (1 / leg_odds)
+        sport = str(leg.get("sport", "")).strip().lower()
+        if sport in {"racing", "afl", "nba"}:
+            sport_counts[sport] = sport_counts.get(sport, 0) + 1
+        normalized_legs.append(
+            {
+                "sport": sport or "multi",
+                "event_id": str(leg.get("event_id", f"leg-{index}")),
+                "event_name": str(leg.get("event_name", leg.get("selection", f"Leg {index}"))),
+                "market_type": str(leg.get("market_type", "head_to_head")),
+                "selection": str(leg.get("selection", f"Leg {index}")),
+                "odds_used": leg_odds,
+                "odds_source": leg["odds_source"],
+            }
+        )
+    odds_sources = [leg["odds_source"] for leg in normalized_legs]
+    leg_count = len(normalized_legs)
+    combined_edge = round(combined_probability - implied_probability, 4)
     return {
-        "legs": legs,
+        "sport": "multi",
+        "event_id": f"multi:{'|'.join(leg['event_id'] for leg in normalized_legs)}",
+        "event_name": " + ".join(leg["event_name"] for leg in normalized_legs),
+        "market_type": "multi",
+        "selection": " + ".join(leg["selection"] for leg in normalized_legs),
+        "model_probability": round(combined_probability, 4),
+        "market_odds": None,
+        "derived_odds": round(odds, 2),
+        "odds_source": odds_sources[0] if len(set(odds_sources)) == 1 else "composite",
+        "edge": combined_edge,
+        "confidence": confidence_bucket(combined_probability, combined_edge),
+        "legs": normalized_legs,
+        "sport_allocation": {
+            sport: round(count / leg_count, 4)
+            for sport, count in sport_counts.items()
+        },
         "odds_used": round(odds, 2),
-        "odds_sources": [leg["odds_source"] for leg in legs],
+        "odds_sources": odds_sources,
     }
+
+
+def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any]) -> List[Dict[str, Any]]:
+    if not rule_set.get("allow_multis"):
+        return []
+
+    max_multi_legs = max(2, int(rule_set.get("max_multi_legs", 1)))
+    eligible = [candidate for candidate in candidates if not candidate.get("legs")]
+    if len(eligible) < 2:
+        return []
+
+    top_candidates = eligible[: max(4, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
+    multis = []
+    for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):
+        for legs in combinations(top_candidates, leg_count):
+            if len({leg["event_id"] for leg in legs}) != leg_count:
+                continue
+            multi = build_multi_candidate(list(legs))
+            if multi and multi["edge"] > 0:
+                multis.append(multi)
+
+    multis.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
+    return multis[: max(1, int(rule_set["max_bets_per_day"]))]
+
+
+def _candidate_event_ids(candidate: Dict[str, Any]) -> set[str]:
+    legs = candidate.get("legs") or []
+    if legs:
+        return {str(leg.get("event_id", "")).strip() for leg in legs if str(leg.get("event_id", "")).strip()}
+    event_id = str(candidate.get("event_id", "")).strip()
+    return {event_id} if event_id else set()
+
+
+def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
+    allocation = candidate.get("sport_allocation")
+    if isinstance(allocation, dict) and allocation:
+        return {
+            sport: float(weight)
+            for sport, weight in allocation.items()
+            if sport in {"racing", "afl", "nba"} and float(weight) > 0
+        }
+    sport = candidate.get("sport")
+    if sport in {"racing", "afl", "nba"}:
+        return {sport: 1.0}
+    return {}
+
+
+def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:
+    allocation = _candidate_sport_allocation(candidate)
+    if not allocation:
+        return 0.0
+    limits = []
+    for sport, weight in allocation.items():
+        remaining = per_sport_cap[sport] - per_sport_used[sport]
+        limits.append(remaining / weight if weight > 0 else 0.0)
+    return min(limits) if limits else 0.0
+
+
+def _consume_sport_capacity(candidate: Dict[str, Any], per_sport_used: Dict[str, float], stake: float) -> None:
+    for sport, weight in _candidate_sport_allocation(candidate).items():
+        per_sport_used[sport] += stake * weight
 
 
 def nba_baseline_probability(features: Dict[str, Any]) -> float:

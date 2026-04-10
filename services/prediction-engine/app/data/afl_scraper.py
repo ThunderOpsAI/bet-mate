@@ -3,6 +3,8 @@ import json
 import random
 from datetime import datetime
 
+from app.time_utils import resolve_melbourne_date, today_melbourne
+
 SQUIGGLE_BASE = "https://api.squiggle.com.au"
 SQUIGGLE_SSE_GAMES_URL = "https://sse.squiggle.com.au/games"
 USER_AGENT = "BetMate - james.jones2086@gmail.com"
@@ -122,6 +124,14 @@ def _parse_game_datetime(value):
             continue
 
     return None
+
+
+def _game_date_string(value) -> str:
+    game_at = _parse_game_datetime(value)
+    if game_at is None:
+        raw = str(value or "").strip()
+        return raw[:10] if len(raw) >= 10 else ""
+    return game_at.date().isoformat()
 
 
 def _numeric(value, default=0.0):
@@ -307,19 +317,31 @@ def fetch_completed_afl_results(year=None, max_results=50):
     return results
 
 
-def fetch_this_week_afl():
+def fetch_this_week_afl(run_date=None):
     """
     Fetch upcoming/recent AFL games from Squiggle and build feature dicts
     that our XGBoost model can consume.
     Falls back to mock data if the API is unreachable.
     """
-    year = datetime.now().year
+    target_date = resolve_melbourne_date(run_date) if run_date else None
+    target_date_str = target_date.isoformat() if target_date else None
+    year = target_date.year if target_date else datetime.now().year
 
     # 1. Get current/upcoming games
     games_data = _squiggle_get({"q": "games", "year": year, "complete": "!100"})
     raw_games = games_data.get("games", [])
 
-    if not raw_games:
+    if target_date_str:
+        if not games_data:
+            if target_date == today_melbourne():
+                print(f"[Squiggle] AFL API unavailable for {target_date_str}, falling back to mock data")
+                return _generate_mock_afl(target_date_str)
+            return []
+        raw_games = [
+            game for game in raw_games
+            if _numeric(game.get("complete")) < 100 and _game_date_string(game.get("date")) == target_date_str
+        ]
+    elif not raw_games:
         # Try getting most recent completed round instead
         games_data = _squiggle_get({"q": "games", "year": year})
         raw_games = games_data.get("games", [])
@@ -329,6 +351,9 @@ def fetch_this_week_afl():
             raw_games = [g for g in raw_games if g.get("round") == max_round]
 
     if not raw_games:
+        if target_date_str:
+            print(f"[Squiggle] No AFL games found for {target_date_str}")
+            return []
         print("[Squiggle] No games found, falling back to mock data")
         return _generate_mock_afl()
 
@@ -431,11 +456,14 @@ def fetch_this_week_afl():
 
         games.append(game_entry)
 
-    print(f"[Squiggle] Loaded {len(games)} AFL games (Round {games[0].get('round', '?') if games else '?'})")
+    if target_date_str:
+        print(f"[Squiggle] Loaded {len(games)} AFL games for {target_date_str}")
+    else:
+        print(f"[Squiggle] Loaded {len(games)} AFL games (Round {games[0].get('round', '?') if games else '?'})")
     return games
 
 
-def _generate_mock_afl():
+def _generate_mock_afl(run_date: str | None = None):
     """Fallback mock data when Squiggle is unreachable."""
     teams = [
         "Collingwood", "Brisbane Lions", "Carlton", "Melbourne", "Sydney Swans",
@@ -464,6 +492,7 @@ def _generate_mock_afl():
                 "travel_distance_away": round(random.uniform(0, 3000), 0),
                 "squiggle_home_signal": round(random.uniform(0.35, 0.65), 4),
             },
+            "date": f"{run_date or today_melbourne().isoformat()} 19:50:00",
             "squiggle_tip": "",
             "squiggle_confidence": 0,
             "source": "mock",

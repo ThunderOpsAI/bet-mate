@@ -1,4 +1,6 @@
 import app.nightly as nightly
+from app.time_utils import MELBOURNE_TZ
+from datetime import datetime
 
 
 class DummyStrategyService:
@@ -77,3 +79,18 @@ def test_run_nightly_cycle_can_target_single_profile_without_ingest_or_tune(monk
     assert [card["profile_key"] for card in summary["generated_cards"]] == ["james"]
     assert summary["ingestion"]["skipped"] is True
     assert summary["auto_tune"] == {}
+
+
+def test_parse_scheduler_time_validates_format():
+    parsed = nightly.parse_scheduler_time("05:30")
+
+    assert parsed.hour == 5
+    assert parsed.minute == 30
+
+
+def test_next_scheduler_run_uses_melbourne_calendar_boundary():
+    current = datetime(2026, 4, 10, 5, 1, tzinfo=MELBOURNE_TZ)
+
+    next_run = nightly.next_scheduler_run(after=current, scheduled_time=nightly.parse_scheduler_time("05:00"))
+
+    assert next_run.isoformat() == "2026-04-11T05:00:00+10:00"

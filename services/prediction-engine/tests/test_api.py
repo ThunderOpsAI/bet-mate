@@ -108,6 +108,27 @@ class TestRacingEndpoints:
         assert len(data["predictions"]) == 2
 
 
+class TestDateScopedGameEndpoints:
+    def test_afl_upcoming_accepts_date_query(self, client, monkeypatch):
+        import app.main as main_mod
+
+        monkeypatch.setattr(
+            main_mod.afl_scraper,
+            "fetch_this_week_afl",
+            lambda run_date=None: [{"game_id": "afl-1", "date": run_date}],
+        )
+
+        response = client.get("/api/afl/games/upcoming?date=2026-04-10")
+
+        assert response.status_code == 200
+        assert response.json()["games"][0]["date"] == "2026-04-10"
+
+    def test_nba_today_rejects_invalid_date(self, client):
+        response = client.get("/api/nba/games/today?date=not-a-date")
+
+        assert response.status_code == 400
+
+
 class TestPredictionEndpoints:
     def test_recent_predictions_empty(self, client):
         response = client.get("/api/predictions/recent")

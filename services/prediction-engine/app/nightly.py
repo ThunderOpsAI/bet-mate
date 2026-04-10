@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 import app.data.afl_scraper as afl_scraper
@@ -11,7 +12,10 @@ from app.ml.afl import AFLPredictor
 from app.ml.nba import NBAPredictor
 from app.ml.racing import RacingPredictor
 from app.strategy import StrategyService
-from app.time_utils import today_melbourne
+from app.time_utils import MELBOURNE_TZ, now_melbourne, today_melbourne
+
+
+DEFAULT_SCHEDULER_TIME = "05:00"
 
 
 def _settle_ingested_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -103,6 +107,29 @@ def build_nightly_strategy_service(load_models: bool = True) -> StrategyService:
         afl_predictor=afl_predictor,
         nba_predictor=nba_predictor,
     )
+
+
+def parse_scheduler_time(value: str = DEFAULT_SCHEDULER_TIME) -> time:
+    hour_text, minute_text = value.strip().split(":", 1)
+    hour = int(hour_text)
+    minute = int(minute_text)
+    if not (0 <= hour <= 23 and 0 <= minute <= 59):
+        raise ValueError("scheduler time must be HH:MM in 24-hour format")
+    return time(hour=hour, minute=minute, tzinfo=MELBOURNE_TZ)
+
+
+def next_scheduler_run(after: Optional[datetime] = None, scheduled_time: Optional[time] = None) -> datetime:
+    run_time = scheduled_time or parse_scheduler_time()
+    current = (after or now_melbourne()).astimezone(MELBOURNE_TZ)
+    next_run = current.replace(
+        hour=run_time.hour,
+        minute=run_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    if next_run <= current:
+        next_run += timedelta(days=1)
+    return next_run
 
 
 def run_nightly_cycle(
