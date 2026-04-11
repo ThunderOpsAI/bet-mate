@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot } from "lucide-react";
+import BobMascot from "./BobMascot";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -19,11 +20,21 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
   return (
     <>
-      {open && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 35 }} onClick={onClose} className="sidebar-backdrop" />}
+      {open && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          className="sidebar-backdrop"
+          onClick={onClose}
+        />
+      )}
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-brand">
-          <Trophy size={24} style={{ color: "var(--accent)" }} />
-          <h1>BetMate</h1>
+          <BobMascot className="brand-mark" />
+          <div className="sidebar-brand-copy">
+            <h1>BetMate</h1>
+            <span>Sports stats and recommendations</span>
+          </div>
         </div>
         <nav>
           <ul className="sidebar-nav">
@@ -42,7 +53,12 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             <span className="live-dot" />
             <span>ML Engine Active</span>
           </div>
-          <p style={{ marginTop: "0.75rem" }}>18+ | Gamble Responsibly</p>
+          <p className="responsible-note">
+            18+ only. BetMate is informational only.
+            <a href="https://www.gamblinghelponline.org.au/" target="_blank" rel="noreferrer">
+              Gambling Help Online
+            </a>
+          </p>
         </div>
       </aside>
     </>

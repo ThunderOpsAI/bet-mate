@@ -115,7 +115,7 @@ export default function NewBetPage() {
           </div>
           <div className="form-group">
             <label className="form-label">Notes</label>
-            <input className="form-input" placeholder="Optional rationale or bookmaker reference" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <input className="form-input" placeholder="Optional rationale or source note" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
             <Save size={16} /> {loading ? "Saving..." : "Log Paper Bet"}

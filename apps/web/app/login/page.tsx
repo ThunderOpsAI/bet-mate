@@ -31,7 +31,7 @@ export default function LoginPage() {
       <div className="auth-card">
         <div className="auth-brand">
           <h1>BetMate</h1>
-          <p>Track smarter. Bet informed.</p>
+          <p>Track smarter. Decide with data.</p>
         </div>
 
         {error && <div className="error-message">{error}</div>}

@@ -8,9 +8,11 @@
 
 ## Summary
 
-Build a shared prediction-and-strategy layer on top of the existing Racing/AFL/NBA ML engine. Keep the current sport models as the base signal, then add five selectable strategy profiles that turn those signals into daily bet cards, portfolio allocation, and a limited Bob explainer chat.
+Build a shared prediction-and-strategy layer on top of the existing Racing/AFL/NBA ML engine. Keep the current sport models as the base signal, then add five selectable strategy profiles that turn those signals into daily paper strategy cards, simulated portfolio allocation, and a limited Bob explainer chat.
 
 This revision splits delivery into three phases so each phase can be validated before the next begins. Phase 1 ships racing data quality improvements. Phase 2 adds the strategy engine and profile cards. Phase 3 adds Bob chat and the learning pipeline. Auth gating and Stripe remain out of scope throughout.
+
+**NO BETTING scope:** BetMate does not place, accept, route, facilitate, or settle real-money wagers. Any "bet", "stake", "bankroll", `system_bets`, or `paper_bet_log` wording in this plan refers to paper/simulated recommendations and tracking only.
 
 ---
 
@@ -26,9 +28,9 @@ The revised plan delivers in three phases. Each phase has a clear exit condition
 
 The original plan named the entity but did not define it. Without a concrete schema, five profiles will either be identical or arbitrary. The revised plan defines what a rule set actually contains.
 
-### Per-profile bankroll scoping
+### Per-profile paper bankroll scoping
 
-The original plan specified a shared `$250/$500` bankroll without addressing what happens in a multi-tester, auth-free environment. Every tester would read and mutate the same bankroll state. The revised plan scopes bankroll per profile run, not per user, until auth is added.
+The original plan specified a shared `$250/$500` bankroll without addressing what happens in a multi-tester, auth-free environment. Every tester would read and mutate the same simulated bankroll state. The revised plan scopes paper bankroll per profile run, not per user, until auth is added.
 
 ### AI provider consolidation
 
@@ -373,7 +375,7 @@ CREATE TABLE auto_tune_log (
 
 - Base predictions, system bets, and user paper bets all log to their own tables with no cross-contamination
 - Bob chat returns answers that reference today's card data
-- Bob chat refuses requests outside its defined scope (open-ended betting advice, code modification)
+- Bob chat refuses requests outside its defined scope (wagering advice, transaction execution, code modification)
 - Auto-tune does not run when settled bet count is below the 30-day gate
 - Auto-tune updates stored profile parameters without touching model `.pkl` files or application code
 - Settlements propagate through to profile ROI correctly

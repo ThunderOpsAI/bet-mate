@@ -6,8 +6,8 @@ import { AuthProvider } from "./providers/AuthProvider";
 import AppShell from "./components/AppShell";
 
 export const metadata: Metadata = {
-  title: "BetMate — AI-Powered Multi-Sport Predictions",
-  description: "XGBoost ML-powered predictions for racing, AFL, and NBA. Explainable AI insights, fair odds calculations, and feature importance analysis.",
+  title: "BetMate | Sports Statistics and Recommendations",
+  description: "Sports statistics, tracking, and recommendation tools for racing, AFL, and NBA.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -1,12 +1,12 @@
 "use client";
 import { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
+import BobMascot from "./BobMascot";
 import Sidebar from "./Sidebar";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
@@ -19,11 +19,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-area">
         <header className="top-header">
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
+          <div className="header-title-wrap">
+            <button className="mobile-menu-btn" type="button" aria-label="Open navigation" onClick={() => setSidebarOpen(true)}>
               <Menu size={22} />
             </button>
-            <h2>{getPageTitle(pathname)}</h2>
+            <BobMascot className="brand-mark brand-mark-sm header-mascot-slot" />
+            <div className="header-title-copy">
+              <span className="header-kicker">BetMate</span>
+              <h2>{getPageTitle(pathname)}</h2>
+            </div>
           </div>
           <div className="header-live-badge">
             <span className="live-dot" /> ML Engine Live

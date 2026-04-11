@@ -1,15 +1,15 @@
 # BetMate
 
-BetMate is an AI-powered multi-sport prediction and betting analytics platform focused on horse racing, basketball (NBA/NBL), and AFL.
+BetMate is an AI-powered multi-sport prediction and analytics platform focused on horse racing, basketball (NBA/NBL), and AFL.
 
 The application provides:
 - Data-driven predictions and probabilities
 - Explainable AI insights via Gemini
-- Exotic bet calculators and strategy tools
-- Bankroll tracking and performance analytics
+- Racing market calculators and strategy tools
+- Paper-only bankroll tracking and performance analytics
 
 **Important:**  
-BetMate does **not** facilitate betting or handle payments. Users place bets through their own bookmaker platforms. This app is for information, analysis, and tracking purposes only.
+BetMate is a **NO BETTING** product. It does not place, accept, route, facilitate, or settle real-money wagers. It does not connect to bookmakers for transaction execution and does not handle deposits, withdrawals, or wagering payments. The app is for information, analysis, and paper/simulated tracking only.
 
 ---
 
@@ -31,9 +31,11 @@ This repository currently contains the project scaffold and design documentation
 
 ---
 
-## Legal & Responsible Gambling
+## Legal & Responsible Use
 
-- This project does not accept wagers or payments
+- This project does not accept wagers, stakes, deposits, withdrawals, or wagering payments
+- No feature should place or facilitate real-money betting
+- Any "bet", "stake", or "bankroll" language in the product refers to paper/simulated tracking only
 - Predictions are not guarantees
 - Users must be 18+
 - Please gamble responsibly
