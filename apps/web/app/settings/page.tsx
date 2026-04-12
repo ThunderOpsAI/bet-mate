@@ -23,8 +23,8 @@ type JamesRuleSet = {
 };
 
 export default function SettingsPage() {
-  const { user, token, refreshUser } = useAuth();
-  const [username, setUsername] = useState(user?.username ?? "");
+  const { user, updateProfile } = useAuth();
+  const [displayName, setDisplayName] = useState(user?.displayName ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
@@ -34,7 +34,10 @@ export default function SettingsPage() {
   const [jamesSaving, setJamesSaving] = useState(false);
   const [jamesMessage, setJamesMessage] = useState("");
 
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+  useEffect(() => {
+    setDisplayName(user?.displayName ?? "");
+    setEmail(user?.email ?? "");
+  }, [user]);
 
   useEffect(() => {
     const loadJames = async () => {
@@ -57,16 +60,7 @@ export default function SettingsPage() {
     setSuccess("");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/user/profile`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Update failed");
-      }
-      await refreshUser();
+      await updateProfile({ displayName, email });
       setSuccess("Profile updated!");
     } catch (err: any) {
       setError(err.message);
@@ -123,8 +117,8 @@ export default function SettingsPage() {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Username</label>
-            <input className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
+            <label className="form-label">Display Name</label>
+            <input className="form-input" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required minLength={3} />
           </div>
           <div className="form-group">
             <label className="form-label">Email</label>
@@ -291,7 +285,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="disclaimer" style={{ marginTop: "1rem" }}>
-        <strong>18+</strong> | This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Please gamble responsibly.
+        <strong>18+</strong> | BetMate is informational only. BetMate does not accept wagers or provide betting services.
       </div>
     </div>
   );

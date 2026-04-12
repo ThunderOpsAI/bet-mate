@@ -287,6 +287,12 @@ body {
   color: var(--text-primary);
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
 .page-content {
   flex: 1;
   padding: 1.5rem;
@@ -744,6 +750,60 @@ select.form-input {
   margin-bottom: 1rem;
 }
 
+.success-message {
+  background: var(--green-bg);
+  color: var(--green);
+  padding: 0.65rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin: 1.1rem 0;
+  text-transform: uppercase;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.checkbox-row input {
+  margin-top: 0.2rem;
+}
+
+.checkbox-row a {
+  color: var(--accent-hover);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-checkbox {
+  margin-bottom: 1rem;
+}
+
+.auth-loading {
+  min-height: 120px;
+}
+
 /* ---- Disclaimer banner ---- */
 .disclaimer {
   background: var(--yellow-bg);
@@ -754,6 +814,49 @@ select.form-input {
   color: var(--yellow);
   margin-top: 2rem;
   line-height: 1.6;
+}
+
+.recommendation-disclaimer {
+  color: var(--yellow);
+  background: var(--yellow-bg);
+  border: 1px solid rgba(242, 193, 78, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin-top: 0.85rem;
+}
+
+.recommendation-disclaimer.compact {
+  font-size: 0.74rem;
+}
+
+.legal-page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 2rem;
+  color: var(--text-secondary);
+}
+
+.legal-page h1 {
+  color: var(--text-primary);
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.legal-page h2 {
+  color: var(--text-primary);
+  font-size: 1.05rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.legal-page p {
+  margin-bottom: 0.75rem;
+}
+
+.legal-page a {
+  color: var(--accent-hover);
 }
 
 /* ---- Empty state ---- */

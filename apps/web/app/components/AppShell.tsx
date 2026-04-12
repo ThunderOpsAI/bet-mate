@@ -1,18 +1,46 @@
 "use client";
-import { useState } from "react";
-import { usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { LogOut, Menu, User } from "lucide-react";
+import { useAuth } from "../providers/AuthProvider";
 import BobMascot from "./BobMascot";
 import Sidebar from "./Sidebar";
 
+const PUBLIC_PATHS = ["/login", "/register", "/auth/callback", "/terms", "/privacy"];
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, isLoading, hasCompletedCompliance, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isAuthPage = pathname === "/login" || pathname === "/register";
+  const isPublicPage = PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+  const needsCompliance = Boolean(user && !hasCompletedCompliance && pathname !== "/compliance");
 
-  // Auth pages don't need shell
-  if (isAuthPage) return <>{children}</>;
+  useEffect(() => {
+    if (isPublicPage || isLoading) return;
+    if (!user) {
+      router.replace(`/login?redirectTo=${encodeURIComponent(pathname)}`);
+      return;
+    }
+    if (needsCompliance) {
+      router.replace("/compliance");
+    }
+  }, [isLoading, isPublicPage, needsCompliance, pathname, router, user]);
+
+  if (isPublicPage) return <>{children}</>;
+
+  if (isLoading || !user || needsCompliance) {
+    return (
+      <div className="dashboard-loading">
+        <div className="loading-pulse">
+          <BobMascot className="brand-mark" />
+          <p>Loading your BetMate account...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="app-shell">
@@ -29,8 +57,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <h2>{getPageTitle(pathname)}</h2>
             </div>
           </div>
-          <div className="header-live-badge">
-            <span className="live-dot" /> ML Engine Live
+          <div className="header-actions">
+            <Link href="/settings" className="user-badge">
+              <User size={15} />
+              <span>{user.displayName}</span>
+            </Link>
+            <button
+              className="btn btn-sm btn-secondary"
+              type="button"
+              onClick={() => {
+                void logout().then(() => router.replace("/login"));
+              }}
+            >
+              <LogOut size={15} /> Sign out
+            </button>
           </div>
         </header>
         <main className="page-content">{children}</main>
@@ -50,5 +90,6 @@ function getPageTitle(path: string) {
   if (path === "/bankroll") return "Bankroll";
   if (path === "/analytics") return "Analytics";
   if (path === "/settings") return "Settings";
+  if (path === "/compliance") return "Account Confirmation";
   return "BetMate";
 }

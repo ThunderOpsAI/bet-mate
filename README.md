@@ -41,3 +41,15 @@ This repository currently contains the project scaffold and design documentation
 - Please gamble responsibly
 
 Australian users: https://www.gamblinghelponline.org.au
+
+## V2 Auth And Compliance Notes
+
+BetMate uses Supabase Auth for email/password and Google OAuth sign-in. OAuth must use the PKCE callback route at `/auth/callback`.
+
+Configure Supabase redirect URLs for each environment:
+- Local: `http://localhost:3000/auth/callback`
+- Production: `https://your-production-domain/auth/callback`
+
+Run the Supabase SQL migration in `supabase/migrations/202604120001_auth_profiles_compliance.sql` before enabling production auth. It creates `profiles` and `user_settings`, enables RLS, and stores age confirmation and Terms acceptance timestamps.
+
+No KYC or identity verification is required at this stage because BetMate remains informational only. BetMate does not accept funds, hold balances, place bets, route wagers, or provide betting services. Reassess this decision before adding payments, bookmaker links, affiliate links, or any facilitation-style betting UX.

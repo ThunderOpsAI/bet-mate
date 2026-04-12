@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Star, TrendingUp, AlertTriangle } from "lucide-react";
+import RecommendationDisclaimer, { RECOMMENDATION_DISCLAIMER } from "../../components/RecommendationDisclaimer";
 
 type Prediction = {
   horseName: string;
@@ -125,12 +126,13 @@ export default function RaceDetailPage() {
                 )}
               </div>
             </div>
+            <RecommendationDisclaimer compact />
           </div>
         ))}
       </div>
 
       <div className="disclaimer" style={{ marginTop: "1.5rem" }}>
-        <AlertTriangle size={14} style={{ verticalAlign: "middle" }} /> Predictions are AI-generated estimates — not guarantees. Always bet responsibly.
+        <AlertTriangle size={14} style={{ verticalAlign: "middle" }} /> {RECOMMENDATION_DISCLAIMER} Predictions are AI-generated estimates and are not guarantees.
       </div>
     </div>
   );

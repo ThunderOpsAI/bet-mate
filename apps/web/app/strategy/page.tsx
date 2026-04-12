@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { Bot, Brain, TrendingUp, Wallet } from "lucide-react";
+import RecommendationDisclaimer from "../components/RecommendationDisclaimer";
 import { ML_API } from "../lib/mlApi";
 
 type SystemBet = {
@@ -138,6 +139,7 @@ export default function StrategyPage() {
                     Skipped: {card.skipped_opportunities.slice(0, 2).map((item) => `${item.selection} (${item.reason})`).join(", ")}
                   </div>
                 )}
+                <RecommendationDisclaimer compact />
               </div>
             </div>
           ))}

@@ -172,7 +172,7 @@ export default function BankrollPage() {
       )}
 
       <div className="disclaimer">
-        Paper bankroll is for tracking simulated outcomes only. BetMate does not facilitate betting or handle payments.
+        Paper bankroll is for tracking simulated outcomes only. BetMate does not accept wagers or provide betting services.
       </div>
     </div>
   );

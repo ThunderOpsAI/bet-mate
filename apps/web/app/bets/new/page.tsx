@@ -124,7 +124,7 @@ export default function NewBetPage() {
       </div>
 
       <div className="disclaimer" style={{ marginTop: "1rem" }}>
-        Paper bets are local tracking records only. BetMate does not place wagers or handle payments.
+        Paper bets are tracking records only. BetMate does not accept wagers or provide betting services.
       </div>
     </div>
   );
