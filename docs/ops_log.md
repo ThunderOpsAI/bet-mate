@@ -18,3 +18,28 @@ Outcome:
 Follow-up:
 - Investigate the failed `2026-04-11` nightly attempt if it repeats.
 - Fix or remove the Railway multi-region setting that still includes inaccessible `asia-southeast1`, because it leaves the newest deployment status failed even while production remains healthy on the previous successful deployment.
+
+## 2026-04-12 — Railway deployment region cleanup
+
+Checked Railway project `bet-mate`, environment `production`, service `@bet-mate/prediction-engine`.
+
+Outcome:
+- Railway CLI is linked to project `bet-mate`, environment `production`, service `@bet-mate/prediction-engine`.
+- Direct `railway service scale` is still unusable in this session: the CLI panics while fetching regions with `UnauthorizedLogin`.
+- Direct Railway dashboard/environment config writes were not available through this CLI session. `railway environment edit` returned no applied changes, and the committed dashboard service config still reports the inaccessible `asia-southeast1`/`ap-southeast1-drams3a` multi-region entries when read back.
+- Added service-local Railway config-as-code at `services/prediction-engine/railway.json`. Railway picked it up as `configFile=services/prediction-engine/railway.json` on the next deployment.
+- A first test deployment using a repo-root `railway.json` was not picked up by Railway and failed as `40d2c27e-dce7-4fb6-bb76-e5265bf1c399` with the same `User does not have access to region asia-southeast1` config error.
+- Fresh deployment `e58263c9-954f-4098-bda8-246b3e0d7d56` succeeded. Its service manifest uses:
+  - `builder=DOCKERFILE`
+  - `dockerfilePath=Dockerfile`
+  - `multiRegionConfig={"europe-west4-drams3a":{"numReplicas":1}}`
+  - `numReplicas=1`
+- Production health endpoint returned `{"status":"ok","service":"advanced-ml-engine"}` after container startup completed.
+- Production strategy card endpoint for James on `2026-04-12` returned the existing card with `selected_count=3`, confirming the deployed service can still read production data.
+- New deployment logs show `Nightly scheduler sleeping until 2026-04-13T05:00:00+10:00`.
+- No `connection already closed` log entries were found in the new deployment logs since deploy.
+
+Follow-up:
+- Keep `services/prediction-engine/railway.json` committed so future deployments override the stale dashboard multi-region config.
+- If Railway dashboard write access becomes available, remove the stale dashboard `asia-southeast1` and `ap-southeast1-drams3a` entries to avoid confusion in `railway environment config`.
+- Re-check the scheduler after the `2026-04-13 05:00 AEST` run window.
