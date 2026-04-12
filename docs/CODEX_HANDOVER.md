@@ -52,32 +52,43 @@ You are a senior full-stack developer working on BetMate — a sports statistics
 ```
 ## Previous session summary
 
-**Phase:** V2 transition — ops carry-over + branding foundations
+**Phase:** V2 transition — ops carry-over, auth, compliance foundations
 **Branch worked on:** codex/ops-scheduler-branding-start
-**Commit:** e8d254e — chore: start v2 ops and branding
-**Test result:** `pnpm --filter @bet-mate/web build` passed. Browser verification passed on `http://127.0.0.1:3000` for desktop and mobile: no Next overlay, no console errors, dashboard left loading state. Full pytest suite was not run.
+**Commits:** c1c0c65 — chore: add railway service deployment config; a555c8f — feat: add supabase auth and compliance foundations
+**Test result:** `pnpm --filter @bet-mate/web build` passed. `pnpm --filter @bet-mate/web test` passed but only prints "No tests configured for web". `venv/bin/python -m pytest` in `services/prediction-engine` passed with 96 tests. `jq empty services/prediction-engine/railway.json` passed. `git diff --check` passed. Browser smoke screenshots on `http://127.0.0.1:3100` for `/login`, `/terms`, and protected `/` redirect showed rendered pages with no Next overlay; console capture via `agent-browser` was unavailable because the CLI is not installed, and `npx -p playwright node -e ...` could not resolve the Playwright module. Local login correctly showed the expected Supabase configuration error because Supabase env vars are not set locally.
 
 ### What was completed
-- Railway project `bet-mate`, production service `@bet-mate/prediction-engine`, was linked locally for CLI inspection.
-- Production scheduler env vars confirmed: `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true`, `BETMATE_NIGHTLY_SCHEDULER_TIME=05:00`.
-- Active successful Railway deployment confirmed healthy with one replica; production health endpoint returns `{"status":"ok","service":"advanced-ml-engine"}`.
-- Scheduler logs checked: `2026-04-12` nightly cycle completed and scheduled `2026-04-13 05:00:00 AEST`.
-- `docs/ops_log.md` created with the scheduler/env/log/deployment findings.
-- Branding foundations added for the web app:
-  - `apps/web/tailwind.config.js` brand colour, font, and radius tokens.
-  - CSS brand tokens in `apps/web/app/globals.css`.
-  - Placeholder SVG BetMate Bob mascot component at `apps/web/app/components/BobMascot.tsx`.
-  - Bob mascot slot added to the sidebar brand and top header.
-  - Header/nav/footer restyled onto the new brand palette.
-  - Persistent footer copy added: `18+ only. BetMate is informational only.` with a Gambling Help Online link.
-- Metadata and login copy adjusted away from wagering-positioned language.
-- Local dev server was stopped before commit.
+- Completed Task 1 carry-over:
+  - Added service-local Railway config-as-code at `services/prediction-engine/railway.json`.
+  - Fresh Railway deployment `e58263c9-954f-4098-bda8-246b3e0d7d56` succeeded with Dockerfile builder, `numReplicas=1`, and `multiRegionConfig={"europe-west4-drams3a":{"numReplicas":1}}`.
+  - Production `/health` returned `{"status":"ok","service":"advanced-ml-engine"}` after deploy.
+  - Production strategy-card read for James on `2026-04-12` returned existing card with `selected_count=3`.
+  - New deployment logs showed scheduler sleeping until `2026-04-13T05:00:00+10:00`; no new `connection already closed` entries were found after deploy.
+  - `docs/ops_log.md` updated with deployment IDs and Railway CLI limitations.
+- Completed Task 2 auth implementation:
+  - Replaced local Express/JWT browser auth in `apps/web/app/providers/AuthProvider.tsx` with Supabase Auth.
+  - Added browser Supabase client at `apps/web/app/lib/supabase.ts` with PKCE, persisted sessions, and auto-refresh.
+  - Added email/password login and signup via Supabase Auth.
+  - Added Google OAuth via Supabase provider and `/auth/callback` code exchange route.
+  - Added redirect/error handling for login, register, and OAuth callback flows.
+  - Added app-wide route guard in `apps/web/app/components/AppShell.tsx`: all non-public routes require auth; incomplete compliance redirects to `/compliance`.
+  - Added profile hydration/update support from Supabase `profiles`, including display name, email, created_at, plan tier, and compliance timestamps.
+  - Added local/production Supabase redirect URI notes to `.env.example` and README.
+- Completed Task 3 compliance foundations:
+  - Added Supabase migration `supabase/migrations/202604120001_auth_profiles_compliance.sql` for `profiles` and `user_settings`, RLS policies, default free plan tier, and auth trigger setup.
+  - Added `/compliance` age gate and Terms acceptance flow with hard sign-out on decline.
+  - Added `/terms` and `/privacy` public pages with V2 placeholder legal/privacy copy.
+  - Added recommendation disclaimer component with exact required copy: `This is informational only. BetMate does not accept wagers or provide betting services.`
+  - Added recommendation disclaimer to dashboard cards, racing cards, AFL cards, NBA cards, race detail cards, and strategy cards.
+  - Updated README with no-KYC decision: no KYC is required while BetMate remains informational and does not accept funds or provide betting services.
 
 ### What was NOT completed (carry forward)
-- Latest Railway deployment record is failed (`2310b0ee-43ca-443e-bf0c-eb91d9a53e98`) due an inaccessible `asia-southeast1` region config. The active successful deployment remains healthy.
-- `2026-04-11` nightly cycle logged `connection already closed`; `2026-04-12` completed successfully. Re-check if this repeats.
-- Branding task only covered foundations/app shell. Existing individual screens still need a full brand polish pass.
-- Tailwind config was added as the token source requested by the build spec, but the current app still uses global CSS rather than Tailwind utilities.
+- Supabase project setup was not applied from this local session. The next operator must run `supabase/migrations/202604120001_auth_profiles_compliance.sql`, set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, enable Email and Google providers, and configure redirect URLs before production auth can be fully tested.
+- Live email/password and Google OAuth flows were not exercised against a real Supabase project because local Supabase env vars are not configured.
+- Terms and Privacy copy is implementation-ready placeholder copy, not lawyer-reviewed final copy.
+- Railway dashboard service config still appears stale in `railway environment config`; deployments succeed because `services/prediction-engine/railway.json` overrides the stale multi-region config.
+- Re-check the scheduler after the `2026-04-13 05:00 AEST` run window.
+- Branding task still needs a full screen-level polish pass beyond the app shell/foundations.
 
 ---
 
@@ -85,22 +96,30 @@ You are a senior full-stack developer working on BetMate — a sports statistics
 
 Complete the following in order. Stop after each task and check in with the product owner before proceeding.
 
-**Task 1 — Railway deployment cleanup check (V2 ops carry-over, P0)**
-- Inspect Railway service deployment settings and remove/fix the inaccessible `asia-southeast1` region if still configured.
-- Confirm a fresh deployment can succeed without replacing the active healthy service with a failed deployment.
-- Re-check scheduler logs after the next run window if available; document any repeated `connection already closed` failure in `docs/ops_log.md`.
+**Task 1 — Supabase production auth configuration and smoke test (V2 Auth/Compliance, P0)**
+- Run `supabase/migrations/202604120001_auth_profiles_compliance.sql` in the target Supabase project.
+- Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` for local and production web environments.
+- Enable Supabase Email and Google providers.
+- Configure redirect URLs:
+  - Local: `http://localhost:3000/auth/callback`
+  - Production: `https://your-production-domain/auth/callback`
+- Smoke test email/password signup/login, Google OAuth callback, profile row creation, `user_settings` creation, age gate/Terms acceptance, decline flow, sign-out, and protected route redirects.
 
-**Task 2 — V2: Email + Google auth (P0)**
-- Refer to `docs/BUILD_SPEC.md`, Phase V2, Auth section.
-- Confirm current auth architecture in `apps/web/app/providers/AuthProvider.tsx` before editing.
-- Implement email/password auth via Supabase Auth or confirm with owner if magic link should remain.
-- Implement Google OAuth via Supabase provider with PKCE, redirect/error handling, and production/local redirect URI notes.
-- Add protected route guards on authenticated pages.
+**Task 2 — Scheduler post-run check (V2 ops carry-over, P0)**
+- Re-check Railway scheduler logs after the `2026-04-13 05:00 AEST` run window.
+- Confirm exactly one nightly cycle ran.
+- Confirm no repeated `connection already closed` entry.
+- Confirm production `/health` and the `2026-04-13` strategy card endpoint still work.
+- Update `docs/ops_log.md` with findings.
 
-**Task 3 — V2: Compliance foundations start (P0)**
-- Refer to `docs/BUILD_SPEC.md`, Phase V2, Compliance Foundations section.
-- Start with age gate + Terms acceptance storage design.
-- Ensure recommendation card disclaimer copy is planned for every recommendation card before V3 work.
+**Task 3 — Product/legal copy confirmation (V2 Compliance, P0)**
+- Ask the product owner to review `/terms` and `/privacy` copy.
+- Flag that these pages are not lawyer-reviewed and should not be treated as final legal text.
+- Confirm the exact recommendation disclaimer copy remains acceptable everywhere before moving toward V3.
+
+**Task 4 — Branding screen polish continuation (V2 Branding, P1)**
+- Continue the screen-level brand polish pass on existing pages.
+- Keep the persistent responsible gambling notice and required recommendation disclaimers intact.
 
 Check in with product owner after each task. Do not proceed to the next without confirmation.
 ```
