@@ -1,7 +1,11 @@
 /** @type {import('next').NextConfig} */
+const DEFAULT_PROXY_TARGET = "http://54.79.12.88";
+
 const nextConfig = {
   async rewrites() {
-    const raw = process.env.ML_API_PROXY_TARGET;
+    const raw =
+      process.env.ML_API_PROXY_TARGET ||
+      (process.env.NODE_ENV === "production" ? DEFAULT_PROXY_TARGET : "");
     if (!raw) return [];
     // Normalize: if the target points to port 8000, rewrite to port 80
     // (nginx on the Lightsail instance exposes port 80 and proxies to :8000 internally)

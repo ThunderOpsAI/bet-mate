@@ -1,5 +1,5 @@
 const LOCAL_ML_API = "http://localhost:8000";
-const PRODUCTION_ML_API = "https://bet-mateprediction-engine-production.up.railway.app";
+const PRODUCTION_ML_API = "/api/ml-proxy";
 
 const DEFAULT_ML_API =
   process.env.NODE_ENV === "production" ? PRODUCTION_ML_API : LOCAL_ML_API;
