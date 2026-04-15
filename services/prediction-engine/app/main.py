@@ -27,6 +27,7 @@ import app.nightly as nightly_runner
 from app.notifications import notify_blackbook_trigger
 from app.strategy import StrategyService
 from app.time_utils import now_melbourne, today_melbourne
+from app import database as database_mod
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -39,6 +40,9 @@ _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.
 CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
 NIGHTLY_SCHEDULER_ENABLED = os.getenv("BETMATE_NIGHTLY_SCHEDULER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 NIGHTLY_SCHEDULER_TIME = os.getenv("BETMATE_NIGHTLY_SCHEDULER_TIME", nightly_runner.DEFAULT_SCHEDULER_TIME)
+WEEKLY_RETRAIN_ENABLED = os.getenv("BETMATE_WEEKLY_RETRAIN_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+WEEKLY_RETRAIN_DAY = os.getenv("BETMATE_WEEKLY_RETRAIN_DAY", nightly_runner.DEFAULT_WEEKLY_RETRAIN_DAY)
+SQLITE_BACKUP_DIR = os.getenv("BETMATE_SQLITE_BACKUP_DIR", "").strip() or None
 _nightly_scheduler_task: Optional[asyncio.Task] = None
 
 
@@ -58,6 +62,9 @@ async def _nightly_scheduler_loop():
             summary = nightly_runner.run_nightly_cycle(
                 strategy_service=strategy_service,
                 run_date=next_run.date().isoformat(),
+                weekly_retrain_enabled=WEEKLY_RETRAIN_ENABLED,
+                weekly_retrain_day=WEEKLY_RETRAIN_DAY,
+                backup_dir=SQLITE_BACKUP_DIR,
             )
             print(f"Nightly strategy cycle completed for {summary['run_date']}")
         except Exception as exc:
@@ -69,6 +76,7 @@ async def lifespan(application: FastAPI):
     global _nightly_scheduler_task
     # Startup
     storage.init_db()
+    database_mod.validate_persistence_configuration()
     try:
         print("Initializing Racing ML Model...")
         racing_predictor.load_or_train()

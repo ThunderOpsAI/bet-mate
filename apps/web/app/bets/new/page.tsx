@@ -3,9 +3,11 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { ML_API } from "../../lib/mlApi";
+import { useAuth } from "../../providers/AuthProvider";
 
 export default function NewBetPage() {
   const router = useRouter();
+  const { token } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -35,9 +37,15 @@ export default function NewBetPage() {
     setError("");
     setLoading(true);
     try {
+      if (!token) {
+        throw new Error("Please sign in before logging a paper bet.");
+      }
       const res = await fetch(`${ML_API}/api/paper-bets`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           sport,
           event_id: eventId,
@@ -51,6 +59,9 @@ export default function NewBetPage() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+          throw new Error("Session expired. Please sign in again.");
+        }
         throw new Error(data.detail || "Failed to log paper bet");
       }
       router.push("/bets");

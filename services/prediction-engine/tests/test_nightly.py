@@ -157,3 +157,74 @@ def test_nightly_reruns_keep_single_system_bet_per_profile_event_selection(monke
         if bet["event_id"] == "race_auto_1" and bet["selection"] == "Star Runner"
     ]
     assert len(bets) == 1
+
+
+def test_weekly_retrain_runs_once_on_configured_day(monkeypatch):
+    calls = []
+    monkeypatch.setattr(nightly.storage, "init_db", lambda: None)
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+    monkeypatch.setattr(nightly.storage, "get_weekly_retrain_run", lambda run_date: None)
+    monkeypatch.setattr(
+        nightly.storage,
+        "run_weekly_retrain",
+        lambda reference_date, profile_keys=None: calls.append((reference_date, tuple(profile_keys or []))) or {
+            "run_date": reference_date,
+            "profile_count": len(profile_keys or []),
+            "tuned_profiles": 0,
+            "profiles": {},
+        },
+    )
+
+    summary = nightly.run_nightly_cycle(
+        strategy_service=DummyStrategyService(),
+        run_date="2026-04-12",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+        weekly_retrain_enabled=True,
+        weekly_retrain_day="sun",
+    )
+    assert summary["weekly_retrain"]["ran"] is True
+    assert len(calls) == 1
+
+    monkeypatch.setattr(
+        nightly.storage,
+        "get_weekly_retrain_run",
+        lambda run_date: {"run_date": run_date, "profile_count": 2, "tuned_profiles": 0, "summary": {}},
+    )
+    second = nightly.run_nightly_cycle(
+        strategy_service=DummyStrategyService(),
+        run_date="2026-04-12",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+        weekly_retrain_enabled=True,
+        weekly_retrain_day="sun",
+    )
+    assert second["weekly_retrain"]["ran"] is False
+    assert second["weekly_retrain"]["reason"] == "already ran for date"
+    assert len(calls) == 1
+
+
+def test_weekly_retrain_skips_on_non_matching_weekday(monkeypatch):
+    monkeypatch.setattr(nightly.storage, "init_db", lambda: None)
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+
+    summary = nightly.run_nightly_cycle(
+        strategy_service=DummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+        weekly_retrain_enabled=True,
+        weekly_retrain_day="sun",
+    )
+    assert summary["weekly_retrain"]["ran"] is False
+    assert summary["weekly_retrain"]["reason"] == "not scheduled weekday"

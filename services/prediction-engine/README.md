@@ -23,6 +23,17 @@ The auto-tune step is hard-gated. It will not run for a profile until that profi
 
 Set `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true` on the FastAPI service to run the same nightly cycle automatically in-process. The default scheduler time is `05:00` Australia/Melbourne and can be changed with `BETMATE_NIGHTLY_SCHEDULER_TIME=HH:MM`.
 
+Weekly retrain can be layered on top of nightly with:
+
+- `BETMATE_WEEKLY_RETRAIN_ENABLED=true`
+- `BETMATE_WEEKLY_RETRAIN_DAY=sun` (mon..sun)
+
+When enabled, the nightly cycle only runs weekly retrain on the configured weekday and records metadata to `weekly_retrain_log` so each date is processed once.
+
+Optional SQLite backup snapshots can run after each nightly cycle:
+
+- `BETMATE_SQLITE_BACKUP_DIR=/absolute/path/to/backups`
+
 ## Date-Scoped Fetching
 
 All three sport fetch endpoints now accept an optional Melbourne `date` query:
@@ -109,3 +120,20 @@ curl http://localhost:8000/api/paper-bets
 curl http://localhost:8000/api/paper-bets/summary
 curl "http://localhost:8000/api/paper-bets/trend?sport=afl&days=30"
 ```
+
+Paper bet endpoints are authenticated and require a bearer token in `Authorization`.
+
+## Persistence Hardening and Beta -> Paid Cutover
+
+Immediate hardening (phase 1):
+
+- Enable `BETMATE_REQUIRE_PERSISTENT_STORAGE=true` to fail fast if SQLite is in-memory or in a temp directory.
+- Persist backups with `BETMATE_SQLITE_BACKUP_DIR` and keep regular off-host copies.
+
+Postgres migration path (phase 2):
+
+1. Stand up managed Postgres and set `DATABASE_URL`.
+2. Backfill historical SQLite data into Postgres (predictions, results, strategy runs, paper bets, tuning logs).
+3. Run read parity checks for core aggregates (`/api/predictions/summary`, `/api/paper-bets/summary`, strategy cards).
+4. Shift write traffic to Postgres and monitor parity for at least one weekly retrain cycle.
+5. Keep SQLite backups for rollback window, then decommission fallback writes once stable.

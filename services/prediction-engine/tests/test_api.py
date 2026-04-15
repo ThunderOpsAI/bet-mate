@@ -203,6 +203,21 @@ class TestSettlementEndpoint:
 
 
 class TestPaperBetEndpoints:
+    def test_create_paper_bet_requires_bearer_token(self, client):
+        response = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "auth_required_1",
+                "event_name": "A vs B",
+                "selection": "A",
+                "stake": 10,
+                "odds": 1.9,
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Missing bearer token"
+
     def test_get_paper_bets_empty(self, client):
         response = client.get("/api/paper-bets", headers=_auth_headers("user_a"))
         assert response.status_code == 200

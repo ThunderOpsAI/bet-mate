@@ -1483,6 +1483,73 @@ def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] =
     }
 
 
+def get_weekly_retrain_run(run_date: str) -> Optional[Dict[str, Any]]:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM weekly_retrain_log
+            WHERE run_date = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (run_date,),
+        ).fetchone()
+    return _row_to_weekly_retrain_run(row) if row else None
+
+
+def run_weekly_retrain(reference_date: str, profile_keys: Optional[List[str]] = None) -> Dict[str, Any]:
+    target_profiles = [key.strip() for key in (profile_keys or []) if key and key.strip()]
+    if not target_profiles:
+        target_profiles = [profile["profile_key"] for profile in list_strategy_profiles()]
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    outcomes: Dict[str, Dict[str, Any]] = {}
+    tuned_profiles = 0
+    for profile_key in target_profiles:
+        try:
+            result = auto_tune_strategy_profile(profile_key, reference_date=reference_date)
+            outcomes[profile_key] = result
+            if result.get("ran"):
+                tuned_profiles += 1
+        except Exception as exc:
+            outcomes[profile_key] = {"ran": False, "error": str(exc)}
+
+    completed_at = datetime.now(timezone.utc).isoformat()
+    summary = {
+        "run_date": reference_date,
+        "profile_count": len(target_profiles),
+        "tuned_profiles": tuned_profiles,
+        "profiles": outcomes,
+    }
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO weekly_retrain_log (
+                run_date,
+                started_at,
+                completed_at,
+                profile_count,
+                tuned_profiles,
+                summary_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                reference_date,
+                started_at,
+                completed_at,
+                len(target_profiles),
+                tuned_profiles,
+                _dumps_json(summary),
+            ),
+        )
+        conn.commit()
+
+    return summary
+
+
 def init_db() -> None:
     """Initialize the database schema once. Delegates to database module."""
     init_database()
@@ -1594,6 +1661,21 @@ def _row_to_strategy_profile(row) -> Dict[str, Any]:
         "is_editable": bool(row["is_editable"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
+    }
+
+
+def _row_to_weekly_retrain_run(row) -> Dict[str, Any]:
+    payload = _loads_json(row["summary_json"])
+    if not isinstance(payload, dict):
+        payload = {}
+    return {
+        "id": row["id"],
+        "run_date": row["run_date"],
+        "started_at": row["started_at"],
+        "completed_at": row["completed_at"],
+        "profile_count": int(row["profile_count"] or 0),
+        "tuned_profiles": int(row["tuned_profiles"] or 0),
+        "summary": payload,
     }
 
 
