@@ -168,6 +168,14 @@ class PaperBetSettleInput(BaseModel):
     payout: Optional[float] = None
 
 
+class BlackbookAutoBetInput(BaseModel):
+    user_id: str
+    sport: str
+    bet_type: str = "win"
+    stake: float
+    enabled: bool = True
+
+
 class StrategyProfilePatchInput(BaseModel):
     display_name: Optional[str] = None
     min_edge: Optional[float] = None
@@ -404,6 +412,30 @@ def delete_paper_bet(bet_id: int):
         raise HTTPException(status_code=404, detail="paper bet not found")
 
     return {"deleted": True, "summary": storage.get_paper_bet_summary()}
+
+
+@app.get("/blackbook/{runner}/auto-bet")
+def get_blackbook_auto_bet(runner: str, user_id: str):
+    config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=user_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="auto-bet config not found")
+    return {"config": config}
+
+
+@app.put("/blackbook/{runner}/auto-bet")
+def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput):
+    try:
+        config = storage.upsert_blackbook_auto_bet_config(
+            runner=runner,
+            user_id=payload.user_id,
+            sport=payload.sport,
+            bet_type=payload.bet_type,
+            stake=payload.stake,
+            enabled=payload.enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"config": config}
 
 
 @app.get("/api/strategy-profiles")

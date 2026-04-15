@@ -203,6 +203,69 @@ class TestPaperBetEndpoints:
         )
         assert response.status_code == 400
 
+    def test_create_paper_bet_enforces_stake_bounds(self, client):
+        low_response = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "g_stake_low",
+                "event_name": "Low Stake",
+                "selection": "A",
+                "stake": 0.5,
+                "odds": 1.9,
+            },
+        )
+        high_response = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "g_stake_high",
+                "event_name": "High Stake",
+                "selection": "A",
+                "stake": 10001,
+                "odds": 1.9,
+            },
+        )
+
+        assert low_response.status_code == 400
+        assert "stake must be between 1 and 10000" in low_response.json()["detail"]
+        assert high_response.status_code == 400
+        assert "stake must be between 1 and 10000" in high_response.json()["detail"]
+
+    def test_create_paper_bet_rejects_incompatible_bet_type_for_sport(self, client):
+        response = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "nba",
+                "event_id": "nba_bet_type_1",
+                "event_name": "Lakers vs Celtics",
+                "selection": "Lakers",
+                "stake": 10,
+                "odds": 2.1,
+                "bet_type": "quinella",
+            },
+        )
+
+        assert response.status_code == 400
+        assert "not supported for sport 'nba'" in response.json()["detail"]
+
+    def test_create_paper_bet_allows_compatible_bet_type_for_sport(self, client):
+        response = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "racing",
+                "event_id": "race_bet_type_1",
+                "event_name": "Flemington R5",
+                "selection": "Runner A / Runner B",
+                "stake": 15,
+                "odds": 6.0,
+                "bet_type": "quinella",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["bet"]["bet_type"] == "quinella"
+
     def test_create_and_settle_paper_bet(self, client):
         # First log a prediction so the bet can link to it
         import app.storage as storage
@@ -283,6 +346,197 @@ class TestPaperBetEndpoints:
     def test_paper_bet_status_filter(self, client):
         response = client.get("/api/paper-bets?status=PENDING")
         assert response.status_code == 200
+
+    def test_paper_bet_summary_aggregates_pending_and_settled(self, client):
+        import app.storage as storage
+
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="sum_afl_1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 2.0},
+                {"selection": "B", "probability": 40, "fair_odds": 2.5},
+            ],
+        )
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="sum_afl_2",
+            event_name="C vs D",
+            predictions=[
+                {"selection": "C", "probability": 55, "fair_odds": 1.9},
+                {"selection": "D", "probability": 45, "fair_odds": 2.2},
+            ],
+        )
+
+        won_bet = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "sum_afl_1",
+                "event_name": "A vs B",
+                "selection": "A",
+                "stake": 20,
+                "odds": 2.0,
+            },
+        ).json()["bet"]
+        client.patch(f"/api/paper-bets/{won_bet['id']}/settle", json={"status": "WON"})
+
+        lost_bet = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "sum_afl_1",
+                "event_name": "A vs B",
+                "selection": "B",
+                "stake": 15,
+                "odds": 2.5,
+            },
+        ).json()["bet"]
+        client.patch(f"/api/paper-bets/{lost_bet['id']}/settle", json={"status": "LOST"})
+
+        client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "sum_afl_2",
+                "event_name": "C vs D",
+                "selection": "C",
+                "stake": 12,
+                "odds": 1.9,
+            },
+        )
+
+        summary_response = client.get("/api/paper-bets/summary?sport=afl")
+        assert summary_response.status_code == 200
+        summary = summary_response.json()["summary"]
+        assert summary["total_bets"] == 3
+        assert summary["pending_bets"] == 1
+        assert summary["settled_bets"] == 2
+        assert summary["won_bets"] == 1
+        assert summary["lost_bets"] == 1
+        assert summary["total_staked"] == 47.0
+        assert summary["settled_staked"] == 35.0
+        assert summary["pending_exposure"] == 12.0
+        assert summary["net_profit"] == 5.0
+
+
+class TestResultIngestionSettlement:
+    def test_ingested_racing_and_nba_results_settle_pending_bets(self, client, monkeypatch):
+        import app.main as main_mod
+        import app.storage as storage
+
+        storage.log_prediction_batch(
+            sport="nba",
+            event_id="nba_ingest_1",
+            event_name="Lakers vs Celtics",
+            predictions=[
+                {"selection": "Lakers", "probability": 57, "fair_odds": 1.75},
+                {"selection": "Celtics", "probability": 43, "fair_odds": 2.33},
+            ],
+        )
+        storage.log_prediction_batch(
+            sport="racing",
+            event_id="race_ingest_1",
+            event_name="Randwick R6",
+            predictions=[
+                {"selection": "Swift Star", "probability": 35, "fair_odds": 2.85},
+                {"selection": "Late Charger", "probability": 65, "fair_odds": 1.54},
+            ],
+        )
+
+        nba_bet = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "nba",
+                "event_id": "nba_ingest_1",
+                "event_name": "Lakers vs Celtics",
+                "selection": "Lakers",
+                "stake": 20,
+                "odds": 1.75,
+            },
+        ).json()["bet"]
+        racing_bet = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "racing",
+                "event_id": "race_ingest_1",
+                "event_name": "Randwick R6",
+                "selection": "Swift Star",
+                "stake": 10,
+                "odds": 2.85,
+            },
+        ).json()["bet"]
+
+        monkeypatch.setattr(main_mod.afl_scraper, "fetch_completed_afl_results", lambda **kwargs: [])
+        monkeypatch.setattr(
+            main_mod.nba_scraper,
+            "fetch_completed_nba_results",
+            lambda **kwargs: [
+                {
+                    "sport": "nba",
+                    "event_id": "nba_ingest_1",
+                    "event_name": "Lakers vs Celtics",
+                    "winner_selection": "Lakers",
+                },
+                {
+                    "sport": "racing",
+                    "event_id": "race_ingest_1",
+                    "event_name": "Randwick R6",
+                    "winner_selection": "Late Charger",
+                },
+            ],
+        )
+
+        ingest_response = client.post("/api/predictions/results/ingest", json={"sports": ["nba"], "max_results": 10})
+        assert ingest_response.status_code == 200
+        assert ingest_response.json()["ingestion"]["settled"] == 2
+
+        bets = {bet["id"]: bet for bet in client.get("/api/paper-bets").json()["bets"]}
+        assert bets[nba_bet["id"]]["status"] == "WON"
+        assert bets[nba_bet["id"]]["profit"] == 15.0
+        assert bets[racing_bet["id"]]["status"] == "LOST"
+        assert bets[racing_bet["id"]]["profit"] == -10.0
+
+
+class TestBlackbookAutoBetEndpoints:
+    def test_blackbook_auto_bet_validates_config(self, client):
+        response = client.put(
+            "/blackbook/Swift%20Star/auto-bet",
+            json={
+                "user_id": "alice",
+                "sport": "nba",
+                "bet_type": "quinella",
+                "stake": 10,
+                "enabled": True,
+            },
+        )
+        assert response.status_code == 400
+        assert "not supported for sport 'nba'" in response.json()["detail"]
+
+    def test_blackbook_auto_bet_persists_and_reads_back(self, client):
+        create_response = client.put(
+            "/blackbook/Swift%20Star/auto-bet",
+            json={
+                "user_id": "alice",
+                "sport": "racing",
+                "bet_type": "win",
+                "stake": 25,
+                "enabled": True,
+            },
+        )
+        assert create_response.status_code == 200
+        created = create_response.json()["config"]
+        assert created["runner"] == "Swift Star"
+        assert created["stake"] == 25.0
+
+        fetch_response = client.get("/blackbook/Swift%20Star/auto-bet?user_id=alice")
+        assert fetch_response.status_code == 200
+        fetched = fetch_response.json()["config"]
+        assert fetched["user_id"] == "alice"
+        assert fetched["sport"] == "racing"
+        assert fetched["bet_type"] == "win"
+        assert fetched["enabled"] is True
 
 
 class TestModelMetadata:
