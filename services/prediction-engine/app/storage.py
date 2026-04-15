@@ -512,14 +512,14 @@ def get_paper_bets(
     conditions = []
     params = []
     if user_id:
-        conditions.append("user_id = ?")
+        conditions.append("paper_bet_log.user_id = ?")
         params.append(user_id)
 
     if status and status != "ALL":
-        conditions.append("status = ?")
+        conditions.append("paper_bet_log.status = ?")
         params.append(status)
     if sport and sport != "all":
-        conditions.append("sport = ?")
+        conditions.append("paper_bet_log.sport = ?")
         params.append(sport)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
@@ -535,7 +535,7 @@ def get_paper_bets(
             LEFT JOIN prediction_log
                 ON prediction_log.id = paper_bet_log.prediction_log_id
             {where_clause}
-            ORDER BY created_at DESC, id DESC
+            ORDER BY paper_bet_log.created_at DESC, paper_bet_log.id DESC
             LIMIT ?
             """,
             (*params, limit),
