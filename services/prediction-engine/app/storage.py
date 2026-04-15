@@ -526,8 +526,14 @@ def get_paper_bets(
     with _connect() as conn:
         rows = conn.execute(
             f"""
-            SELECT *
+            SELECT
+                paper_bet_log.*,
+                prediction_log.payload_json AS prediction_payload_json,
+                prediction_log.probability AS prediction_probability,
+                prediction_log.fair_odds AS prediction_fair_odds
             FROM paper_bet_log
+            LEFT JOIN prediction_log
+                ON prediction_log.id = paper_bet_log.prediction_log_id
             {where_clause}
             ORDER BY created_at DESC, id DESC
             LIMIT ?
@@ -1715,6 +1721,7 @@ def _row_to_result(row) -> Dict[str, Any]:
 
 
 def _row_to_paper_bet(row) -> Dict[str, Any]:
+    prediction_payload = _loads_json(row["prediction_payload_json"]) if _row_has_key(row, "prediction_payload_json") else None
     return {
         "id": row["id"],
         "created_at": row["created_at"],
@@ -1735,6 +1742,11 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "notes": row["notes"],
         "origin": row["origin"] if _row_has_key(row, "origin") else "user",
         "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
+        "prediction": {
+            "probability": _optional_float(row["prediction_probability"]) if _row_has_key(row, "prediction_probability") else None,
+            "fair_odds": _optional_float(row["prediction_fair_odds"]) if _row_has_key(row, "prediction_fair_odds") else None,
+            "payload": prediction_payload if isinstance(prediction_payload, dict) else None,
+        },
     }
 
 

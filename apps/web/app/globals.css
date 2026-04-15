@@ -560,6 +560,92 @@ select.form-input {
   gap: 0.4rem;
 }
 
+.paper-bet-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.paper-bet-filter-row {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.paper-bet-filter {
+  min-width: 140px;
+  height: 34px;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.6rem;
+}
+
+.paper-bet-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+
+.paper-bet-card .bet-row {
+  border: 0;
+  border-radius: var(--radius);
+}
+
+.paper-bet-meta-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.strategy-reasoning {
+  border-top: 1px solid var(--border);
+  padding: 0.5rem 1rem 0.9rem;
+}
+
+.strategy-reasoning-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.35rem 0.1rem;
+}
+
+.strategy-reasoning-body {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.strategy-reasoning-summary {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.55rem;
+}
+
+.strategy-reasoning-body ul {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.4rem;
+}
+
+.strategy-reasoning-body li {
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.55rem;
+}
+
 /* ---- Modal ---- */
 .modal-overlay {
   position: fixed;
@@ -765,6 +851,10 @@ tr:hover td {
   .bet-row {
     grid-template-columns: 1fr;
     gap: 0.5rem;
+  }
+
+  .paper-bet-filter {
+    min-width: 120px;
   }
 
   .page-content {
