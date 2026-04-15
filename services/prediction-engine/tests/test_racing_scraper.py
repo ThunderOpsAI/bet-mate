@@ -1,0 +1,334 @@
+import re
+from pathlib import Path
+from typing import Optional
+
+import requests
+
+from app.data import scraper
+
+
+class _DummyLoginResponse:
+    def __init__(self, payload: dict, error: Optional[Exception] = None):
+        self._payload = payload
+        self._error = error
+
+    def raise_for_status(self):
+        if self._error:
+            raise self._error
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _build_live_race(venue: str, start_time: str, horse_names: list[str]):
+    return {
+        "race_id": f"{venue.lower().replace(' ', '_')}-r1",
+        "venue": venue,
+        "race_number": 1,
+        "distance": 1400,
+        "start_time": start_time,
+        "market_name": "R1 1400m",
+        "source": "betfair_live",
+        "horses": [
+            {
+                "horse_id": f"{venue}-{index}",
+                "name": name,
+                "barrier": index + 1,
+                "weight": 56.5 + index,
+                "past_win_rate": 0.2 + (index * 0.01),
+                "jockey_win_rate": 0.1 + (index * 0.01),
+                "track_condition": 2,
+                "days_since_last_race": 14 + index,
+                "betfair_back_price": 3.0 + index,
+                "betfair_implied_prob": 0.33,
+            }
+            for index, name in enumerate(horse_names)
+        ],
+    }
+
+
+def test_target_day_keeps_mapped_qld_wa_and_unmapped_meetings(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date, allow_mock=True: [
+            _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+            _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
+            _build_live_race("Belmont (WA)", "2026-07-01T23:30:00Z", ["Blue Monarch", "Velvet Charge"]),
+            _build_live_race("Mystery Park", "2026-07-01T23:30:00Z", ["Desert Anthem", "Velvet Charge"]),
+        ],
+    )
+
+    def raise_timeout(_url: str):
+        raise requests.Timeout("skip enrichment")
+
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", raise_timeout)
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert [race["venue"] for race in races] == ["Flemington", "Eagle Farm", "Belmont (WA)", "Mystery Park"]
+    assert races[0]["meeting_type"] == "metro"
+    assert races[0]["meeting_region"] == "VIC"
+    assert races[0]["state"] == "VIC"
+    assert races[0]["meeting_date"] == "2026-07-02"
+    assert races[1]["meeting_type"] == "metro"
+    assert races[1]["meeting_region"] == "QLD"
+    assert races[1]["state"] == "QLD"
+    assert races[2]["meeting_type"] == "metro"
+    assert races[2]["meeting_region"] == "WA"
+    assert races[2]["state"] == "WA"
+    assert races[3]["meeting_type"] == "unknown"
+    assert races[3]["meeting_region"] == ""
+    assert races[3]["state"] == ""
+
+
+def test_registry_supports_provincial_and_country_tags(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date, allow_mock=True: [
+            _build_live_race("Bendigo", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+            _build_live_race("Warrnambool", "2026-07-01T23:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 2
+    assert races[0]["meeting_type"] == "provincial"
+    assert races[0]["meeting_region"] == "VIC"
+    assert races[0]["state"] == "VIC"
+    assert races[1]["meeting_type"] == "country"
+    assert races[1]["meeting_region"] == "VIC"
+    assert races[1]["state"] == "VIC"
+
+
+def test_allowlist_active_days_still_apply_when_config_is_restricted(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date, allow_mock=True: [
+            _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(
+        scraper,
+        "load_metro_allowlist",
+        lambda force_reload=False: {
+            scraper._normalize_name("Eagle Farm"): {
+                "venue": "Eagle Farm",
+                "state": "QLD",
+                "region": "QLD",
+                "meeting_type": "metro",
+                "active_days": ["wed"],
+                "aliases": ["eagle farm"],
+            }
+        },
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert races == []
+
+
+def test_meeting_context_uses_melbourne_timezone_and_handles_dst_boundary():
+    thursday_context = scraper._meeting_context_for_start_time("2026-07-01T23:30:00Z")
+    assert thursday_context["date"] == "2026-07-02"
+    assert thursday_context["weekday"] == "thu"
+
+    dst_boundary_context = scraper._meeting_context_for_start_time("2026-04-04T15:30:00Z")
+    assert dst_boundary_context["date"] == "2026-04-05"
+    assert dst_boundary_context["weekday"] == "sun"
+
+
+def test_betfair_and_racing_australia_merge_produces_horse_and_jockey_names(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date, allow_mock=True: [
+            _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+        ],
+    )
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_racing_australia_html",
+        lambda _url: """
+            <table>
+              <tr><th>Horse</th><th>Jockey</th></tr>
+              <tr><td>Silver Comet</td><td>J. McNeil</td></tr>
+              <tr><td>Night Parade</td><td>B. Melham</td></tr>
+            </table>
+        """,
+    )
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 1
+    assert races[0]["data_source"] == "racing_australia"
+    horse_map = {horse["name"]: horse for horse in races[0]["horses"]}
+    assert horse_map["Silver Comet"]["jockey_name"] == "J. McNeil"
+    assert horse_map["Silver Comet"]["data_source"] == "racing_australia"
+    assert horse_map["Night Parade"]["jockey_name"] == "B. Melham"
+
+
+def test_failed_enrichment_returns_betfair_card_unchanged(monkeypatch):
+    base_race = _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"])
+
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(scraper, "_fetch_live_races", lambda _headers, _target_date, allow_mock=True: [base_race])
+
+    def raise_timeout(_url: str):
+        raise requests.Timeout("skip enrichment")
+
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", raise_timeout)
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 1
+    assert races[0]["data_source"] == "betfair"
+    assert [horse["name"] for horse in races[0]["horses"]] == ["Silver Comet", "Night Parade"]
+    assert all(horse["jockey_name"] is None for horse in races[0]["horses"])
+
+
+def test_mock_responses_do_not_use_placeholder_horse_numbering(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: None)
+
+    races = scraper.fetch_today_races()
+
+    assert races
+    for race in races:
+        for horse in race["horses"]:
+            assert not re.fullmatch(r"Horse \d+", horse["name"])
+
+
+def test_fetch_today_races_can_disable_mock_fallback(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: None)
+
+    races = scraper.fetch_today_races(run_date="2026-07-02", allow_mock=False)
+
+    assert races == []
+
+
+def test_fetch_today_races_does_not_emit_mock_when_live_api_returns_no_markets(monkeypatch):
+    class DummyResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return []
+
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(scraper.requests, "post", lambda *args, **kwargs: DummyResponse())
+
+    races = scraper.fetch_today_races(run_date="2026-07-02", allow_mock=False)
+
+    assert races == []
+
+
+def test_fetch_today_races_filters_out_non_target_dates(monkeypatch):
+    monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_live_races",
+        lambda _headers, _target_date, allow_mock=True: [
+            _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
+            _build_live_race("Flemington", "2026-07-03T01:30:00Z", ["Golden Ember", "Harbour King"]),
+        ],
+    )
+    monkeypatch.setattr(scraper, "_fetch_racing_australia_html", lambda _url: "")
+
+    races = scraper.fetch_today_races(run_date="2026-07-02")
+
+    assert len(races) == 1
+    assert races[0]["meeting_date"] == "2026-07-02"
+
+
+def test_login_uses_certificate_auth_when_configured(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "certificate")
+    monkeypatch.setenv("BETFAIR_CERT_PEM", "-----BEGIN CERTIFICATE-----\\ncert\\n-----END CERTIFICATE-----")
+    monkeypatch.setenv("BETFAIR_KEY_PEM", "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----")
+
+    captured = {}
+
+    def fake_post(url, data=None, headers=None, timeout=None, cert=None):
+        captured["url"] = url
+        captured["data"] = data
+        captured["headers"] = headers
+        captured["timeout"] = timeout
+        captured["cert"] = cert
+        return _DummyLoginResponse({"sessionToken": "cert-token", "loginStatus": "SUCCESS"})
+
+    monkeypatch.setattr(scraper.requests, "post", fake_post)
+
+    token = scraper._login()
+
+    assert token == "cert-token"
+    assert captured["url"] == scraper.BETFAIR_CERT_LOGIN_URL
+    assert captured["data"] == {"username": "user", "password": "pass"}
+    assert captured["headers"]["X-Application"] == "app-key"
+    assert isinstance(captured["cert"], tuple)
+    assert all(Path(path).is_file() for path in captured["cert"])
+    assert scraper._session_token == "cert-token"
+
+
+def test_login_auto_falls_back_to_interactive_after_certificate_failure(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "auto")
+    monkeypatch.setenv("BETFAIR_CERT_PEM", "-----BEGIN CERTIFICATE-----\\ncert\\n-----END CERTIFICATE-----")
+    monkeypatch.setenv("BETFAIR_KEY_PEM", "-----BEGIN PRIVATE KEY-----\\nkey\\n-----END PRIVATE KEY-----")
+
+    calls = []
+
+    def fake_post(url, data=None, headers=None, timeout=None, cert=None):
+        calls.append({"url": url, "cert": cert})
+        if url == scraper.BETFAIR_CERT_LOGIN_URL:
+            return _DummyLoginResponse({}, error=requests.HTTPError("403 Client Error: Forbidden"))
+        return _DummyLoginResponse({"token": "interactive-token", "status": "SUCCESS", "error": ""})
+
+    monkeypatch.setattr(scraper.requests, "post", fake_post)
+
+    token = scraper._login()
+
+    assert token == "interactive-token"
+    assert [call["url"] for call in calls] == [
+        scraper.BETFAIR_CERT_LOGIN_URL,
+        scraper.BETFAIR_INTERACTIVE_LOGIN_URL,
+    ]
+    assert calls[0]["cert"] is not None
+    assert calls[1]["cert"] is None
+
+
+def test_login_certificate_mode_requires_certificate_material(monkeypatch):
+    monkeypatch.setattr(scraper, "BETFAIR_APP_KEY", "app-key")
+    monkeypatch.setattr(scraper, "BETFAIR_USERNAME", "user")
+    monkeypatch.setattr(scraper, "BETFAIR_PASSWORD", "pass")
+    monkeypatch.setattr(scraper, "_session_token", None)
+    monkeypatch.setenv("BETFAIR_AUTH_MODE", "certificate")
+    monkeypatch.delenv("BETFAIR_CERT_PATH", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PATH", raising=False)
+    monkeypatch.delenv("BETFAIR_CERT_PEM", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PEM", raising=False)
+    monkeypatch.delenv("BETFAIR_CERT_PEM_B64", raising=False)
+    monkeypatch.delenv("BETFAIR_KEY_PEM_B64", raising=False)
+
+    def fail_post(*args, **kwargs):
+        raise AssertionError("requests.post should not be called without certificate material")
+
+    monkeypatch.setattr(scraper.requests, "post", fail_post)
+
+    assert scraper._login() is None
+    assert scraper._session_token is None

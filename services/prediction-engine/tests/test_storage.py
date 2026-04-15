@@ -3,6 +3,8 @@ Storage layer unit tests.
 Covers prediction logging, settlement, dedupe, paper bets, accuracy metrics.
 """
 
+from datetime import date, timedelta
+
 import pytest
 import app.storage as storage
 
@@ -347,3 +349,634 @@ class TestPaperBetTrend:
         trend = storage.get_paper_bet_trend(days=30)
         if trend:
             assert trend[-1]["cumulative_profit"] == 50.0
+
+
+class TestStrategyStorage:
+    def _save_system_card(self, profile_key: str, run_date: str, event_id: str, stake: float = 20.0):
+        storage.save_strategy_card(
+            {
+                "profile_key": profile_key,
+                "display_name": storage.get_strategy_profile(profile_key)["display_name"],
+                "card_date": run_date,
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": stake,
+                "candidate_count": 1,
+                "selected_bets": [
+                    {
+                        "sport": "afl",
+                        "event_id": event_id,
+                        "event_name": f"{event_id} A vs B",
+                        "market_type": "head_to_head",
+                        "selection": "A",
+                        "model_probability": 0.6,
+                        "odds_used": 1.8,
+                        "odds_source": "model_implied",
+                        "edge": 0.08,
+                        "stake": stake,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": {"afl": 1.0},
+                "expected_edge": 0.08,
+            }
+        )
+
+    def _save_multi_system_card(self, profile_key: str, run_date: str, legs, stake: float = 20.0, odds_used: float = 3.6):
+        selection = " + ".join(leg["selection"] for leg in legs)
+        event_id = f"multi:{'|'.join(leg['event_id'] for leg in legs)}"
+        event_name = " + ".join(leg["event_name"] for leg in legs)
+        sport_allocation = {}
+        for leg in legs:
+            sport = leg["sport"]
+            sport_allocation[sport] = sport_allocation.get(sport, 0) + (1 / len(legs))
+
+        storage.save_strategy_card(
+            {
+                "profile_key": profile_key,
+                "display_name": storage.get_strategy_profile(profile_key)["display_name"],
+                "card_date": run_date,
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": stake,
+                "candidate_count": len(legs),
+                "selected_bets": [
+                    {
+                        "sport": "multi",
+                        "event_id": event_id,
+                        "event_name": event_name,
+                        "market_type": "multi",
+                        "selection": selection,
+                        "model_probability": 0.35,
+                        "odds_used": odds_used,
+                        "odds_source": "composite",
+                        "edge": 0.07,
+                        "stake": stake,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                        "legs": legs,
+                        "odds_sources": [leg["odds_source"] for leg in legs],
+                        "sport_allocation": sport_allocation,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": sport_allocation,
+                "expected_edge": 0.07,
+            }
+        )
+
+    def _seed_tunable_profile_history(self, profile_key: str = "james", days: int = 30):
+        start_day = date(2026, 2, 1)
+        for index in range(days):
+            run_date = (start_day + timedelta(days=index)).isoformat()
+            event_id = f"{profile_key}-history-{index}"
+            storage.log_prediction_batch(
+                sport="afl",
+                event_id=event_id,
+                event_name=f"{event_id} A vs B",
+                predictions=[
+                    {"selection": "A", "probability": 60, "fair_odds": 1.8},
+                    {"selection": "B", "probability": 40, "fair_odds": 2.2},
+                ],
+            )
+            self._save_system_card(profile_key, run_date, event_id, stake=20.0)
+            storage.settle_prediction_result(
+                sport="afl",
+                event_id=event_id,
+                winner_selection="A",
+                completed_at=f"{run_date}T12:00:00+11:00",
+            )
+
+    def test_default_profiles_seeded(self):
+        profiles = storage.list_strategy_profiles()
+        assert {profile["profile_key"] for profile in profiles} == {
+            "bob",
+            "james",
+            "conservative",
+            "neutral",
+            "aggressive",
+        }
+
+    def test_default_profile_seed_uses_boolean_editable_flag(self, monkeypatch):
+        inserted_rows = []
+
+        class FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchall(self):
+                return self._rows
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                if "SELECT profile_key FROM strategy_profiles" in sql:
+                    return FakeResult([])
+                if "INSERT INTO strategy_profiles" in sql:
+                    inserted_rows.append(params)
+                    return FakeResult([])
+                raise AssertionError(f"Unexpected SQL: {sql}")
+
+            def commit(self):
+                return None
+
+        class FakeContextManager:
+            def __enter__(self):
+                return FakeConn()
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        monkeypatch.setattr(storage, "_connect", lambda: FakeContextManager())
+
+        storage.ensure_default_strategy_profiles()
+
+        assert inserted_rows
+        assert all(isinstance(params[3], bool) for params in inserted_rows)
+
+    def test_james_profile_round_trips(self):
+        updated = storage.update_strategy_profile(
+            "james",
+            {
+                "display_name": "James Test",
+                "min_edge": 0.09,
+                "sport_weights": {"racing": 0.5, "afl": 0.25, "nba": 0.25},
+            },
+        )
+        assert updated["display_name"] == "James Test"
+        assert updated["rule_set"]["min_edge"] == 0.09
+        assert updated["rule_set"]["sport_weights"]["racing"] == 0.5
+
+    def test_strategy_card_save_is_idempotent(self):
+        card = {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "card_date": "2026-04-09",
+            "bankroll_available": 250.0,
+            "bankroll_standard": 250.0,
+            "bankroll_premium": 500.0,
+            "total_allocated": 25.0,
+            "candidate_count": 3,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "g1",
+                    "event_name": "A vs B",
+                    "market_type": "head_to_head",
+                    "selection": "A",
+                    "model_probability": 0.6,
+                    "odds_used": 1.9,
+                    "odds_source": "model_implied",
+                    "edge": 0.08,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+            "skipped_opportunities": [],
+            "sport_mix": {"afl": 1.0},
+            "expected_edge": 0.08,
+        }
+
+        first = storage.save_strategy_card(card)
+        second = storage.save_strategy_card(card)
+
+        assert first["card_date"] == second["card_date"]
+        assert len(storage.list_system_bets(profile_key="bob")) == 1
+
+    def test_strategy_card_replace_rewrites_system_bets_and_clears_links(self):
+        original = {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "card_date": "2026-04-09",
+            "bankroll_available": 250.0,
+            "bankroll_standard": 250.0,
+            "bankroll_premium": 500.0,
+            "total_allocated": 25.0,
+            "candidate_count": 1,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "afl_game_1",
+                    "event_name": "Mock A vs Mock B",
+                    "market_type": "head_to_head",
+                    "selection": "Mock A",
+                    "model_probability": 0.6,
+                    "odds_used": 1.9,
+                    "odds_source": "model_implied",
+                    "edge": 0.08,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+            "skipped_opportunities": [],
+            "sport_mix": {"afl": 1.0},
+            "expected_edge": 0.08,
+        }
+        storage.save_strategy_card(original)
+        existing_bet = storage.list_system_bets(profile_key="bob")[0]
+        storage.create_paper_bet(
+            sport="afl",
+            event_id="afl_game_1",
+            event_name="Mock A vs Mock B",
+            selection="Mock A",
+            stake=10.0,
+            odds=1.9,
+            system_bet_id=existing_bet["id"],
+        )
+
+        replacement = {
+            **original,
+            "selected_bets": [
+                {
+                    "sport": "afl",
+                    "event_id": "38539",
+                    "event_name": "Carlton vs Collingwood",
+                    "market_type": "head_to_head",
+                    "selection": "Collingwood",
+                    "model_probability": 0.61,
+                    "odds_used": 1.8,
+                    "odds_source": "model_implied",
+                    "edge": 0.06,
+                    "stake": 25.0,
+                    "status": "pending",
+                    "payout": None,
+                    "profit": None,
+                    "settled_at": None,
+                }
+            ],
+        }
+
+        storage.save_strategy_card(replacement, replace=True)
+
+        bets = storage.list_system_bets(profile_key="bob")
+        paper_bets = storage.get_paper_bets(limit=10)
+        assert len(bets) == 1
+        assert bets[0]["event_id"] == "38539"
+        assert paper_bets[0]["system_bet_id"] is None
+
+    def test_system_bets_settle_separately_from_prediction_log(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="system-1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 1.67},
+                {"selection": "B", "probability": 40, "fair_odds": 2.5},
+            ],
+        )
+        storage.save_strategy_card(
+            {
+                "profile_key": "bob",
+                "display_name": "Betmate Bob",
+                "card_date": "2026-04-09",
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": 20.0,
+                "candidate_count": 2,
+                "selected_bets": [
+                    {
+                        "sport": "afl",
+                        "event_id": "system-1",
+                        "event_name": "A vs B",
+                        "market_type": "head_to_head",
+                        "selection": "A",
+                        "model_probability": 0.6,
+                        "odds_used": 1.67,
+                        "odds_source": "model_implied",
+                        "edge": 0.05,
+                        "stake": 20.0,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": {"afl": 1.0},
+                "expected_edge": 0.05,
+            }
+        )
+
+        storage.settle_prediction_result(sport="afl", event_id="system-1", winner_selection="A")
+
+        bets = storage.list_system_bets(profile_key="bob")
+        assert bets[0]["status"] == "won"
+        assert bets[0]["profit"] > 0
+
+    def test_system_multi_bets_round_trip_legs_and_settle_after_all_legs_win(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="multi-afl-1",
+            event_name="Cats vs Blues",
+            predictions=[
+                {"selection": "Cats", "probability": 60, "fair_odds": 1.8},
+                {"selection": "Blues", "probability": 40, "fair_odds": 2.2},
+            ],
+        )
+        storage.log_prediction_batch(
+            sport="nba",
+            event_id="multi-nba-1",
+            event_name="Lakers vs Suns",
+            predictions=[
+                {"selection": "Lakers", "probability": 58, "fair_odds": 1.9},
+                {"selection": "Suns", "probability": 42, "fair_odds": 2.1},
+            ],
+        )
+        self._save_multi_system_card(
+            "bob",
+            "2026-04-09",
+            [
+                {"sport": "afl", "event_id": "multi-afl-1", "event_name": "Cats vs Blues", "market_type": "head_to_head", "selection": "Cats", "odds_used": 1.8, "odds_source": "model_implied"},
+                {"sport": "nba", "event_id": "multi-nba-1", "event_name": "Lakers vs Suns", "market_type": "head_to_head", "selection": "Lakers", "odds_used": 2.0, "odds_source": "model_implied"},
+            ],
+        )
+
+        pending = storage.list_system_bets(profile_key="bob")[0]
+        assert pending["status"] == "pending"
+        assert len(pending["legs"]) == 2
+
+        storage.settle_prediction_result(sport="afl", event_id="multi-afl-1", winner_selection="Cats")
+        mid_settlement = storage.list_system_bets(profile_key="bob")[0]
+        assert mid_settlement["status"] == "pending"
+
+        storage.settle_prediction_result(sport="nba", event_id="multi-nba-1", winner_selection="Lakers")
+
+        settled = storage.list_system_bets(profile_key="bob")[0]
+        assert settled["status"] == "won"
+        assert settled["payout"] == 72.0
+        assert settled["profit"] == 52.0
+
+    def test_system_multi_bets_lose_when_any_leg_loses(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="multi-afl-lose",
+            event_name="Cats vs Blues",
+            predictions=[
+                {"selection": "Cats", "probability": 60, "fair_odds": 1.8},
+                {"selection": "Blues", "probability": 40, "fair_odds": 2.2},
+            ],
+        )
+        storage.log_prediction_batch(
+            sport="nba",
+            event_id="multi-nba-lose",
+            event_name="Lakers vs Suns",
+            predictions=[
+                {"selection": "Lakers", "probability": 58, "fair_odds": 1.9},
+                {"selection": "Suns", "probability": 42, "fair_odds": 2.1},
+            ],
+        )
+        self._save_multi_system_card(
+            "bob",
+            "2026-04-09",
+            [
+                {"sport": "afl", "event_id": "multi-afl-lose", "event_name": "Cats vs Blues", "market_type": "head_to_head", "selection": "Cats", "odds_used": 1.8, "odds_source": "model_implied"},
+                {"sport": "nba", "event_id": "multi-nba-lose", "event_name": "Lakers vs Suns", "market_type": "head_to_head", "selection": "Lakers", "odds_used": 2.0, "odds_source": "model_implied"},
+            ],
+        )
+
+        storage.settle_prediction_result(sport="afl", event_id="multi-afl-lose", winner_selection="Blues")
+
+        settled = storage.list_system_bets(profile_key="bob")[0]
+        assert settled["status"] == "lost"
+        assert settled["payout"] == 0.0
+        assert settled["profit"] == -20.0
+
+    def test_system_multi_bets_void_when_any_leg_pushes_and_none_lose(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="multi-afl-void",
+            event_name="Cats vs Blues",
+            predictions=[
+                {"selection": "Cats", "probability": 60, "fair_odds": 1.8},
+                {"selection": "Blues", "probability": 40, "fair_odds": 2.2},
+            ],
+        )
+        storage.log_prediction_batch(
+            sport="nba",
+            event_id="multi-nba-void",
+            event_name="Lakers vs Suns",
+            predictions=[
+                {"selection": "Lakers", "probability": 58, "fair_odds": 1.9},
+                {"selection": "Suns", "probability": 42, "fair_odds": 2.1},
+            ],
+        )
+        self._save_multi_system_card(
+            "bob",
+            "2026-04-09",
+            [
+                {"sport": "afl", "event_id": "multi-afl-void", "event_name": "Cats vs Blues", "market_type": "head_to_head", "selection": "Cats", "odds_used": 1.8, "odds_source": "model_implied"},
+                {"sport": "nba", "event_id": "multi-nba-void", "event_name": "Lakers vs Suns", "market_type": "head_to_head", "selection": "Lakers", "odds_used": 2.0, "odds_source": "model_implied"},
+            ],
+        )
+
+        storage.settle_prediction_result(
+            sport="afl",
+            event_id="multi-afl-void",
+            selection_results={"Cats": 0.5, "Blues": 0.5},
+        )
+        pending = storage.list_system_bets(profile_key="bob")[0]
+        assert pending["status"] == "pending"
+
+        storage.settle_prediction_result(sport="nba", event_id="multi-nba-void", winner_selection="Lakers")
+
+        settled = storage.list_system_bets(profile_key="bob")[0]
+        assert settled["status"] == "void"
+        assert settled["payout"] == 20.0
+        assert settled["profit"] == 0.0
+
+    def test_strategy_card_performance_stays_null_until_system_bets_settle(self):
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="bob-performance-1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 1.8},
+                {"selection": "B", "probability": 40, "fair_odds": 2.2},
+            ],
+        )
+        self._save_system_card("bob", "2026-04-09", "bob-performance-1", stake=25.0)
+
+        pending_card = storage.get_strategy_card("bob", "2026-04-09")
+        assert pending_card["performance"] is None
+
+        storage.settle_prediction_result(
+            sport="afl",
+            event_id="bob-performance-1",
+            winner_selection="A",
+            completed_at="2026-04-09T18:00:00+10:00",
+        )
+
+        settled_card = storage.get_strategy_card("bob", "2026-04-09")
+        assert settled_card["performance"] is not None
+        assert settled_card["performance"]["settled_bets"] == 1
+        assert settled_card["performance"]["roi"] > 0
+
+    def test_auto_tune_respects_30_day_gate(self):
+        result = storage.auto_tune_strategy_profile("james", reference_date="2026-04-09")
+        assert result["ran"] is False
+
+    def test_auto_tune_updates_profile_and_writes_log(self):
+        before = storage.get_strategy_profile("james")["rule_set"]
+        self._seed_tunable_profile_history("james", days=30)
+
+        result = storage.auto_tune_strategy_profile("james", reference_date="2026-03-02")
+
+        assert result["ran"] is True
+        assert result["settled_days"] == 30
+        assert result["profile"]["rule_set"]["kelly_fraction"] != before["kelly_fraction"]
+        assert result["profile"]["rule_set"]["min_edge"] != before["min_edge"]
+
+        with storage._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM auto_tune_log WHERE profile_key = ? ORDER BY id DESC",
+                ("james",),
+            ).fetchall()
+
+        assert len(rows) == 1
+        assert rows[0]["window_start"] == "2026-02-01"
+        assert rows[0]["window_end"] == "2026-03-02"
+
+
+class TestPostgresJsonCompatibility:
+    def test_loads_json_accepts_native_jsonb_values(self):
+        assert storage._loads_json({"edge": 0.08}) == {"edge": 0.08}
+        assert storage._loads_json(["afl", "nba"]) == ["afl", "nba"]
+        assert storage._loads_json('{"edge": 0.08}') == {"edge": 0.08}
+        assert storage._loads_json(None) == {}
+
+    def test_row_helpers_accept_native_jsonb_rows(self):
+        profile = storage._row_to_strategy_profile(
+            {
+                "id": 1,
+                "profile_key": "bob",
+                "display_name": "Betmate Bob",
+                "rule_set_json": {"min_edge": 0.05},
+                "is_editable": False,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+            }
+        )
+        prediction = storage._row_to_prediction(
+            {
+                "id": 1,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+                "sport": "afl",
+                "event_id": "game-1",
+                "event_name": "A vs B",
+                "selection": "A",
+                "probability": 0.6,
+                "fair_odds": 1.8,
+                "actual_outcome": None,
+                "result_status": None,
+                "settled_at": None,
+                "payload_json": {"confidence": "high"},
+                "feature_impact_json": {"home_ground": 0.12},
+            }
+        )
+        result = storage._row_to_result(
+            {
+                "id": 1,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "updated_at": "2026-04-10T00:00:00+00:00",
+                "completed_at": "2026-04-10T12:00:00+00:00",
+                "sport": "afl",
+                "event_id": "game-1",
+                "event_name": "A vs B",
+                "winner_selection": "A",
+                "result_payload_json": {"winner_selection": "A"},
+            }
+        )
+        system_bet = storage._row_to_system_bet(
+            {
+                "id": 1,
+                "run_id": 10,
+                "profile_key": "bob",
+                "sport": "multi",
+                "event_id": "multi:game-1|game-2",
+                "event_name": "A vs B + C vs D",
+                "market_type": "multi",
+                "selection": "A + C",
+                "model_probability": 0.33,
+                "odds_used": 3.5,
+                "odds_source": "composite",
+                "edge": 0.04,
+                "stake": 20.0,
+                "status": "pending",
+                "payout": None,
+                "profit": None,
+                "settled_at": None,
+                "created_at": "2026-04-10T00:00:00+00:00",
+                "legs_json": [
+                    {"sport": "afl", "event_id": "game-1", "selection": "A", "odds_source": "model_implied"},
+                    {"sport": "nba", "event_id": "game-2", "selection": "C", "odds_source": "model_implied"},
+                ],
+            }
+        )
+
+        assert profile["rule_set"]["min_edge"] == 0.05
+        assert prediction["payload"]["confidence"] == "high"
+        assert prediction["feature_impact"]["home_ground"] == 0.12
+        assert result["payload"]["winner_selection"] == "A"
+        assert len(system_bet["legs"]) == 2
+        assert system_bet["sport_allocation"] == {"afl": 0.5, "nba": 0.5}
+
+    def test_hydrate_strategy_card_accepts_native_run_payload(self):
+        class FakeResult:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def fetchone(self):
+                return self._rows[0] if self._rows else None
+
+            def fetchall(self):
+                return self._rows
+
+        class FakeConn:
+            def execute(self, sql, params=None):
+                if "SELECT * FROM strategy_profiles" in sql:
+                    return FakeResult([{"display_name": "Betmate Bob"}])
+                if "FROM system_bets" in sql:
+                    return FakeResult([])
+                raise AssertionError(f"Unexpected SQL: {sql}")
+
+        card = storage._hydrate_strategy_card(
+            FakeConn(),
+            {
+                "id": 1,
+                "profile_key": "bob",
+                "run_date": "2026-04-10",
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": 0.0,
+                "candidate_count": 0,
+                "selected_count": 0,
+                "skipped_count": 0,
+                "run_payload_json": {
+                    "bankroll_available": 250.0,
+                    "skipped_opportunities": [{"selection": "A"}],
+                    "sport_mix": {"afl": 1.0},
+                    "expected_edge": 0.08,
+                },
+                "created_at": "2026-04-10T00:00:00+00:00",
+            },
+        )
+
+        assert card["bankroll_available"] == 250.0
+        assert card["skipped_opportunities"] == [{"selection": "A"}]
+        assert card["sport_mix"] == {"afl": 1.0}
+        assert card["expected_edge"] == 0.08

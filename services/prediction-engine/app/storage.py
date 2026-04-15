@@ -1,10 +1,114 @@
 import json
 import math
 import os
-from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from datetime import date, datetime, timedelta, timezone
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from app.database import get_connection, init_database
+from app.time_utils import is_melbourne_premium_day, today_melbourne
+
+
+CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
+ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head"}
+DEFAULT_STANDARD_BANKROLL = 250.0
+DEFAULT_PREMIUM_BANKROLL = 500.0
+DEFAULT_STRATEGY_PROFILES = [
+    {
+        "profile_key": "bob",
+        "display_name": "Betmate Bob",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "bob",
+            "display_name": "Betmate Bob",
+            "min_edge": 0.05,
+            "min_confidence": "medium",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 60.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 2,
+            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "notes": "Balanced. Flagship profile.",
+        },
+    },
+    {
+        "profile_key": "james",
+        "display_name": "James",
+        "is_editable": True,
+        "rule_set": {
+            "profile_key": "james",
+            "display_name": "James",
+            "min_edge": 0.08,
+            "min_confidence": "medium",
+            "max_bets_per_day": 8,
+            "max_stake_per_bet": 80.0,
+            "kelly_fraction": 0.35,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 3,
+            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "notes": "High action. Editable by admin.",
+        },
+    },
+    {
+        "profile_key": "conservative",
+        "display_name": "Conservative",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "conservative",
+            "display_name": "Conservative",
+            "min_edge": 0.10,
+            "min_confidence": "high",
+            "max_bets_per_day": 3,
+            "max_stake_per_bet": 35.0,
+            "kelly_fraction": 0.15,
+            "allowed_markets": ["win", "head_to_head"],
+            "allow_multis": False,
+            "max_multi_legs": 1,
+            "sport_weights": {"racing": 0.5, "afl": 0.25, "nba": 0.25},
+            "notes": "Low variance. Top confidence only.",
+        },
+    },
+    {
+        "profile_key": "neutral",
+        "display_name": "Neutral",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "neutral",
+            "display_name": "Neutral",
+            "min_edge": 0.06,
+            "min_confidence": "medium",
+            "max_bets_per_day": 4,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.20,
+            "allowed_markets": ["win", "place", "head_to_head"],
+            "allow_multis": False,
+            "max_multi_legs": 1,
+            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "notes": "Disciplined. No multis.",
+        },
+    },
+    {
+        "profile_key": "aggressive",
+        "display_name": "Aggressive",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "aggressive",
+            "display_name": "Aggressive",
+            "min_edge": 0.04,
+            "min_confidence": "low",
+            "max_bets_per_day": 10,
+            "max_stake_per_bet": 90.0,
+            "kelly_fraction": 0.50,
+            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "notes": "High action, wider net.",
+        },
+    },
+]
 
 
 def log_prediction_batch(
@@ -196,6 +300,7 @@ def settle_prediction_result(
             raise ValueError("winner_selection did not match any logged prediction selection")
 
         _settle_paper_bets_for_event(conn, sport, event_id, completed_at)
+        _settle_system_bets_for_event(conn, sport, event_id, completed_at)
 
         conn.execute(
             """
@@ -289,19 +394,35 @@ def create_paper_bet(
     bet_type: str = "win",
     notes: Optional[str] = None,
     prediction_log_id: Optional[int] = None,
+    origin: str = "user",
+    system_bet_id: Optional[int] = None,
+    user_id: str = "legacy",
 ) -> Dict[str, Any]:
+    user_id = (user_id or "").strip()
     sport = sport.strip().lower()
     event_id = event_id.strip()
     event_name = event_name.strip()
     selection = selection.strip()
     bet_type = bet_type.strip().lower() or "win"
+    origin = (origin or "user").strip().lower()
     stake = float(stake)
     odds = _optional_float(odds)
 
+    if not user_id:
+        raise ValueError("user_id is required")
     if not sport or not event_id or not selection:
         raise ValueError("sport, event_id, and selection are required")
-    if stake <= 0:
-        raise ValueError("stake must be greater than zero")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport, {"win"})
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
 
     created_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
@@ -328,25 +449,7 @@ def create_paper_bet(
                 updated_at,
                 settled_at,
                 prediction_log_id,
-                sport,
-                event_id,
-                event_name,
-                selection,
-                bet_type,
-                odds,
-                stake,
-                status,
-                payout,
-                profit,
-                notes
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                created_at,
-                created_at,
-                settled_at,
-                prediction["id"] if prediction else prediction_log_id,
+                user_id,
                 sport,
                 event_id,
                 event_name,
@@ -358,6 +461,30 @@ def create_paper_bet(
                 payout,
                 profit,
                 notes,
+                origin,
+                system_bet_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created_at,
+                created_at,
+                settled_at,
+                prediction["id"] if prediction else prediction_log_id,
+                user_id,
+                sport,
+                event_id,
+                event_name,
+                selection,
+                bet_type,
+                odds,
+                stake,
+                status,
+                payout,
+                profit,
+                notes,
+                origin,
+                system_bet_id,
             ),
         )
         conn.commit()
@@ -377,28 +504,38 @@ def get_paper_bets(
     status: Optional[str] = None,
     sport: Optional[str] = None,
     limit: int = 50,
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(int(limit), 200))
     status = status.strip().upper() if status else None
     sport = sport.strip().lower() if sport else None
     conditions = []
     params = []
+    if user_id:
+        conditions.append("paper_bet_log.user_id = ?")
+        params.append(user_id)
 
     if status and status != "ALL":
-        conditions.append("status = ?")
+        conditions.append("paper_bet_log.status = ?")
         params.append(status)
     if sport and sport != "all":
-        conditions.append("sport = ?")
+        conditions.append("paper_bet_log.sport = ?")
         params.append(sport)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     with _connect() as conn:
         rows = conn.execute(
             f"""
-            SELECT *
+            SELECT
+                paper_bet_log.*,
+                prediction_log.payload_json AS prediction_payload_json,
+                prediction_log.probability AS prediction_probability,
+                prediction_log.fair_odds AS prediction_fair_odds
             FROM paper_bet_log
+            LEFT JOIN prediction_log
+                ON prediction_log.id = paper_bet_log.prediction_log_id
             {where_clause}
-            ORDER BY created_at DESC, id DESC
+            ORDER BY paper_bet_log.created_at DESC, paper_bet_log.id DESC
             LIMIT ?
             """,
             (*params, limit),
@@ -407,10 +544,13 @@ def get_paper_bets(
     return [_row_to_paper_bet(row) for row in rows]
 
 
-def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
+def get_paper_bet_summary(sport: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     sport = sport.strip().lower() if sport else None
     conditions = []
     params: list = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
     if sport and sport != "all":
         conditions.append("sport = ?")
         params.append(sport)
@@ -467,11 +607,14 @@ def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     sport = sport.strip().lower() if sport else None
     days = max(1, min(int(days), 365))
     conditions = ["status != 'PENDING'", "settled_at IS NOT NULL"]
     params = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
 
     if sport and sport != "all":
         conditions.append("sport = ?")
@@ -536,10 +679,143 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dic
     return trend[-days:]
 
 
+def _ensure_blackbook_table(conn) -> None:
+    """Create blackbook table and apply any schema migrations."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            runner TEXT NOT NULL,
+            sport TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            stake REAL NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, runner)
+        )
+        """
+    )
+    # Migration: add new columns to existing tables (safe to run on every call)
+    for migration_sql in [
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN probability_threshold REAL NOT NULL DEFAULT 50.0",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_phone TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_email TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_pushover_key TEXT",
+    ]:
+        try:
+            conn.execute(migration_sql)
+        except Exception:
+            pass  # column already exists
+
+
+def upsert_blackbook_auto_bet_config(
+    runner: str,
+    user_id: str,
+    sport: str,
+    bet_type: str,
+    stake: float,
+    enabled: bool = True,
+    probability_threshold: float = 50.0,
+    notify_phone: Optional[str] = None,
+    notify_email: Optional[str] = None,
+    notify_pushover_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    sport = sport.strip().lower()
+    bet_type = bet_type.strip().lower()
+    stake = float(stake)
+    probability_threshold = float(probability_threshold)
+    if not runner or not user_id:
+        raise ValueError("runner and user_id are required")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+    if probability_threshold < 1.0 or probability_threshold > 99.9:
+        raise ValueError("probability_threshold must be between 1.0 and 99.9")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport)
+    if not allowed_types:
+        raise ValueError(f"sport '{sport}' is not supported")
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        conn.execute(
+            """
+            INSERT INTO blackbook_auto_bet_config (
+                created_at, updated_at, user_id, runner, sport, bet_type,
+                stake, enabled, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, runner) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                sport = excluded.sport,
+                bet_type = excluded.bet_type,
+                stake = excluded.stake,
+                enabled = excluded.enabled,
+                probability_threshold = excluded.probability_threshold,
+                notify_phone = excluded.notify_phone,
+                notify_email = excluded.notify_email,
+                notify_pushover_key = excluded.notify_pushover_key
+            """,
+            (
+                created_at, created_at, user_id, runner, sport, bet_type,
+                stake, 1 if enabled else 0, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
+            (user_id, runner),
+        ).fetchone()
+        conn.commit()
+
+    return _row_to_blackbook_auto_bet_config(row)
+
+
+def get_blackbook_auto_bet_config(runner: str, user_id: str) -> Optional[Dict[str, Any]]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    if not runner or not user_id:
+        return None
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        row = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
+            (user_id, runner),
+        ).fetchone()
+    return _row_to_blackbook_auto_bet_config(row) if row else None
+
+
+def list_blackbook_auto_bet_configs_for_runner(runner: str) -> List[Dict[str, Any]]:
+    """Return all enabled auto-bet configs watching a given runner (any user)."""
+    runner = runner.strip()
+    if not runner:
+        return []
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE runner = ? AND enabled = 1",
+            (runner,),
+        ).fetchall()
+    return [_row_to_blackbook_auto_bet_config(r) for r in rows]
+
+
 def settle_paper_bet(
     bet_id: int,
     status: str,
     payout: Optional[float] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     status = status.strip().upper()
     if status not in {"WON", "LOST", "VOID"}:
@@ -547,7 +823,10 @@ def settle_paper_bet(
 
     updated_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
         if not row:
             raise ValueError("paper bet not found")
 
@@ -567,19 +846,25 @@ def settle_paper_bet(
             """
             UPDATE paper_bet_log
             SET updated_at = ?, settled_at = ?, status = ?, payout = ?, profit = ?
-            WHERE id = ?
+            WHERE id = ? AND (? IS NULL OR user_id = ?)
             """,
-            (updated_at, updated_at, status, settled_payout, profit, bet_id),
+            (updated_at, updated_at, status, settled_payout, profit, bet_id, user_id, user_id),
         )
         conn.commit()
-        updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
 
     return _row_to_paper_bet(updated_row)
 
 
-def delete_paper_bet(bet_id: int) -> bool:
+def delete_paper_bet(bet_id: int, user_id: Optional[str] = None) -> bool:
     with _connect() as conn:
-        cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
+        if user_id:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id))
+        else:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -763,9 +1048,445 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
     return trend[-days:]
 
 
+def ensure_default_strategy_profiles() -> None:
+    with _connect() as conn:
+        rows = conn.execute("SELECT profile_key FROM strategy_profiles").fetchall()
+        existing = {row["profile_key"] for row in rows}
+        created_at = datetime.now(timezone.utc).isoformat()
+        for profile in DEFAULT_STRATEGY_PROFILES:
+            if profile["profile_key"] in existing:
+                continue
+            conn.execute(
+                """
+                INSERT INTO strategy_profiles (
+                    profile_key,
+                    display_name,
+                    rule_set_json,
+                    is_editable,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile["profile_key"],
+                    profile["display_name"],
+                    _dumps_json(profile["rule_set"]),
+                    bool(profile["is_editable"]),
+                    created_at,
+                    created_at,
+                ),
+            )
+        conn.commit()
+
+
+def list_strategy_profiles() -> List[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM strategy_profiles
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    return [_row_to_strategy_profile(row) for row in rows]
+
+
+def get_strategy_profile(profile_key: str) -> Optional[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM strategy_profiles
+            WHERE profile_key = ?
+            """,
+            (profile_key,),
+        ).fetchone()
+    return _row_to_strategy_profile(row) if row else None
+
+
+def update_strategy_profile(profile_key: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    existing = get_strategy_profile(profile_key)
+    if not existing:
+        raise ValueError("strategy profile not found")
+    if not existing["is_editable"] or profile_key != "james":
+        raise ValueError("only the james profile is editable")
+
+    rule_set = {**existing["rule_set"], **updates}
+    _validate_rule_set(rule_set)
+
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE strategy_profiles
+            SET display_name = ?, rule_set_json = ?, updated_at = ?
+            WHERE profile_key = ?
+            """,
+            (
+                str(rule_set["display_name"]),
+                _dumps_json(rule_set),
+                updated_at,
+                profile_key,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM strategy_profiles WHERE profile_key = ?",
+            (profile_key,),
+        ).fetchone()
+    return _row_to_strategy_profile(row)
+
+
+def get_strategy_card(profile_key: str, run_date: str) -> Optional[Dict[str, Any]]:
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
+            """,
+            (profile_key, run_date),
+        ).fetchone()
+        if not row:
+            return None
+        return _hydrate_strategy_card(conn, row)
+
+
+def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
+    ensure_default_strategy_profiles()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE run_date = ?
+            ORDER BY id ASC
+            """,
+            (run_date,),
+        ).fetchall()
+        return [_hydrate_strategy_card(conn, row) for row in rows]
+
+
+def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str, Any]:
+    ensure_default_strategy_profiles()
+    profile_key = str(card["profile_key"])
+    run_date = str(card["card_date"])
+    existing = get_strategy_card(profile_key, run_date)
+    if existing and not replace:
+        return existing
+
+    run_payload = {
+        "bankroll_available": card["bankroll_available"],
+        "skipped_opportunities": card.get("skipped_opportunities", []),
+        "sport_mix": card.get("sport_mix", {}),
+        "expected_edge": card.get("expected_edge", 0.0),
+        "selected_bets": card.get("selected_bets", []),
+    }
+    created_at = datetime.now(timezone.utc).isoformat()
+    bankroll_standard = float(card.get("bankroll_standard", DEFAULT_STANDARD_BANKROLL))
+    bankroll_premium = float(card.get("bankroll_premium", DEFAULT_PREMIUM_BANKROLL))
+
+    with _connect() as conn:
+        existing_run_row = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
+            """,
+            (profile_key, run_date),
+        ).fetchone()
+        if existing_run_row and replace:
+            conn.execute(
+                """
+                UPDATE paper_bet_log
+                SET system_bet_id = NULL
+                WHERE system_bet_id IN (
+                    SELECT id
+                    FROM system_bets
+                    WHERE run_id = ?
+                )
+                """,
+                (existing_run_row["id"],),
+            )
+            conn.execute(
+                """
+                DELETE FROM system_bets
+                WHERE run_id = ?
+                """,
+                (existing_run_row["id"],),
+            )
+            conn.execute(
+                """
+                UPDATE daily_strategy_runs
+                SET bankroll_standard = ?,
+                    bankroll_premium = ?,
+                    total_allocated = ?,
+                    candidate_count = ?,
+                    selected_count = ?,
+                    skipped_count = ?,
+                    run_payload_json = ?,
+                    created_at = ?
+                WHERE id = ?
+                """,
+                (
+                    bankroll_standard,
+                    bankroll_premium,
+                    float(card.get("total_allocated", 0.0)),
+                    int(card.get("candidate_count", 0)),
+                    len(card.get("selected_bets", [])),
+                    len(card.get("skipped_opportunities", [])),
+                    _dumps_json(run_payload),
+                    created_at,
+                    existing_run_row["id"],
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO daily_strategy_runs (
+                    profile_key,
+                    run_date,
+                    bankroll_standard,
+                    bankroll_premium,
+                    total_allocated,
+                    candidate_count,
+                    selected_count,
+                    skipped_count,
+                    run_payload_json,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    profile_key,
+                    run_date,
+                    bankroll_standard,
+                    bankroll_premium,
+                    float(card.get("total_allocated", 0.0)),
+                    int(card.get("candidate_count", 0)),
+                    len(card.get("selected_bets", [])),
+                    len(card.get("skipped_opportunities", [])),
+                    _dumps_json(run_payload),
+                    created_at,
+                ),
+            )
+
+        run_row = conn.execute(
+            """
+            SELECT *
+            FROM daily_strategy_runs
+            WHERE profile_key = ? AND run_date = ?
+            """,
+            (profile_key, run_date),
+        ).fetchone()
+        run_id = run_row["id"]
+
+        for bet in card.get("selected_bets", []):
+            conn.execute(
+                """
+                INSERT INTO system_bets (
+                    run_id,
+                    profile_key,
+                    sport,
+                    event_id,
+                    event_name,
+                    market_type,
+                    selection,
+                    model_probability,
+                    odds_used,
+                    odds_source,
+                    edge,
+                    stake,
+                    legs_json,
+                    status,
+                    payout,
+                    profit,
+                    settled_at,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    profile_key,
+                    bet["sport"],
+                    bet["event_id"],
+                    bet["event_name"],
+                    bet["market_type"],
+                    bet["selection"],
+                    float(bet["model_probability"]),
+                    float(bet["odds_used"]),
+                    bet["odds_source"],
+                    float(bet["edge"]),
+                    float(bet["stake"]),
+                    _dumps_json(bet.get("legs") or []),
+                    bet.get("status", "pending"),
+                    _optional_float(bet.get("payout")),
+                    _optional_float(bet.get("profit")),
+                    bet.get("settled_at"),
+                    created_at,
+                ),
+            )
+
+        conn.commit()
+        return _hydrate_strategy_card(conn, run_row)
+
+
+def list_system_bets(profile_key: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 500))
+    params: list[Any] = []
+    where_clause = ""
+    if profile_key:
+        where_clause = "WHERE profile_key = ?"
+        params.append(profile_key)
+
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM system_bets
+            {where_clause}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*params, limit),
+        ).fetchall()
+    return [_row_to_system_bet(row) for row in rows]
+
+
+def get_profile_performance(profile_key: str) -> Dict[str, Any]:
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM system_bets
+            WHERE profile_key = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (profile_key,),
+        ).fetchall()
+
+    bets = [_row_to_system_bet(row) for row in rows]
+    settled = [bet for bet in bets if bet["status"] != "pending"]
+    decision_bets = [bet for bet in bets if bet["status"] in {"won", "lost"}]
+    total_staked = sum(bet["stake"] for bet in decision_bets)
+    net_profit = sum((bet["profit"] or 0.0) for bet in settled)
+    return {
+        "profile_key": profile_key,
+        "total_bets": len(bets),
+        "settled_bets": len(settled),
+        "won_bets": sum(1 for bet in bets if bet["status"] == "won"),
+        "lost_bets": sum(1 for bet in bets if bet["status"] == "lost"),
+        "void_bets": sum(1 for bet in bets if bet["status"] == "void"),
+        "total_staked": round(total_staked, 2),
+        "net_profit": round(net_profit, 2),
+        "roi": round(net_profit / total_staked, 4) if total_staked > 0 else 0.0,
+    }
+
+
+def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] = None) -> Dict[str, Any]:
+    profile = get_strategy_profile(profile_key)
+    if not profile:
+        raise ValueError("strategy profile not found")
+
+    effective_reference_date = reference_date or today_melbourne().isoformat()
+
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM system_bets
+            WHERE profile_key = ? AND settled_at IS NOT NULL
+            ORDER BY settled_at ASC, id ASC
+            """,
+            (profile_key,),
+        ).fetchall()
+
+    bets = [
+        bet
+        for bet in [_row_to_system_bet(row) for row in rows]
+        if (bet["settled_at"] or "")[:10] <= effective_reference_date
+    ]
+    settled_days = sorted({(bet["settled_at"] or "")[:10] for bet in bets if bet.get("settled_at")})
+    if len(settled_days) < 30:
+        return {
+            "ran": False,
+            "reason": "minimum 30 settled calendar days not met",
+            "settled_days": len(settled_days),
+            "reference_date": effective_reference_date,
+        }
+
+    window_end = effective_reference_date
+    window_start = settled_days[-30]
+    window_bets = [bet for bet in bets if window_start <= (bet["settled_at"] or "")[:10] <= window_end]
+    if not window_bets:
+        return {
+            "ran": False,
+            "reason": "no settled bets in tuning window",
+            "settled_days": len(settled_days),
+            "reference_date": effective_reference_date,
+        }
+
+    before = dict(profile["rule_set"])
+    after = dict(before)
+    roi = sum((bet["profit"] or 0.0) for bet in window_bets if bet["status"] != "pending")
+    staked = sum(bet["stake"] for bet in window_bets if bet["status"] in {"won", "lost"})
+    window_roi = roi / staked if staked > 0 else 0.0
+
+    after["kelly_fraction"] = round(min(0.75, max(0.05, before["kelly_fraction"] + (0.05 if window_roi > 0 else -0.05))), 2)
+    after["min_edge"] = round(min(0.2, max(0.01, before["min_edge"] + (-0.01 if window_roi > 0 else 0.01))), 2)
+    after["sport_weights"] = _retune_sport_weights(window_bets, before["sport_weights"])
+    _validate_rule_set(after)
+
+    updated_profile = update_strategy_profile(profile_key, after) if profile["is_editable"] else _write_noneditable_profile(profile_key, after)
+    improvement_metric = round(window_roi, 4)
+
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO auto_tune_log (
+                profile_key,
+                tuned_at,
+                window_start,
+                window_end,
+                settled_bets_in_window,
+                params_before,
+                params_after,
+                improvement_metric
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                profile_key,
+                datetime.now(timezone.utc).isoformat(),
+                window_start,
+                window_end,
+                len(window_bets),
+                _dumps_json(before),
+                _dumps_json(after),
+                improvement_metric,
+            ),
+        )
+        conn.commit()
+
+    return {
+        "ran": True,
+        "window_start": window_start,
+        "window_end": window_end,
+        "settled_bets_in_window": len(window_bets),
+        "settled_days": len(settled_days),
+        "profile": updated_profile,
+        "improvement_metric": improvement_metric,
+    }
+
+
 def init_db() -> None:
     """Initialize the database schema once. Delegates to database module."""
     init_database()
+    ensure_default_strategy_profiles()
 
 
 def _connect():
@@ -821,6 +1542,7 @@ def _ensure_schema(conn) -> None:
             updated_at TEXT NOT NULL,
             settled_at TEXT,
             prediction_log_id INTEGER,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
             sport TEXT NOT NULL,
             event_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
@@ -835,12 +1557,14 @@ def _ensure_schema(conn) -> None:
         )
         """
     )
+    _ensure_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
     # dedupe is now called once from init_db(), not on every connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_user_created_at ON paper_bet_log (user_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     conn.execute(
@@ -856,6 +1580,128 @@ def _ensure_schema(conn) -> None:
         """
     )
     conn.commit()
+
+
+def _row_to_strategy_profile(row) -> Dict[str, Any]:
+    rule_set = _loads_json(row["rule_set_json"])
+    if not isinstance(rule_set, dict):
+        rule_set = {}
+    return {
+        "id": row["id"],
+        "profile_key": row["profile_key"],
+        "display_name": row["display_name"],
+        "rule_set": rule_set,
+        "is_editable": bool(row["is_editable"]),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _row_has_key(row, key: str) -> bool:
+    if isinstance(row, dict):
+        return key in row
+    if hasattr(row, "keys"):
+        try:
+            return key in row.keys()
+        except TypeError:
+            pass
+    try:
+        row[key]
+        return True
+    except (IndexError, KeyError, TypeError):
+        return False
+
+
+def _system_bet_legs_from_row(row) -> List[Dict[str, Any]]:
+    if not _row_has_key(row, "legs_json"):
+        return []
+    legs = _loads_json(row["legs_json"])
+    return legs if isinstance(legs, list) else []
+
+
+def _sport_allocation_from_legs(legs: List[Dict[str, Any]]) -> Dict[str, float]:
+    sport_counts: Dict[str, int] = {}
+    for leg in legs:
+        sport = str(leg.get("sport", "")).strip().lower()
+        if sport in {"racing", "afl", "nba"}:
+            sport_counts[sport] = sport_counts.get(sport, 0) + 1
+    leg_count = len(legs)
+    if leg_count <= 0:
+        return {}
+    return {
+        sport: round(count / leg_count, 4)
+        for sport, count in sport_counts.items()
+    }
+
+
+def _row_to_system_bet(row) -> Dict[str, Any]:
+    bet = {
+        "id": row["id"],
+        "run_id": row["run_id"] if _row_has_key(row, "run_id") else None,
+        "profile_key": row["profile_key"],
+        "sport": row["sport"],
+        "event_id": row["event_id"],
+        "event_name": row["event_name"],
+        "market_type": row["market_type"],
+        "selection": row["selection"],
+        "model_probability": float(_optional_float(row["model_probability"]) or 0.0),
+        "odds_used": float(_optional_float(row["odds_used"]) or 0.0),
+        "odds_source": row["odds_source"],
+        "edge": float(_optional_float(row["edge"]) or 0.0),
+        "stake": float(_optional_float(row["stake"]) or 0.0),
+        "status": row["status"],
+        "payout": _optional_float(row["payout"]),
+        "profit": _optional_float(row["profit"]),
+        "settled_at": row["settled_at"],
+        "created_at": row["created_at"] if _row_has_key(row, "created_at") else None,
+    }
+    legs = _system_bet_legs_from_row(row)
+    if legs:
+        bet["legs"] = legs
+        bet["odds_sources"] = [str(leg.get("odds_source", "")) for leg in legs if str(leg.get("odds_source", "")).strip()]
+        sport_allocation = _sport_allocation_from_legs(legs)
+        if sport_allocation:
+            bet["sport_allocation"] = sport_allocation
+    return bet
+
+
+def _hydrate_strategy_card(conn, run_row) -> Dict[str, Any]:
+    run_payload = _loads_json(run_row["run_payload_json"] or {})
+    if not isinstance(run_payload, dict):
+        run_payload = {}
+    profile_row = conn.execute(
+        "SELECT * FROM strategy_profiles WHERE profile_key = ?",
+        (run_row["profile_key"],),
+    ).fetchone()
+    bets = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE run_id = ?
+        ORDER BY id ASC
+        """,
+        (run_row["id"],),
+    ).fetchall()
+    selected_bets = [_row_to_system_bet(row) for row in bets]
+    performance = get_profile_performance(run_row["profile_key"])
+    return {
+        "profile_key": run_row["profile_key"],
+        "display_name": profile_row["display_name"] if profile_row else run_row["profile_key"],
+        "card_date": run_row["run_date"],
+        "bankroll_available": float(run_payload.get("bankroll_available") or (run_row["bankroll_premium"] if is_melbourne_premium_day(run_row["run_date"]) else run_row["bankroll_standard"])),
+        "bankroll_standard": float(run_row["bankroll_standard"]),
+        "bankroll_premium": float(run_row["bankroll_premium"]),
+        "total_allocated": round(float(run_row["total_allocated"] or 0.0), 2),
+        "candidate_count": int(run_row["candidate_count"] or 0),
+        "selected_count": int(run_row["selected_count"] or 0),
+        "skipped_count": int(run_row["skipped_count"] or 0),
+        "selected_bets": selected_bets,
+        "skipped_opportunities": run_payload.get("skipped_opportunities", []),
+        "sport_mix": run_payload.get("sport_mix", {}),
+        "expected_edge": float(run_payload.get("expected_edge", 0.0)),
+        "performance": performance if performance["settled_bets"] > 0 else None,
+        "created_at": run_row["created_at"],
+    }
 
 
 def _row_to_prediction(row) -> Dict[str, Any]:
@@ -892,12 +1738,14 @@ def _row_to_result(row) -> Dict[str, Any]:
 
 
 def _row_to_paper_bet(row) -> Dict[str, Any]:
+    prediction_payload = _loads_json(row["prediction_payload_json"]) if _row_has_key(row, "prediction_payload_json") else None
     return {
         "id": row["id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "settled_at": row["settled_at"],
         "prediction_log_id": row["prediction_log_id"],
+        "user_id": row["user_id"] if _row_has_key(row, "user_id") else "legacy",
         "sport": row["sport"],
         "event_id": row["event_id"],
         "event_name": row["event_name"],
@@ -909,6 +1757,31 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "payout": _optional_float(row["payout"]),
         "profit": _optional_float(row["profit"]),
         "notes": row["notes"],
+        "origin": row["origin"] if _row_has_key(row, "origin") else "user",
+        "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
+        "prediction": {
+            "probability": _optional_float(row["prediction_probability"]) if _row_has_key(row, "prediction_probability") else None,
+            "fair_odds": _optional_float(row["prediction_fair_odds"]) if _row_has_key(row, "prediction_fair_odds") else None,
+            "payload": prediction_payload if isinstance(prediction_payload, dict) else None,
+        },
+    }
+
+
+def _row_to_blackbook_auto_bet_config(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "user_id": row["user_id"],
+        "runner": row["runner"],
+        "sport": row["sport"],
+        "bet_type": row["bet_type"],
+        "stake": float(row["stake"]),
+        "enabled": bool(row["enabled"]),
+        "probability_threshold": float(row["probability_threshold"]) if row["probability_threshold"] is not None else 50.0,
+        "notify_phone": row["notify_phone"],
+        "notify_email": row["notify_email"],
+        "notify_pushover_key": row["notify_pushover_key"],
     }
 
 
@@ -1119,6 +1992,112 @@ def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: st
         )
 
 
+def _settle_system_bets_for_event(conn, sport: str, event_id: str, settled_at: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE sport = ? AND event_id = ? AND status = 'pending'
+        """,
+        (sport, event_id),
+    ).fetchall()
+
+    for bet in rows:
+        prediction = _find_prediction_for_bet(conn, sport, event_id, bet["selection"])
+        if not prediction or prediction["actual_outcome"] is None:
+            continue
+
+        status, payout, profit = _bet_settlement(
+            float(bet["stake"]),
+            float(bet["odds_used"]),
+            float(prediction["actual_outcome"]),
+        )
+        conn.execute(
+            """
+            UPDATE system_bets
+            SET status = ?, payout = ?, profit = ?, settled_at = ?
+            WHERE id = ?
+            """,
+            (status.lower(), payout, profit, settled_at, bet["id"]),
+        )
+
+    _settle_pending_multi_system_bets(conn, sport, event_id, settled_at)
+
+
+def _settle_pending_multi_system_bets(conn, sport: str, event_id: str, settled_at: str) -> None:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM system_bets
+        WHERE market_type = 'multi' AND status = 'pending'
+        ORDER BY id ASC
+        """
+    ).fetchall()
+
+    for bet in rows:
+        legs = _system_bet_legs_from_row(bet)
+        if not legs or not _multi_bet_contains_event(legs, sport, event_id):
+            continue
+
+        settlement = _resolve_multi_bet_settlement(conn, bet, legs)
+        if settlement is None:
+            continue
+
+        status, payout, profit = settlement
+        conn.execute(
+            """
+            UPDATE system_bets
+            SET status = ?, payout = ?, profit = ?, settled_at = ?
+            WHERE id = ?
+            """,
+            (status.lower(), payout, profit, settled_at, bet["id"]),
+        )
+
+
+def _multi_bet_contains_event(legs: List[Dict[str, Any]], sport: str, event_id: str) -> bool:
+    return any(
+        str(leg.get("sport", "")).strip().lower() == sport
+        and str(leg.get("event_id", "")).strip() == event_id
+        for leg in legs
+    )
+
+
+def _resolve_multi_bet_settlement(conn, bet, legs: List[Dict[str, Any]]) -> Optional[tuple[str, float, float]]:
+    if not legs:
+        return None
+
+    outcomes: List[Optional[float]] = []
+    for leg in legs:
+        prediction = _find_prediction_for_bet(
+            conn,
+            str(leg.get("sport", "")).strip().lower(),
+            str(leg.get("event_id", "")).strip(),
+            str(leg.get("selection", "")),
+        )
+        if not prediction:
+            outcomes.append(None)
+            continue
+
+        actual_outcome = prediction["actual_outcome"]
+        if actual_outcome is None:
+            outcomes.append(None)
+            continue
+        outcomes.append(float(actual_outcome))
+
+    if any(outcome is not None and outcome <= 0.0 for outcome in outcomes):
+        return "LOST", 0.0, -float(bet["stake"])
+
+    if any(outcome is None for outcome in outcomes):
+        return None
+
+    if all(outcome >= 1.0 for outcome in outcomes):
+        payout = float(bet["stake"]) * float(bet["odds_used"])
+        return "WON", payout, payout - float(bet["stake"])
+
+    # Any non-losing, fully-resolved leg with a partial outcome voids the multi.
+    return "VOID", float(bet["stake"]), 0.0
+
+
 def _bet_settlement(stake: float, odds: float, outcome: float):
     if outcome >= 1.0:
         payout = stake * odds
@@ -1139,6 +2118,69 @@ def _ensure_column(conn, table_name: str, column_name: str, column_type: str) ->
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
+def _write_noneditable_profile(profile_key: str, rule_set: Dict[str, Any]) -> Dict[str, Any]:
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            UPDATE strategy_profiles
+            SET display_name = ?, rule_set_json = ?, updated_at = ?
+            WHERE profile_key = ?
+            """,
+            (rule_set["display_name"], _dumps_json(rule_set), updated_at, profile_key),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM strategy_profiles WHERE profile_key = ?", (profile_key,)).fetchone()
+    return _row_to_strategy_profile(row)
+
+
+def _validate_rule_set(rule_set: Dict[str, Any]) -> None:
+    required_keys = {
+        "profile_key",
+        "display_name",
+        "min_edge",
+        "min_confidence",
+        "max_bets_per_day",
+        "max_stake_per_bet",
+        "kelly_fraction",
+        "allowed_markets",
+        "allow_multis",
+        "max_multi_legs",
+        "sport_weights",
+        "notes",
+    }
+    missing = required_keys - set(rule_set.keys())
+    if missing:
+        raise ValueError(f"rule set missing keys: {', '.join(sorted(missing))}")
+    if rule_set["min_confidence"] not in CONFIDENCE_ORDER:
+        raise ValueError("min_confidence must be one of: low, medium, high")
+    markets = set(rule_set["allowed_markets"])
+    if not markets or not markets.issubset(ALLOWED_MARKETS):
+        raise ValueError("allowed_markets contains unsupported market types")
+    sport_weights = rule_set["sport_weights"]
+    weight_sum = sum(float(sport_weights.get(sport, 0.0)) for sport in ("racing", "afl", "nba"))
+    if abs(weight_sum - 1.0) > 0.001:
+        raise ValueError("sport_weights must sum to 1.0")
+
+
+def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Dict[str, float]) -> Dict[str, float]:
+    profits = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
+    stakes = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
+    for bet in window_bets:
+        if bet["status"] not in {"won", "lost"}:
+            continue
+        profits[bet["sport"]] += bet["profit"] or 0.0
+        stakes[bet["sport"]] += bet["stake"]
+
+    raw = {}
+    for sport in ("racing", "afl", "nba"):
+        roi = profits[sport] / stakes[sport] if stakes[sport] > 0 else 0.0
+        raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
+
+    total = sum(raw.values()) or 1.0
+    return {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl", "nba")}
+
+
 def _dedupe_prediction_log(conn) -> None:
     conn.execute(
         """
@@ -1152,11 +2194,17 @@ def _dedupe_prediction_log(conn) -> None:
     )
 
 
-def _loads_json(value: str) -> Dict[str, Any]:
+def _loads_json(value: Optional[Union[str, Dict[str, Any], List[Any]]]) -> Any:
+    if value is None:
+        return {}
+
+    if isinstance(value, (dict, list)):
+        return value
+
     try:
         parsed = json.loads(value)
-        return parsed if isinstance(parsed, dict) else {}
-    except json.JSONDecodeError:
+        return parsed if isinstance(parsed, (dict, list)) else {}
+    except (TypeError, json.JSONDecodeError):
         return {}
 
 

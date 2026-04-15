@@ -5,6 +5,7 @@
   "packageManager": "pnpm@9.1.0",
   "scripts": {
     "dev": "turbo dev",
+    "dev:local-stack": "node scripts/dev-stack.mjs",
     "build": "turbo build",
     "lint": "turbo lint",
     "test": "turbo test",

@@ -1,5 +1,11 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import binascii
+from contextlib import asynccontextmanager, suppress
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -10,6 +16,17 @@ import os
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
 from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
+from app.bob import (
+    bob_request_in_scope,
+    build_bob_provider_from_env,
+    build_bob_system_prompt,
+    build_local_bob_fallback,
+    sanitize_bob_messages,
+)
+import app.nightly as nightly_runner
+from app.notifications import notify_blackbook_trigger
+from app.strategy import StrategyService
+from app.time_utils import now_melbourne, today_melbourne
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -19,11 +36,37 @@ import app.storage as storage
 
 # CORS — configurable for deployment; defaults to localhost dev
 _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
-CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
+NIGHTLY_SCHEDULER_ENABLED = os.getenv("BETMATE_NIGHTLY_SCHEDULER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
+NIGHTLY_SCHEDULER_TIME = os.getenv("BETMATE_NIGHTLY_SCHEDULER_TIME", nightly_runner.DEFAULT_SCHEDULER_TIME)
+_nightly_scheduler_task: Optional[asyncio.Task] = None
+
+
+async def _nightly_scheduler_loop():
+    try:
+        scheduled_time = nightly_runner.parse_scheduler_time(NIGHTLY_SCHEDULER_TIME)
+    except ValueError as exc:
+        print(f"Nightly scheduler disabled: {exc}")
+        return
+
+    while True:
+        next_run = nightly_runner.next_scheduler_run(scheduled_time=scheduled_time)
+        sleep_seconds = max(1.0, (next_run - now_melbourne()).total_seconds())
+        print(f"Nightly scheduler sleeping until {next_run.isoformat()}")
+        await asyncio.sleep(sleep_seconds)
+        try:
+            summary = nightly_runner.run_nightly_cycle(
+                strategy_service=strategy_service,
+                run_date=next_run.date().isoformat(),
+            )
+            print(f"Nightly strategy cycle completed for {summary['run_date']}")
+        except Exception as exc:
+            print(f"Nightly strategy cycle failed: {exc}")
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    global _nightly_scheduler_task
     # Startup
     storage.init_db()
     try:
@@ -36,8 +79,15 @@ async def lifespan(application: FastAPI):
         print("All ML Models Initialized successfully.")
     except Exception as e:
         print(f"Startup ML init error: {e}")
+    if NIGHTLY_SCHEDULER_ENABLED:
+        _nightly_scheduler_task = asyncio.create_task(_nightly_scheduler_loop())
     yield
     # Shutdown (nothing to clean up yet)
+    if _nightly_scheduler_task is not None:
+        _nightly_scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _nightly_scheduler_task
+        _nightly_scheduler_task = None
 
 
 app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0", lifespan=lifespan)
@@ -54,6 +104,48 @@ app.add_middleware(
 racing_predictor = RacingPredictor()
 afl_predictor = AFLPredictor()
 nba_predictor = NBAPredictor()
+strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor)
+bob_provider = build_bob_provider_from_env()
+
+
+def _decode_jwt_payload(token: str) -> Dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("malformed token")
+
+    header_b64, payload_b64, signature_b64 = parts
+    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+    secret = os.getenv("JWT_SECRET", "change-me-in-production").encode("utf-8")
+    expected_sig = hmac.new(secret, signing_input, hashlib.sha256).digest()
+    actual_sig = base64.urlsafe_b64decode(signature_b64 + "=" * (-len(signature_b64) % 4))
+    if not hmac.compare_digest(expected_sig, actual_sig):
+        raise ValueError("invalid signature")
+
+    payload_raw = base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4))
+    payload = json.loads(payload_raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("invalid payload")
+    return payload
+
+
+def require_user_id(authorization: str = Header(default="", alias="Authorization")) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    try:
+        payload = _decode_jwt_payload(token)
+    except (ValueError, json.JSONDecodeError, binascii.Error):
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    user_id = payload.get("sub") or payload.get("user_id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    return user_id
 
 # --- Schemas ---
 
@@ -68,6 +160,8 @@ class Horse(BaseModel):
     days_since_last_race: int
     betfair_back_price: float = 0.0
     betfair_implied_prob: float = 0.0
+    jockey_name: Optional[str] = None
+    data_source: str = "betfair"
 
 class Race(BaseModel):
     race_id: str
@@ -75,6 +169,13 @@ class Race(BaseModel):
     race_number: int
     distance: int
     horses: List[Horse]
+    start_time: str = ""
+    market_name: str = ""
+    meeting_type: str = "unknown"
+    meeting_region: str = "unknown"
+    state: str = ""
+    meeting_date: str = ""
+    data_source: str = "betfair"
 
 class TeamGame(BaseModel):
     game_id: str
@@ -111,6 +212,42 @@ class PaperBetInput(BaseModel):
 class PaperBetSettleInput(BaseModel):
     status: str
     payout: Optional[float] = None
+
+
+class BlackbookAutoBetInput(BaseModel):
+    user_id: str
+    sport: str
+    bet_type: str = "win"
+    stake: float
+    enabled: bool = True
+    probability_threshold: float = Field(default=50.0, ge=1.0, le=99.9)
+    notify_phone: Optional[str] = None
+    notify_email: Optional[str] = None
+    notify_pushover_key: Optional[str] = None
+
+
+class StrategyProfilePatchInput(BaseModel):
+    display_name: Optional[str] = None
+    min_edge: Optional[float] = None
+    min_confidence: Optional[str] = None
+    max_bets_per_day: Optional[int] = None
+    max_stake_per_bet: Optional[float] = None
+    kelly_fraction: Optional[float] = None
+    allowed_markets: Optional[List[str]] = None
+    allow_multis: Optional[bool] = None
+    max_multi_legs: Optional[int] = None
+    sport_weights: Optional[Dict[str, float]] = None
+    notes: Optional[str] = None
+
+
+class BobChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class BobChatRequest(BaseModel):
+    messages: List[BobChatMessage]
+    date: Optional[str] = None
 
 
 
@@ -273,21 +410,27 @@ def _settle_ingested_results(results: List[Dict[str, Any]]):
     }
 
 @app.get("/api/paper-bets")
-def get_paper_bets(status: Optional[str] = None, sport: Optional[str] = None, limit: int = 50):
-    return {"bets": storage.get_paper_bets(status=status, sport=sport, limit=limit)}
+def get_paper_bets(
+    status: Optional[str] = None,
+    sport: Optional[str] = None,
+    limit: int = 50,
+    user_id: str = Depends(require_user_id),
+):
+    return {"bets": storage.get_paper_bets(status=status, sport=sport, limit=limit, user_id=user_id)}
 
 @app.get("/api/paper-bets/summary")
-def get_paper_bet_summary(sport: Optional[str] = None):
-    return {"summary": storage.get_paper_bet_summary(sport)}
+def get_paper_bet_summary(sport: Optional[str] = None, user_id: str = Depends(require_user_id)):
+    return {"summary": storage.get_paper_bet_summary(sport, user_id=user_id)}
 
 @app.get("/api/paper-bets/trend")
-def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30):
-    return {"trend": storage.get_paper_bet_trend(sport, days)}
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: str = Depends(require_user_id)):
+    return {"trend": storage.get_paper_bet_trend(sport, days, user_id=user_id)}
 
 @app.post("/api/paper-bets")
-def create_paper_bet(bet: PaperBetInput):
+def create_paper_bet(bet: PaperBetInput, user_id: str = Depends(require_user_id)):
     try:
         created = storage.create_paper_bet(
+            user_id=user_id,
             sport=bet.sport,
             event_id=bet.event_id,
             event_name=bet.event_name,
@@ -303,35 +446,171 @@ def create_paper_bet(bet: PaperBetInput):
 
     return {
         "bet": created,
-        "summary": storage.get_paper_bet_summary(bet.sport),
+        "summary": storage.get_paper_bet_summary(bet.sport, user_id=user_id),
     }
 
 @app.patch("/api/paper-bets/{bet_id}/settle")
-def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput):
+def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput, user_id: str = Depends(require_user_id)):
     try:
-        bet = storage.settle_paper_bet(bet_id, settlement.status, settlement.payout)
+        bet = storage.settle_paper_bet(bet_id, settlement.status, settlement.payout, user_id=user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "bet": bet,
-        "summary": storage.get_paper_bet_summary(bet["sport"]),
+        "summary": storage.get_paper_bet_summary(bet["sport"], user_id=user_id),
     }
 
 @app.delete("/api/paper-bets/{bet_id}")
-def delete_paper_bet(bet_id: int):
-    deleted = storage.delete_paper_bet(bet_id)
+def delete_paper_bet(bet_id: int, user_id: str = Depends(require_user_id)):
+    deleted = storage.delete_paper_bet(bet_id, user_id=user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="paper bet not found")
 
-    return {"deleted": True, "summary": storage.get_paper_bet_summary()}
+    return {"deleted": True, "summary": storage.get_paper_bet_summary(user_id=user_id)}
+
+
+@app.get("/blackbook/{runner}/auto-bet")
+def get_blackbook_auto_bet(runner: str, user_id: str):
+    config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=user_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="auto-bet config not found")
+    return {"config": config}
+
+
+@app.put("/blackbook/{runner}/auto-bet")
+def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput):
+    try:
+        config = storage.upsert_blackbook_auto_bet_config(
+            runner=runner,
+            user_id=payload.user_id,
+            sport=payload.sport,
+            bet_type=payload.bet_type,
+            stake=payload.stake,
+            enabled=payload.enabled,
+            probability_threshold=payload.probability_threshold,
+            notify_phone=payload.notify_phone,
+            notify_email=payload.notify_email,
+            notify_pushover_key=payload.notify_pushover_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"config": config}
+
+
+@app.get("/api/strategy-profiles")
+def list_strategy_profiles():
+    return {"profiles": storage.list_strategy_profiles()}
+
+
+@app.get("/api/strategy-profiles/{profile_key}")
+def get_strategy_profile(profile_key: str):
+    profile = storage.get_strategy_profile(profile_key)
+    if not profile:
+        raise HTTPException(status_code=404, detail="strategy profile not found")
+    return profile
+
+
+@app.patch("/api/strategy-profiles/james")
+def patch_james_strategy_profile(payload: StrategyProfilePatchInput):
+    updates = {key: value for key, value in payload.model_dump().items() if value is not None}
+    try:
+        profile = storage.update_strategy_profile("james", updates)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return profile
+
+
+@app.get("/api/strategy-cards")
+def get_strategy_cards(date: Optional[str] = None):
+    run_date = date or today_melbourne().isoformat()
+    try:
+        cards = strategy_service.get_or_create_cards(run_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"cards": cards}
+
+
+@app.get("/api/strategy-cards/{profile_key}")
+def get_strategy_card(profile_key: str, date: Optional[str] = None):
+    run_date = date or today_melbourne().isoformat()
+    try:
+        card = strategy_service.get_or_create_card(profile_key, run_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return card
+
+
+@app.get("/api/system-bets")
+def get_system_bets(profile_key: Optional[str] = None, limit: int = 200):
+    return {"bets": storage.list_system_bets(profile_key=profile_key, limit=limit)}
+
+
+@app.post("/api/bob/chat")
+async def bob_chat(request: BobChatRequest):
+    today_date = today_melbourne().isoformat()
+    run_date = request.date or today_date
+    messages = sanitize_bob_messages([message.model_dump() for message in request.messages])
+    if not bob_request_in_scope(messages, run_date, today_date):
+        return {
+            "message": "Bob only explains today's Bob card, why bets qualified or were skipped, profile differences, bankroll allocation, and paper-bet context.",
+            "card_date": run_date,
+            "scope": "refused",
+        }
+
+    bob_card = strategy_service.get_or_create_card("bob", run_date)
+    all_cards = strategy_service.get_or_create_cards(run_date)
+    event_ids = {bet["event_id"] for bet in bob_card.get("selected_bets", [])}
+    relevant_predictions = [
+        prediction
+        for prediction in storage.get_recent_predictions(limit=500)
+        if prediction["event_id"] in event_ids
+    ]
+    bob_context = {
+        "card_date": run_date,
+        "strategy_card": bob_card,
+        "all_profile_cards": [
+            {
+                "profile_key": card["profile_key"],
+                "display_name": card["display_name"],
+                "total_allocated": card["total_allocated"],
+                "selected_count": len(card.get("selected_bets", [])),
+                "expected_edge": card.get("expected_edge", 0.0),
+            }
+            for card in all_cards
+        ],
+        "model_signals": relevant_predictions,
+    }
+    if bob_provider is None:
+        return {
+            "message": build_local_bob_fallback(messages, bob_context),
+            "card_date": run_date,
+            "scope": "local_fallback",
+        }
+
+    try:
+        answer = await bob_provider.complete(
+            system_prompt=build_bob_system_prompt(bob_context),
+            messages=messages,
+            max_tokens=1000,
+        )
+        return {"message": answer, "card_date": run_date, "scope": "provider"}
+    except Exception:
+        return {
+            "message": build_local_bob_fallback(messages, bob_context),
+            "card_date": run_date,
+            "scope": "provider_fallback",
+        }
 
 # --- RACING ENDPOINTS ---
 
 @app.get("/api/races/today")
-def get_today_races():
-    """Fetch live/mock data for today's races."""
-    races = racing_scraper.fetch_today_races()
+def get_today_races(date: Optional[str] = None):
+    """Fetch live race data for a Melbourne date (defaults to today)."""
+    try:
+        races = racing_scraper.fetch_today_races(run_date=date, allow_mock=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}
 
 @app.post("/api/predict/racing")
@@ -371,7 +650,34 @@ def predict_race(race: Race):
             ],
             feature_impact=feature_impact,
         )
-        
+
+        # Blackbook auto-bet trigger — check each prediction against watching configs
+        for prediction in predictions:
+            configs = storage.list_blackbook_auto_bet_configs_for_runner(prediction["name"])
+            for cfg in configs:
+                if prediction["win_probability"] >= cfg["probability_threshold"]:
+                    try:
+                        storage.create_paper_bet(
+                            sport="racing",
+                            event_id=race.race_id,
+                            event_name=f"{race.venue} R{race.race_number}",
+                            selection=prediction["name"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            odds=prediction["fair_odds"],
+                            stake=cfg["stake"],
+                            origin="blackbook",
+                            user_id=cfg["user_id"],
+                        )
+                        notify_blackbook_trigger(
+                            runner=prediction["name"],
+                            probability=prediction["win_probability"],
+                            stake=cfg["stake"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            user_config=cfg,
+                        )
+                    except Exception as exc:
+                        print(f"[blackbook] trigger failed for {prediction['name']}/{cfg['user_id']}: {exc}")
+
         return {
             "race_id": race.race_id,
             "predictions": predictions,
@@ -384,8 +690,11 @@ def predict_race(race: Race):
 # --- AFL ENDPOINTS ---
 
 @app.get("/api/afl/games/upcoming")
-def get_upcoming_afl():
-    games = afl_scraper.fetch_this_week_afl()
+def get_upcoming_afl(date: Optional[str] = None):
+    try:
+        games = afl_scraper.fetch_this_week_afl(run_date=date, allow_mock=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
 
 @app.get("/api/afl/games/live")
@@ -452,8 +761,11 @@ def predict_afl(game: TeamGame):
 # --- NBA ENDPOINTS ---
 
 @app.get("/api/nba/games/today")
-def get_today_nba():
-    games = nba_scraper.fetch_today_nba()
+def get_today_nba(date: Optional[str] = None):
+    try:
+        games = nba_scraper.fetch_today_nba(run_date=date, allow_mock=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
 
 @app.post("/api/predict/nba")
