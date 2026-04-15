@@ -679,6 +679,37 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Op
     return trend[-days:]
 
 
+def _ensure_blackbook_table(conn) -> None:
+    """Create blackbook table and apply any schema migrations."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            runner TEXT NOT NULL,
+            sport TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            stake REAL NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, runner)
+        )
+        """
+    )
+    # Migration: add new columns to existing tables (safe to run on every call)
+    for migration_sql in [
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN probability_threshold REAL NOT NULL DEFAULT 50.0",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_phone TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_email TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_pushover_key TEXT",
+    ]:
+        try:
+            conn.execute(migration_sql)
+        except Exception:
+            pass  # column already exists
+
+
 def upsert_blackbook_auto_bet_config(
     runner: str,
     user_id: str,
@@ -686,16 +717,23 @@ def upsert_blackbook_auto_bet_config(
     bet_type: str,
     stake: float,
     enabled: bool = True,
+    probability_threshold: float = 50.0,
+    notify_phone: Optional[str] = None,
+    notify_email: Optional[str] = None,
+    notify_pushover_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     runner = runner.strip()
     user_id = user_id.strip().lower()
     sport = sport.strip().lower()
     bet_type = bet_type.strip().lower()
     stake = float(stake)
+    probability_threshold = float(probability_threshold)
     if not runner or not user_id:
         raise ValueError("runner and user_id are required")
     if stake < 1 or stake > 10000:
         raise ValueError("stake must be between 1 and 10000")
+    if probability_threshold < 1.0 or probability_threshold > 99.9:
+        raise ValueError("probability_threshold must be between 1.0 and 99.9")
 
     supported_bet_types = {
         "racing": {"win", "place", "quinella"},
@@ -710,50 +748,34 @@ def upsert_blackbook_auto_bet_config(
 
     created_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                runner TEXT NOT NULL,
-                sport TEXT NOT NULL,
-                bet_type TEXT NOT NULL,
-                stake REAL NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(user_id, runner)
-            )
-            """
-        )
+        _ensure_blackbook_table(conn)
         conn.execute(
             """
             INSERT INTO blackbook_auto_bet_config (
-                created_at,
-                updated_at,
-                user_id,
-                runner,
-                sport,
-                bet_type,
-                stake,
-                enabled
+                created_at, updated_at, user_id, runner, sport, bet_type,
+                stake, enabled, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id, runner) DO UPDATE SET
                 updated_at = excluded.updated_at,
                 sport = excluded.sport,
                 bet_type = excluded.bet_type,
                 stake = excluded.stake,
-                enabled = excluded.enabled
+                enabled = excluded.enabled,
+                probability_threshold = excluded.probability_threshold,
+                notify_phone = excluded.notify_phone,
+                notify_email = excluded.notify_email,
+                notify_pushover_key = excluded.notify_pushover_key
             """,
-            (created_at, created_at, user_id, runner, sport, bet_type, stake, 1 if enabled else 0),
+            (
+                created_at, created_at, user_id, runner, sport, bet_type,
+                stake, 1 if enabled else 0, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key,
+            ),
         )
         row = conn.execute(
-            """
-            SELECT *
-            FROM blackbook_auto_bet_config
-            WHERE user_id = ? AND runner = ?
-            """,
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
             (user_id, runner),
         ).fetchone()
         conn.commit()
@@ -767,31 +789,26 @@ def get_blackbook_auto_bet_config(runner: str, user_id: str) -> Optional[Dict[st
     if not runner or not user_id:
         return None
     with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                runner TEXT NOT NULL,
-                sport TEXT NOT NULL,
-                bet_type TEXT NOT NULL,
-                stake REAL NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 1,
-                UNIQUE(user_id, runner)
-            )
-            """
-        )
+        _ensure_blackbook_table(conn)
         row = conn.execute(
-            """
-            SELECT *
-            FROM blackbook_auto_bet_config
-            WHERE user_id = ? AND runner = ?
-            """,
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
             (user_id, runner),
         ).fetchone()
     return _row_to_blackbook_auto_bet_config(row) if row else None
+
+
+def list_blackbook_auto_bet_configs_for_runner(runner: str) -> List[Dict[str, Any]]:
+    """Return all enabled auto-bet configs watching a given runner (any user)."""
+    runner = runner.strip()
+    if not runner:
+        return []
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE runner = ? AND enabled = 1",
+            (runner,),
+        ).fetchall()
+    return [_row_to_blackbook_auto_bet_config(r) for r in rows]
 
 
 def settle_paper_bet(
@@ -1761,6 +1778,10 @@ def _row_to_blackbook_auto_bet_config(row) -> Dict[str, Any]:
         "bet_type": row["bet_type"],
         "stake": float(row["stake"]),
         "enabled": bool(row["enabled"]),
+        "probability_threshold": float(row["probability_threshold"]) if row["probability_threshold"] is not None else 50.0,
+        "notify_phone": row["notify_phone"],
+        "notify_email": row["notify_email"],
+        "notify_pushover_key": row["notify_pushover_key"],
     }
 
 

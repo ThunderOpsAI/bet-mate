@@ -1,8 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Brain, Trophy, MapPin, ChevronDown, ChevronUp, BarChart3 } from "lucide-react";
+import { Brain, Trophy, MapPin, ChevronDown, ChevronUp, BarChart3, Bell, BellOff } from "lucide-react";
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
+import { useAuth } from "../providers/AuthProvider";
+
+type BlackbookConfig = {
+  probability_threshold: number;
+  stake: number;
+  notify_phone: string;
+  notify_email: string;
+  notify_pushover_key: string;
+};
 
 type HorseData = {
   horse_id: string;
@@ -54,11 +63,56 @@ const trackConditions: Record<number, string> = {
 };
 
 export default function RacingPage() {
+  const { user } = useAuth();
   const [races, setRaces] = useState<Race[]>([]);
   const [predictions, setPredictions] = useState<Record<string, RacePrediction>>({});
   const [loading, setLoading] = useState(true);
   const [expandedRace, setExpandedRace] = useState<string | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
+  // blackbook: key = horse name, value = open config panel state
+  const [watchPanel, setWatchPanel] = useState<string | null>(null);
+  const [watchConfig, setWatchConfig] = useState<BlackbookConfig>({
+    probability_threshold: 50,
+    stake: 20,
+    notify_phone: "",
+    notify_email: "",
+    notify_pushover_key: "",
+  });
+  const [watchSaving, setWatchSaving] = useState(false);
+  const [watchSaved, setWatchSaved] = useState<string | null>(null);
+
+  const openWatchPanel = (horseName: string) => {
+    setWatchPanel(horseName);
+    setWatchSaved(null);
+  };
+
+  const saveWatchConfig = async (horseName: string) => {
+    if (!user) return;
+    setWatchSaving(true);
+    try {
+      await fetch(`${ML_API}/blackbook/${encodeURIComponent(horseName)}/auto-bet`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user.id,
+          sport: "racing",
+          bet_type: "win",
+          stake: watchConfig.stake,
+          enabled: true,
+          probability_threshold: watchConfig.probability_threshold,
+          notify_phone: watchConfig.notify_phone || null,
+          notify_email: watchConfig.notify_email || null,
+          notify_pushover_key: watchConfig.notify_pushover_key || null,
+        }),
+      });
+      setWatchSaved(horseName);
+      setTimeout(() => setWatchPanel(null), 1200);
+    } catch (e) {
+      console.error("Failed to save watch config", e);
+    } finally {
+      setWatchSaving(false);
+    }
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -208,19 +262,100 @@ export default function RacingPage() {
                               </td>
                               <td className="fair-odds">${p.fair_odds}</td>
                               <td>
-                                <Link
-                                  className="btn btn-sm btn-secondary"
-                                  href={paperBetHref({
-                                    sport: "racing",
-                                    eventId: race.race_id,
-                                    eventName: `${race.venue} R${race.race_number}`,
-                                    selection: p.name,
-                                    odds: p.fair_odds,
-                                    betType: "win",
-                                  })}
-                                >
-                                  Paper Bet
-                                </Link>
+                                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                  <Link
+                                    className="btn btn-sm btn-secondary"
+                                    href={paperBetHref({
+                                      sport: "racing",
+                                      eventId: race.race_id,
+                                      eventName: `${race.venue} R${race.race_number}`,
+                                      selection: p.name,
+                                      odds: p.fair_odds,
+                                      betType: "win",
+                                    })}
+                                  >
+                                    Paper Bet
+                                  </Link>
+                                  {user && (
+                                    <button
+                                      className="btn btn-sm btn-outline"
+                                      title="Watch this horse"
+                                      onClick={() => watchPanel === p.name ? setWatchPanel(null) : openWatchPanel(p.name)}
+                                      style={{ padding: "4px 8px" }}
+                                    >
+                                      {watchSaved === p.name ? <Bell size={14} /> : <BellOff size={14} />}
+                                    </button>
+                                  )}
+                                </div>
+                                {watchPanel === p.name && (
+                                  <div style={{
+                                    marginTop: "8px",
+                                    padding: "12px",
+                                    background: "var(--surface, #1a1a2e)",
+                                    border: "1px solid var(--border, #333)",
+                                    borderRadius: "8px",
+                                    minWidth: "240px",
+                                    fontSize: "13px",
+                                  }}>
+                                    <div style={{ fontWeight: 600, marginBottom: "8px" }}>
+                                      Watch: {p.name}
+                                    </div>
+                                    <label style={{ display: "block", marginBottom: "6px" }}>
+                                      Trigger if above{" "}
+                                      <strong>{watchConfig.probability_threshold}%</strong>
+                                      <input
+                                        type="range" min={1} max={99} step={1}
+                                        value={watchConfig.probability_threshold}
+                                        onChange={e => setWatchConfig(c => ({ ...c, probability_threshold: Number(e.target.value) }))}
+                                        style={{ width: "100%", marginTop: "4px" }}
+                                      />
+                                    </label>
+                                    <label style={{ display: "block", marginBottom: "6px" }}>
+                                      Auto stake $
+                                      <input
+                                        type="number" min={1} max={10000} step={1}
+                                        value={watchConfig.stake}
+                                        onChange={e => setWatchConfig(c => ({ ...c, stake: Number(e.target.value) }))}
+                                        style={{ width: "100%", marginTop: "2px" }}
+                                      />
+                                    </label>
+                                    <label style={{ display: "block", marginBottom: "4px" }}>
+                                      SMS (phone number)
+                                      <input
+                                        type="tel" placeholder="+61400000000"
+                                        value={watchConfig.notify_phone}
+                                        onChange={e => setWatchConfig(c => ({ ...c, notify_phone: e.target.value }))}
+                                        style={{ width: "100%", marginTop: "2px" }}
+                                      />
+                                    </label>
+                                    <label style={{ display: "block", marginBottom: "4px" }}>
+                                      Email
+                                      <input
+                                        type="email" placeholder="you@email.com"
+                                        value={watchConfig.notify_email}
+                                        onChange={e => setWatchConfig(c => ({ ...c, notify_email: e.target.value }))}
+                                        style={{ width: "100%", marginTop: "2px" }}
+                                      />
+                                    </label>
+                                    <label style={{ display: "block", marginBottom: "8px" }}>
+                                      Pushover key (phone push)
+                                      <input
+                                        type="text" placeholder="pushover user key"
+                                        value={watchConfig.notify_pushover_key}
+                                        onChange={e => setWatchConfig(c => ({ ...c, notify_pushover_key: e.target.value }))}
+                                        style={{ width: "100%", marginTop: "2px" }}
+                                      />
+                                    </label>
+                                    <button
+                                      className="btn btn-sm btn-primary"
+                                      onClick={() => saveWatchConfig(p.name)}
+                                      disabled={watchSaving}
+                                      style={{ width: "100%" }}
+                                    >
+                                      {watchSaved === p.name ? "Watching ✓" : watchSaving ? "Saving…" : "Watch"}
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );

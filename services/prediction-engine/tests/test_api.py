@@ -611,12 +611,16 @@ class TestBlackbookAutoBetEndpoints:
                 "bet_type": "win",
                 "stake": 25,
                 "enabled": True,
+                "probability_threshold": 45.0,
+                "notify_email": "alice@example.com",
             },
         )
         assert create_response.status_code == 200
         created = create_response.json()["config"]
         assert created["runner"] == "Swift Star"
         assert created["stake"] == 25.0
+        assert created["probability_threshold"] == 45.0
+        assert created["notify_email"] == "alice@example.com"
 
         fetch_response = client.get("/blackbook/Swift%20Star/auto-bet?user_id=alice")
         assert fetch_response.status_code == 200
@@ -625,6 +629,120 @@ class TestBlackbookAutoBetEndpoints:
         assert fetched["sport"] == "racing"
         assert fetched["bet_type"] == "win"
         assert fetched["enabled"] is True
+        assert fetched["probability_threshold"] == 45.0
+
+    def test_blackbook_trigger_creates_paper_bet_when_above_threshold(self, client, monkeypatch):
+        import app.main as main_mod
+
+        # Register a blackbook config for "Trigger Horse" at 40% threshold, $30 stake
+        client.put(
+            "/blackbook/Trigger%20Horse/auto-bet",
+            json={"user_id": "bob", "sport": "racing", "bet_type": "win", "stake": 30, "probability_threshold": 40.0},
+        )
+
+        # Force the predictor to return 75% for Trigger Horse, 25% for the other
+        monkeypatch.setattr(
+            main_mod.racing_predictor,
+            "predict",
+            lambda horses: ([0.75, 0.25], [0.1] * 8),
+        )
+
+        race_payload = {
+            "race_id": "trig-race-1",
+            "venue": "Randwick",
+            "race_number": 5,
+            "distance": 1200,
+            "horses": [
+                {"horse_id": "h1", "name": "Trigger Horse", "barrier": 2, "weight": 57.0,
+                 "past_win_rate": 0.3, "jockey_win_rate": 0.15, "track_condition": 1,
+                 "days_since_last_race": 14, "betfair_back_price": 2.0, "betfair_implied_prob": 0.5},
+                {"horse_id": "h2", "name": "Other Horse", "barrier": 5, "weight": 56.0,
+                 "past_win_rate": 0.1, "jockey_win_rate": 0.1, "track_condition": 1,
+                 "days_since_last_race": 21, "betfair_back_price": 5.0, "betfair_implied_prob": 0.2},
+            ],
+        }
+        predict_response = client.post("/api/predict/racing", json=race_payload)
+        assert predict_response.status_code == 200
+
+        # Bob should have an auto paper bet for Trigger Horse
+        bets = client.get("/api/paper-bets", headers=_auth_headers("bob")).json()["bets"]
+        trigger_bets = [b for b in bets if b["selection"] == "Trigger Horse" and b["sport"] == "racing"]
+        assert len(trigger_bets) == 1
+        assert trigger_bets[0]["stake"] == 30.0
+        assert trigger_bets[0]["bet_type"] == "win"
+
+    def test_blackbook_trigger_skips_when_below_threshold(self, client, monkeypatch):
+        import app.main as main_mod
+
+        # Register a blackbook config with a high threshold (80%)
+        client.put(
+            "/blackbook/Slow%20Poke/auto-bet",
+            json={"user_id": "carol", "sport": "racing", "bet_type": "win", "stake": 20, "probability_threshold": 80.0},
+        )
+
+        # Force predictor to return only 55% — below the 80% threshold
+        monkeypatch.setattr(
+            main_mod.racing_predictor,
+            "predict",
+            lambda horses: ([0.55, 0.45], [0.1] * 8),
+        )
+
+        race_payload = {
+            "race_id": "trig-race-2",
+            "venue": "Flemington",
+            "race_number": 3,
+            "distance": 1600,
+            "horses": [
+                {"horse_id": "h1", "name": "Slow Poke", "barrier": 1, "weight": 56.0,
+                 "past_win_rate": 0.2, "jockey_win_rate": 0.12, "track_condition": 1,
+                 "days_since_last_race": 7, "betfair_back_price": 3.0, "betfair_implied_prob": 0.33},
+                {"horse_id": "h2", "name": "Fast Lane", "barrier": 3, "weight": 56.5,
+                 "past_win_rate": 0.15, "jockey_win_rate": 0.11, "track_condition": 1,
+                 "days_since_last_race": 10, "betfair_back_price": 4.0, "betfair_implied_prob": 0.25},
+            ],
+        }
+        client.post("/api/predict/racing", json=race_payload)
+
+        # Carol should have NO auto paper bet (55% < 80% threshold)
+        bets = client.get("/api/paper-bets", headers=_auth_headers("carol")).json()["bets"]
+        assert len(bets) == 0
+
+    def test_blackbook_trigger_skips_disabled_config(self, client, monkeypatch):
+        import app.main as main_mod
+
+        # Register a DISABLED blackbook config
+        client.put(
+            "/blackbook/Ghost%20Runner/auto-bet",
+            json={"user_id": "dave", "sport": "racing", "bet_type": "win", "stake": 15,
+                  "probability_threshold": 30.0, "enabled": False},
+        )
+
+        # Force high probability — would trigger if enabled
+        monkeypatch.setattr(
+            main_mod.racing_predictor,
+            "predict",
+            lambda horses: ([0.90, 0.10], [0.1] * 8),
+        )
+
+        race_payload = {
+            "race_id": "trig-race-3",
+            "venue": "Caulfield",
+            "race_number": 7,
+            "distance": 1400,
+            "horses": [
+                {"horse_id": "h1", "name": "Ghost Runner", "barrier": 4, "weight": 57.0,
+                 "past_win_rate": 0.35, "jockey_win_rate": 0.18, "track_condition": 1,
+                 "days_since_last_race": 5, "betfair_back_price": 1.5, "betfair_implied_prob": 0.67},
+                {"horse_id": "h2", "name": "Trailing", "barrier": 8, "weight": 55.5,
+                 "past_win_rate": 0.05, "jockey_win_rate": 0.08, "track_condition": 1,
+                 "days_since_last_race": 30, "betfair_back_price": 9.0, "betfair_implied_prob": 0.11},
+            ],
+        }
+        client.post("/api/predict/racing", json=race_payload)
+
+        # Dave should have NO bet (config is disabled)
+        bets = client.get("/api/paper-bets", headers=_auth_headers("dave")).json()["bets"]
+        assert len(bets) == 0
 
 
 class TestModelMetadata:

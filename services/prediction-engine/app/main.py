@@ -24,6 +24,7 @@ from app.bob import (
     sanitize_bob_messages,
 )
 import app.nightly as nightly_runner
+from app.notifications import notify_blackbook_trigger
 from app.strategy import StrategyService
 from app.time_utils import now_melbourne, today_melbourne
 
@@ -219,6 +220,10 @@ class BlackbookAutoBetInput(BaseModel):
     bet_type: str = "win"
     stake: float
     enabled: bool = True
+    probability_threshold: float = Field(default=50.0, ge=1.0, le=99.9)
+    notify_phone: Optional[str] = None
+    notify_email: Optional[str] = None
+    notify_pushover_key: Optional[str] = None
 
 
 class StrategyProfilePatchInput(BaseModel):
@@ -483,6 +488,10 @@ def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput):
             bet_type=payload.bet_type,
             stake=payload.stake,
             enabled=payload.enabled,
+            probability_threshold=payload.probability_threshold,
+            notify_phone=payload.notify_phone,
+            notify_email=payload.notify_email,
+            notify_pushover_key=payload.notify_pushover_key,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -641,7 +650,34 @@ def predict_race(race: Race):
             ],
             feature_impact=feature_impact,
         )
-        
+
+        # Blackbook auto-bet trigger — check each prediction against watching configs
+        for prediction in predictions:
+            configs = storage.list_blackbook_auto_bet_configs_for_runner(prediction["name"])
+            for cfg in configs:
+                if prediction["win_probability"] >= cfg["probability_threshold"]:
+                    try:
+                        storage.create_paper_bet(
+                            sport="racing",
+                            event_id=race.race_id,
+                            event_name=f"{race.venue} R{race.race_number}",
+                            selection=prediction["name"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            odds=prediction["fair_odds"],
+                            stake=cfg["stake"],
+                            origin="blackbook",
+                            user_id=cfg["user_id"],
+                        )
+                        notify_blackbook_trigger(
+                            runner=prediction["name"],
+                            probability=prediction["win_probability"],
+                            stake=cfg["stake"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            user_config=cfg,
+                        )
+                    except Exception as exc:
+                        print(f"[blackbook] trigger failed for {prediction['name']}/{cfg['user_id']}: {exc}")
+
         return {
             "race_id": race.race_id,
             "predictions": predictions,
