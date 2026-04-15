@@ -1,6 +1,11 @@
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
+import binascii
 from contextlib import asynccontextmanager, suppress
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -19,6 +24,7 @@ from app.bob import (
     sanitize_bob_messages,
 )
 import app.nightly as nightly_runner
+from app.notifications import notify_blackbook_trigger
 from app.strategy import StrategyService
 from app.time_utils import now_melbourne, today_melbourne
 
@@ -101,6 +107,46 @@ nba_predictor = NBAPredictor()
 strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor)
 bob_provider = build_bob_provider_from_env()
 
+
+def _decode_jwt_payload(token: str) -> Dict[str, Any]:
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise ValueError("malformed token")
+
+    header_b64, payload_b64, signature_b64 = parts
+    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+    secret = os.getenv("JWT_SECRET", "change-me-in-production").encode("utf-8")
+    expected_sig = hmac.new(secret, signing_input, hashlib.sha256).digest()
+    actual_sig = base64.urlsafe_b64decode(signature_b64 + "=" * (-len(signature_b64) % 4))
+    if not hmac.compare_digest(expected_sig, actual_sig):
+        raise ValueError("invalid signature")
+
+    payload_raw = base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4))
+    payload = json.loads(payload_raw.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("invalid payload")
+    return payload
+
+
+def require_user_id(authorization: str = Header(default="", alias="Authorization")) -> str:
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    token = authorization[7:].strip()
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+
+    try:
+        payload = _decode_jwt_payload(token)
+    except (ValueError, json.JSONDecodeError, binascii.Error):
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    user_id = payload.get("sub") or payload.get("user_id")
+    if not isinstance(user_id, str) or not user_id.strip():
+        raise HTTPException(status_code=401, detail="Invalid auth token")
+
+    return user_id
+
 # --- Schemas ---
 
 class Horse(BaseModel):
@@ -166,6 +212,18 @@ class PaperBetInput(BaseModel):
 class PaperBetSettleInput(BaseModel):
     status: str
     payout: Optional[float] = None
+
+
+class BlackbookAutoBetInput(BaseModel):
+    user_id: str
+    sport: str
+    bet_type: str = "win"
+    stake: float
+    enabled: bool = True
+    probability_threshold: float = Field(default=50.0, ge=1.0, le=99.9)
+    notify_phone: Optional[str] = None
+    notify_email: Optional[str] = None
+    notify_pushover_key: Optional[str] = None
 
 
 class StrategyProfilePatchInput(BaseModel):
@@ -352,21 +410,27 @@ def _settle_ingested_results(results: List[Dict[str, Any]]):
     }
 
 @app.get("/api/paper-bets")
-def get_paper_bets(status: Optional[str] = None, sport: Optional[str] = None, limit: int = 50):
-    return {"bets": storage.get_paper_bets(status=status, sport=sport, limit=limit)}
+def get_paper_bets(
+    status: Optional[str] = None,
+    sport: Optional[str] = None,
+    limit: int = 50,
+    user_id: str = Depends(require_user_id),
+):
+    return {"bets": storage.get_paper_bets(status=status, sport=sport, limit=limit, user_id=user_id)}
 
 @app.get("/api/paper-bets/summary")
-def get_paper_bet_summary(sport: Optional[str] = None):
-    return {"summary": storage.get_paper_bet_summary(sport)}
+def get_paper_bet_summary(sport: Optional[str] = None, user_id: str = Depends(require_user_id)):
+    return {"summary": storage.get_paper_bet_summary(sport, user_id=user_id)}
 
 @app.get("/api/paper-bets/trend")
-def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30):
-    return {"trend": storage.get_paper_bet_trend(sport, days)}
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: str = Depends(require_user_id)):
+    return {"trend": storage.get_paper_bet_trend(sport, days, user_id=user_id)}
 
 @app.post("/api/paper-bets")
-def create_paper_bet(bet: PaperBetInput):
+def create_paper_bet(bet: PaperBetInput, user_id: str = Depends(require_user_id)):
     try:
         created = storage.create_paper_bet(
+            user_id=user_id,
             sport=bet.sport,
             event_id=bet.event_id,
             event_name=bet.event_name,
@@ -382,28 +446,56 @@ def create_paper_bet(bet: PaperBetInput):
 
     return {
         "bet": created,
-        "summary": storage.get_paper_bet_summary(bet.sport),
+        "summary": storage.get_paper_bet_summary(bet.sport, user_id=user_id),
     }
 
 @app.patch("/api/paper-bets/{bet_id}/settle")
-def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput):
+def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput, user_id: str = Depends(require_user_id)):
     try:
-        bet = storage.settle_paper_bet(bet_id, settlement.status, settlement.payout)
+        bet = storage.settle_paper_bet(bet_id, settlement.status, settlement.payout, user_id=user_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {
         "bet": bet,
-        "summary": storage.get_paper_bet_summary(bet["sport"]),
+        "summary": storage.get_paper_bet_summary(bet["sport"], user_id=user_id),
     }
 
 @app.delete("/api/paper-bets/{bet_id}")
-def delete_paper_bet(bet_id: int):
-    deleted = storage.delete_paper_bet(bet_id)
+def delete_paper_bet(bet_id: int, user_id: str = Depends(require_user_id)):
+    deleted = storage.delete_paper_bet(bet_id, user_id=user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="paper bet not found")
 
-    return {"deleted": True, "summary": storage.get_paper_bet_summary()}
+    return {"deleted": True, "summary": storage.get_paper_bet_summary(user_id=user_id)}
+
+
+@app.get("/blackbook/{runner}/auto-bet")
+def get_blackbook_auto_bet(runner: str, user_id: str):
+    config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=user_id)
+    if not config:
+        raise HTTPException(status_code=404, detail="auto-bet config not found")
+    return {"config": config}
+
+
+@app.put("/blackbook/{runner}/auto-bet")
+def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput):
+    try:
+        config = storage.upsert_blackbook_auto_bet_config(
+            runner=runner,
+            user_id=payload.user_id,
+            sport=payload.sport,
+            bet_type=payload.bet_type,
+            stake=payload.stake,
+            enabled=payload.enabled,
+            probability_threshold=payload.probability_threshold,
+            notify_phone=payload.notify_phone,
+            notify_email=payload.notify_email,
+            notify_pushover_key=payload.notify_pushover_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"config": config}
 
 
 @app.get("/api/strategy-profiles")
@@ -558,7 +650,34 @@ def predict_race(race: Race):
             ],
             feature_impact=feature_impact,
         )
-        
+
+        # Blackbook auto-bet trigger — check each prediction against watching configs
+        for prediction in predictions:
+            configs = storage.list_blackbook_auto_bet_configs_for_runner(prediction["name"])
+            for cfg in configs:
+                if prediction["win_probability"] >= cfg["probability_threshold"]:
+                    try:
+                        storage.create_paper_bet(
+                            sport="racing",
+                            event_id=race.race_id,
+                            event_name=f"{race.venue} R{race.race_number}",
+                            selection=prediction["name"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            odds=prediction["fair_odds"],
+                            stake=cfg["stake"],
+                            origin="blackbook",
+                            user_id=cfg["user_id"],
+                        )
+                        notify_blackbook_trigger(
+                            runner=prediction["name"],
+                            probability=prediction["win_probability"],
+                            stake=cfg["stake"],
+                            bet_type=cfg.get("bet_type", "win"),
+                            user_config=cfg,
+                        )
+                    except Exception as exc:
+                        print(f"[blackbook] trigger failed for {prediction['name']}/{cfg['user_id']}: {exc}")
+
         return {
             "race_id": race.race_id,
             "predictions": predictions,

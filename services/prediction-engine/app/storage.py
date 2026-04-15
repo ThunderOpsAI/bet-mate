@@ -396,7 +396,9 @@ def create_paper_bet(
     prediction_log_id: Optional[int] = None,
     origin: str = "user",
     system_bet_id: Optional[int] = None,
+    user_id: str = "legacy",
 ) -> Dict[str, Any]:
+    user_id = (user_id or "").strip()
     sport = sport.strip().lower()
     event_id = event_id.strip()
     event_name = event_name.strip()
@@ -406,10 +408,21 @@ def create_paper_bet(
     stake = float(stake)
     odds = _optional_float(odds)
 
+    if not user_id:
+        raise ValueError("user_id is required")
     if not sport or not event_id or not selection:
         raise ValueError("sport, event_id, and selection are required")
-    if stake <= 0:
-        raise ValueError("stake must be greater than zero")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport, {"win"})
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
 
     created_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
@@ -436,6 +449,7 @@ def create_paper_bet(
                 updated_at,
                 settled_at,
                 prediction_log_id,
+                user_id,
                 sport,
                 event_id,
                 event_name,
@@ -450,13 +464,14 @@ def create_paper_bet(
                 origin,
                 system_bet_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
                 created_at,
                 settled_at,
                 prediction["id"] if prediction else prediction_log_id,
+                user_id,
                 sport,
                 event_id,
                 event_name,
@@ -489,28 +504,38 @@ def get_paper_bets(
     status: Optional[str] = None,
     sport: Optional[str] = None,
     limit: int = 50,
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(int(limit), 200))
     status = status.strip().upper() if status else None
     sport = sport.strip().lower() if sport else None
     conditions = []
     params = []
+    if user_id:
+        conditions.append("paper_bet_log.user_id = ?")
+        params.append(user_id)
 
     if status and status != "ALL":
-        conditions.append("status = ?")
+        conditions.append("paper_bet_log.status = ?")
         params.append(status)
     if sport and sport != "all":
-        conditions.append("sport = ?")
+        conditions.append("paper_bet_log.sport = ?")
         params.append(sport)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     with _connect() as conn:
         rows = conn.execute(
             f"""
-            SELECT *
+            SELECT
+                paper_bet_log.*,
+                prediction_log.payload_json AS prediction_payload_json,
+                prediction_log.probability AS prediction_probability,
+                prediction_log.fair_odds AS prediction_fair_odds
             FROM paper_bet_log
+            LEFT JOIN prediction_log
+                ON prediction_log.id = paper_bet_log.prediction_log_id
             {where_clause}
-            ORDER BY created_at DESC, id DESC
+            ORDER BY paper_bet_log.created_at DESC, paper_bet_log.id DESC
             LIMIT ?
             """,
             (*params, limit),
@@ -519,10 +544,13 @@ def get_paper_bets(
     return [_row_to_paper_bet(row) for row in rows]
 
 
-def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
+def get_paper_bet_summary(sport: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     sport = sport.strip().lower() if sport else None
     conditions = []
     params: list = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
     if sport and sport != "all":
         conditions.append("sport = ?")
         params.append(sport)
@@ -579,11 +607,14 @@ def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     sport = sport.strip().lower() if sport else None
     days = max(1, min(int(days), 365))
     conditions = ["status != 'PENDING'", "settled_at IS NOT NULL"]
     params = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
 
     if sport and sport != "all":
         conditions.append("sport = ?")
@@ -648,10 +679,143 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dic
     return trend[-days:]
 
 
+def _ensure_blackbook_table(conn) -> None:
+    """Create blackbook table and apply any schema migrations."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            runner TEXT NOT NULL,
+            sport TEXT NOT NULL,
+            bet_type TEXT NOT NULL,
+            stake REAL NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            UNIQUE(user_id, runner)
+        )
+        """
+    )
+    # Migration: add new columns to existing tables (safe to run on every call)
+    for migration_sql in [
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN probability_threshold REAL NOT NULL DEFAULT 50.0",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_phone TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_email TEXT",
+        "ALTER TABLE blackbook_auto_bet_config ADD COLUMN notify_pushover_key TEXT",
+    ]:
+        try:
+            conn.execute(migration_sql)
+        except Exception:
+            pass  # column already exists
+
+
+def upsert_blackbook_auto_bet_config(
+    runner: str,
+    user_id: str,
+    sport: str,
+    bet_type: str,
+    stake: float,
+    enabled: bool = True,
+    probability_threshold: float = 50.0,
+    notify_phone: Optional[str] = None,
+    notify_email: Optional[str] = None,
+    notify_pushover_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    sport = sport.strip().lower()
+    bet_type = bet_type.strip().lower()
+    stake = float(stake)
+    probability_threshold = float(probability_threshold)
+    if not runner or not user_id:
+        raise ValueError("runner and user_id are required")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+    if probability_threshold < 1.0 or probability_threshold > 99.9:
+        raise ValueError("probability_threshold must be between 1.0 and 99.9")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport)
+    if not allowed_types:
+        raise ValueError(f"sport '{sport}' is not supported")
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        conn.execute(
+            """
+            INSERT INTO blackbook_auto_bet_config (
+                created_at, updated_at, user_id, runner, sport, bet_type,
+                stake, enabled, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, runner) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                sport = excluded.sport,
+                bet_type = excluded.bet_type,
+                stake = excluded.stake,
+                enabled = excluded.enabled,
+                probability_threshold = excluded.probability_threshold,
+                notify_phone = excluded.notify_phone,
+                notify_email = excluded.notify_email,
+                notify_pushover_key = excluded.notify_pushover_key
+            """,
+            (
+                created_at, created_at, user_id, runner, sport, bet_type,
+                stake, 1 if enabled else 0, probability_threshold,
+                notify_phone, notify_email, notify_pushover_key,
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
+            (user_id, runner),
+        ).fetchone()
+        conn.commit()
+
+    return _row_to_blackbook_auto_bet_config(row)
+
+
+def get_blackbook_auto_bet_config(runner: str, user_id: str) -> Optional[Dict[str, Any]]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    if not runner or not user_id:
+        return None
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        row = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? AND runner = ?",
+            (user_id, runner),
+        ).fetchone()
+    return _row_to_blackbook_auto_bet_config(row) if row else None
+
+
+def list_blackbook_auto_bet_configs_for_runner(runner: str) -> List[Dict[str, Any]]:
+    """Return all enabled auto-bet configs watching a given runner (any user)."""
+    runner = runner.strip()
+    if not runner:
+        return []
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE runner = ? AND enabled = 1",
+            (runner,),
+        ).fetchall()
+    return [_row_to_blackbook_auto_bet_config(r) for r in rows]
+
+
 def settle_paper_bet(
     bet_id: int,
     status: str,
     payout: Optional[float] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     status = status.strip().upper()
     if status not in {"WON", "LOST", "VOID"}:
@@ -659,7 +823,10 @@ def settle_paper_bet(
 
     updated_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
         if not row:
             raise ValueError("paper bet not found")
 
@@ -679,19 +846,25 @@ def settle_paper_bet(
             """
             UPDATE paper_bet_log
             SET updated_at = ?, settled_at = ?, status = ?, payout = ?, profit = ?
-            WHERE id = ?
+            WHERE id = ? AND (? IS NULL OR user_id = ?)
             """,
-            (updated_at, updated_at, status, settled_payout, profit, bet_id),
+            (updated_at, updated_at, status, settled_payout, profit, bet_id, user_id, user_id),
         )
         conn.commit()
-        updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
 
     return _row_to_paper_bet(updated_row)
 
 
-def delete_paper_bet(bet_id: int) -> bool:
+def delete_paper_bet(bet_id: int, user_id: Optional[str] = None) -> bool:
     with _connect() as conn:
-        cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
+        if user_id:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id))
+        else:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -1369,6 +1542,7 @@ def _ensure_schema(conn) -> None:
             updated_at TEXT NOT NULL,
             settled_at TEXT,
             prediction_log_id INTEGER,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
             sport TEXT NOT NULL,
             event_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
@@ -1383,12 +1557,14 @@ def _ensure_schema(conn) -> None:
         )
         """
     )
+    _ensure_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
     # dedupe is now called once from init_db(), not on every connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_user_created_at ON paper_bet_log (user_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     conn.execute(
@@ -1562,12 +1738,14 @@ def _row_to_result(row) -> Dict[str, Any]:
 
 
 def _row_to_paper_bet(row) -> Dict[str, Any]:
+    prediction_payload = _loads_json(row["prediction_payload_json"]) if _row_has_key(row, "prediction_payload_json") else None
     return {
         "id": row["id"],
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "settled_at": row["settled_at"],
         "prediction_log_id": row["prediction_log_id"],
+        "user_id": row["user_id"] if _row_has_key(row, "user_id") else "legacy",
         "sport": row["sport"],
         "event_id": row["event_id"],
         "event_name": row["event_name"],
@@ -1581,6 +1759,29 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "notes": row["notes"],
         "origin": row["origin"] if _row_has_key(row, "origin") else "user",
         "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
+        "prediction": {
+            "probability": _optional_float(row["prediction_probability"]) if _row_has_key(row, "prediction_probability") else None,
+            "fair_odds": _optional_float(row["prediction_fair_odds"]) if _row_has_key(row, "prediction_fair_odds") else None,
+            "payload": prediction_payload if isinstance(prediction_payload, dict) else None,
+        },
+    }
+
+
+def _row_to_blackbook_auto_bet_config(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "user_id": row["user_id"],
+        "runner": row["runner"],
+        "sport": row["sport"],
+        "bet_type": row["bet_type"],
+        "stake": float(row["stake"]),
+        "enabled": bool(row["enabled"]),
+        "probability_threshold": float(row["probability_threshold"]) if row["probability_threshold"] is not None else 50.0,
+        "notify_phone": row["notify_phone"],
+        "notify_email": row["notify_email"],
+        "notify_pushover_key": row["notify_pushover_key"],
     }
 
 
