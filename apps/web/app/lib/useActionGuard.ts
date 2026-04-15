@@ -1,5 +1,6 @@
+"use client";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { useAuth } from "../app/providers/AuthProvider";
+import { useAuth } from "../providers/AuthProvider";
 import { useCallback } from "react";
 
 export function useActionGuard() {
