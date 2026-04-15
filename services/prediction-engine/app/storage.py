@@ -412,8 +412,17 @@ def create_paper_bet(
         raise ValueError("user_id is required")
     if not sport or not event_id or not selection:
         raise ValueError("sport, event_id, and selection are required")
-    if stake <= 0:
-        raise ValueError("stake must be greater than zero")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport, {"win"})
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
 
     created_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
@@ -662,6 +671,121 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Op
         })
 
     return trend[-days:]
+
+
+def upsert_blackbook_auto_bet_config(
+    runner: str,
+    user_id: str,
+    sport: str,
+    bet_type: str,
+    stake: float,
+    enabled: bool = True,
+) -> Dict[str, Any]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    sport = sport.strip().lower()
+    bet_type = bet_type.strip().lower()
+    stake = float(stake)
+    if not runner or not user_id:
+        raise ValueError("runner and user_id are required")
+    if stake < 1 or stake > 10000:
+        raise ValueError("stake must be between 1 and 10000")
+
+    supported_bet_types = {
+        "racing": {"win", "place", "quinella"},
+        "afl": {"win", "head_to_head"},
+        "nba": {"win", "head_to_head"},
+    }
+    allowed_types = supported_bet_types.get(sport)
+    if not allowed_types:
+        raise ValueError(f"sport '{sport}' is not supported")
+    if bet_type not in allowed_types:
+        raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
+
+    created_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                runner TEXT NOT NULL,
+                sport TEXT NOT NULL,
+                bet_type TEXT NOT NULL,
+                stake REAL NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(user_id, runner)
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO blackbook_auto_bet_config (
+                created_at,
+                updated_at,
+                user_id,
+                runner,
+                sport,
+                bet_type,
+                stake,
+                enabled
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, runner) DO UPDATE SET
+                updated_at = excluded.updated_at,
+                sport = excluded.sport,
+                bet_type = excluded.bet_type,
+                stake = excluded.stake,
+                enabled = excluded.enabled
+            """,
+            (created_at, created_at, user_id, runner, sport, bet_type, stake, 1 if enabled else 0),
+        )
+        row = conn.execute(
+            """
+            SELECT *
+            FROM blackbook_auto_bet_config
+            WHERE user_id = ? AND runner = ?
+            """,
+            (user_id, runner),
+        ).fetchone()
+        conn.commit()
+
+    return _row_to_blackbook_auto_bet_config(row)
+
+
+def get_blackbook_auto_bet_config(runner: str, user_id: str) -> Optional[Dict[str, Any]]:
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    if not runner or not user_id:
+        return None
+    with _connect() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS blackbook_auto_bet_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                runner TEXT NOT NULL,
+                sport TEXT NOT NULL,
+                bet_type TEXT NOT NULL,
+                stake REAL NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                UNIQUE(user_id, runner)
+            )
+            """
+        )
+        row = conn.execute(
+            """
+            SELECT *
+            FROM blackbook_auto_bet_config
+            WHERE user_id = ? AND runner = ?
+            """,
+            (user_id, runner),
+        ).fetchone()
+    return _row_to_blackbook_auto_bet_config(row) if row else None
 
 
 def settle_paper_bet(
@@ -1611,6 +1735,20 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "notes": row["notes"],
         "origin": row["origin"] if _row_has_key(row, "origin") else "user",
         "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
+    }
+
+
+def _row_to_blackbook_auto_bet_config(row) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "user_id": row["user_id"],
+        "runner": row["runner"],
+        "sport": row["sport"],
+        "bet_type": row["bet_type"],
+        "stake": float(row["stake"]),
+        "enabled": bool(row["enabled"]),
     }
 
 
