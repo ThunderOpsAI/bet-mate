@@ -4,6 +4,7 @@ import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon, ChevronDown, Chevr
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "../providers/AuthProvider";
+import { useActionGuard } from "../lib/useActionGuard";
 
 type PredictionSnapshot = {
   probability: number | null;
@@ -56,6 +57,7 @@ const statusBadge: Record<string, string> = {
 
 export default function BetsPage() {
   const { token } = useAuth();
+  const { requireAuthAction } = useActionGuard();
   const [bets, setBets] = useState<PaperBet[]>([]);
   const [summary, setSummary] = useState<PaperBetSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,26 +107,22 @@ export default function BetsPage() {
   }, [token]);
 
   const settle = async (betId: number, status: string) => {
-    if (!token) {
-      setError("Please sign in to update paper bets.");
-      return;
-    }
-    await fetch(`${ML_API}/api/paper-bets/${betId}/settle`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ status }),
+    requireAuthAction(async () => {
+      await fetch(`${ML_API}/api/paper-bets/${betId}/settle`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      void fetchBets();
     });
-    void fetchBets();
   };
 
   const deleteBet = async (betId: number) => {
-    if (!confirm("Delete this paper bet?")) return;
-    if (!token) {
-      setError("Please sign in to delete paper bets.");
-      return;
-    }
-    await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-    void fetchBets();
+    requireAuthAction(async () => {
+      if (!confirm("Delete this paper bet?")) return;
+      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      void fetchBets();
+    });
   };
 
   return (

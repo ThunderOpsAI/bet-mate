@@ -137,3 +137,20 @@ Postgres migration path (phase 2):
 3. Run read parity checks for core aggregates (`/api/predictions/summary`, `/api/paper-bets/summary`, strategy cards).
 4. Shift write traffic to Postgres and monitor parity for at least one weekly retrain cycle.
 5. Keep SQLite backups for rollback window, then decommission fallback writes once stable.
+
+## Rollout Checklist & Environment Matrix
+
+Before deploying to staging or production, ensure the following environment variables are properly set:
+
+- `JWT_SECRET`: Must match exactly between the Express API (`apps/api/`) and the Prediction Engine (`services/prediction-engine/`). Keep secure.
+- `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true`: Enable to run daily ML tasks.
+- `BETMATE_NIGHTLY_SCHEDULER_TIME=05:00`: Schedule time for nightly script.
+- `BETMATE_SQLITE_BACKUP_DIR`: Directory path for automated backups to persist daily snapshots.
+- `BETMATE_WEEKLY_RETRAIN_ENABLED=true`: Keep ML models tuned on current data.
+- `DATABASE_URL`: Ensure database availability limits.
+
+### Bankroll Baseline Reset
+
+Express allows users to reset their bankroll baseline without clearing analytics history.
+
+**Explicit rule:** Bankroll resets affect display and accounting baselines ONLY. They never modify or delete ML model datasets, prediction history, or alter retrain eligibility windows. ML learning continuity is fully protected.

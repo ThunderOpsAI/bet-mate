@@ -184,7 +184,7 @@ class TestPaperBets:
         assert bet["odds"] == 2.22
 
     def test_create_bet_invalid_stake_raises(self):
-        with pytest.raises(ValueError, match="stake must be greater"):
+        with pytest.raises(ValueError, match="stake must be between"):
             storage.create_paper_bet(
                 sport="racing",
                 event_id="race_1",

@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
-import { Save, SlidersHorizontal, User } from "lucide-react";
+import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
+import { useActionGuard } from "../lib/useActionGuard";
 
 type JamesRuleSet = {
   display_name: string;
@@ -33,6 +34,8 @@ export default function SettingsPage() {
   const [jamesLoading, setJamesLoading] = useState(true);
   const [jamesSaving, setJamesSaving] = useState(false);
   const [jamesMessage, setJamesMessage] = useState("");
+  const [resettingBankroll, setResettingBankroll] = useState(false);
+  const { requireAuthAction } = useActionGuard();
 
   const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
@@ -53,51 +56,76 @@ export default function SettingsPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setSuccess("");
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/user/profile`, {
-        method: "PATCH",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Update failed");
+    requireAuthAction(async () => {
+      setError("");
+      setSuccess("");
+      setLoading(true);
+      try {
+        const res = await fetch(`${API}/user/profile`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ username, email }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Update failed");
+        }
+        await refreshUser();
+        setSuccess("Profile updated!");
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-      await refreshUser();
-      setSuccess("Profile updated!");
-    } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    });
+  }
+
+  async function handleResetBankroll() {
+    requireAuthAction(async () => {
+      if (!confirm("Are you sure you want to reset your bankroll baseline to your current bankroll amount? This doesn't delete prediction histories.")) return;
+      setResettingBankroll(true);
+      try {
+        const res = await fetch(`${API}/user/bankroll/reset`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (!res.ok) throw new Error("Failed to reset bankroll baseline");
+        await refreshUser();
+        setSuccess("Bankroll baseline reset!");
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setResettingBankroll(false);
+      }
+    });
   }
 
   async function handleJamesSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!jamesConfig) return;
-    setJamesSaving(true);
-    setJamesMessage("");
-    try {
-      const response = await fetch(`${ML_API}/api/strategy-profiles/james`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(jamesConfig),
-      });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || "James config update failed");
+    requireAuthAction(async () => {
+      if (!jamesConfig) return;
+      setJamesSaving(true);
+      setJamesMessage("");
+      try {
+        const response = await fetch(`${ML_API}/api/strategy-profiles/james`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(jamesConfig),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.detail || "James config update failed");
+        }
+        const data = await response.json();
+        setJamesConfig(data.rule_set);
+        setJamesMessage("James strategy saved. Changes apply on the next daily card generation.");
+      } catch (err: any) {
+        setJamesMessage(err.message);
+      } finally {
+        setJamesSaving(false);
       }
-      const data = await response.json();
-      setJamesConfig(data.rule_set);
-      setJamesMessage("James strategy saved. Changes apply on the next daily card generation.");
-    } catch (err: any) {
-      setJamesMessage(err.message);
-    } finally {
-      setJamesSaving(false);
-    }
+    });
   }
 
   function toggleMarket(market: string) {
@@ -138,9 +166,17 @@ export default function SettingsPage() {
 
       <div className="card" style={{ marginTop: "1rem" }}>
         <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>Account Info</h4>
-        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
           User ID: <code style={{ fontSize: "0.8rem", background: "var(--bg-glass)", padding: "0.15rem 0.4rem", borderRadius: 4 }}>{user?.id}</code>
         </p>
+
+        <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginTop: "1.25rem", marginBottom: "0.75rem" }}>Reset Baseline</h4>
+        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.75rem" }}>
+          Recalculate your ROI from your current bankroll. Useful when extracting profits without dropping your stats. Does not delete paper bet history.
+        </p>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={handleResetBankroll} disabled={resettingBankroll}>
+          <RefreshCw size={14} /> {resettingBankroll ? "Resetting…" : "Reset Bankroll Baseline"}
+        </button>
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>

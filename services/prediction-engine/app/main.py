@@ -223,7 +223,6 @@ class PaperBetSettleInput(BaseModel):
 
 
 class BlackbookAutoBetInput(BaseModel):
-    user_id: str
     sport: str
     bet_type: str = "win"
     stake: float
@@ -479,7 +478,7 @@ def delete_paper_bet(bet_id: int, user_id: str = Depends(require_user_id)):
 
 
 @app.get("/blackbook/{runner}/auto-bet")
-def get_blackbook_auto_bet(runner: str, user_id: str):
+def get_blackbook_auto_bet(runner: str, user_id: str = Depends(require_user_id)):
     config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=user_id)
     if not config:
         raise HTTPException(status_code=404, detail="auto-bet config not found")
@@ -487,11 +486,11 @@ def get_blackbook_auto_bet(runner: str, user_id: str):
 
 
 @app.put("/blackbook/{runner}/auto-bet")
-def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput):
+def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput, user_id: str = Depends(require_user_id)):
     try:
         config = storage.upsert_blackbook_auto_bet_config(
             runner=runner,
-            user_id=payload.user_id,
+            user_id=user_id,
             sport=payload.sport,
             bet_type=payload.bet_type,
             stake=payload.stake,

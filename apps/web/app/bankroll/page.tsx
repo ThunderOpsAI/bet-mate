@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { DollarSign, TrendingUp, ArrowUpRight, ArrowDownRight, RefreshCw } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ML_API } from "../lib/mlApi";
+import { useAuth } from "../providers/AuthProvider";
 const fmt = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(n);
 
 type PaperBetSummary = {
@@ -56,13 +57,18 @@ export default function BankrollPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const { token } = useAuth();
+
   const fetchData = async () => {
     try {
       setError("");
+      if (!token) throw new Error("Please sign in to view paper bankroll.");
+      
+      const headers = { Authorization: `Bearer ${token}` };
       const [summaryResponse, betsResponse, trendResponse] = await Promise.all([
-        fetch(`${ML_API}/api/paper-bets/summary`),
-        fetch(`${ML_API}/api/paper-bets?limit=25`),
-        fetch(`${ML_API}/api/paper-bets/trend?days=30`),
+        fetch(`${ML_API}/api/paper-bets/summary`, { headers }),
+        fetch(`${ML_API}/api/paper-bets?limit=25`, { headers }),
+        fetch(`${ML_API}/api/paper-bets/trend?days=30`, { headers }),
       ]);
 
       if (!summaryResponse.ok || !betsResponse.ok || !trendResponse.ok) {
@@ -84,7 +90,7 @@ export default function BankrollPage() {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [token]);
 
   if (loading) return <div className="card"><div className="skeleton" style={{ height: 400 }} /></div>;
 

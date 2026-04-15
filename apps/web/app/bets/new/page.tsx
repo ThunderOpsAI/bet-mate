@@ -4,12 +4,14 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { ML_API } from "../../lib/mlApi";
 import { useAuth } from "../../providers/AuthProvider";
+import { useActionGuard } from "../../lib/useActionGuard";
 
 export default function NewBetPage() {
   const router = useRouter();
   const { token } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { requireAuthAction } = useActionGuard();
 
   const [sport, setSport] = useState("racing");
   const [eventId, setEventId] = useState("");
@@ -34,13 +36,11 @@ export default function NewBetPage() {
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    setLoading(true);
-    try {
-      if (!token) {
-        throw new Error("Please sign in before logging a paper bet.");
-      }
-      const res = await fetch(`${ML_API}/api/paper-bets`, {
+    requireAuthAction(async () => {
+      setError("");
+      setLoading(true);
+      try {
+        const res = await fetch(`${ML_API}/api/paper-bets`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -66,10 +66,11 @@ export default function NewBetPage() {
       }
       router.push("/bets");
     } catch (err: any) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    });
   }
 
   return (
@@ -80,6 +81,11 @@ export default function NewBetPage() {
 
       <div className="card">
         <h3 style={{ marginBottom: "1.25rem", fontWeight: 700 }}>Log a Paper Bet</h3>
+        {!token && (
+          <div className="info-message" style={{ marginBottom: "1rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: 6 }}>
+            You must be signed in to log a paper bet. <a href={`/login?returnUrl=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "")}`} style={{ color: "var(--blue)", textDecoration: "underline" }}>Sign in here</a>.
+          </div>
+        )}
         {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleSubmit}>
