@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon, ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
@@ -55,7 +55,7 @@ const statusBadge: Record<string, string> = {
   VOID: "badge-muted",
 };
 
-export default function BetsPage() {
+function BetsContent() {
   const { token } = useAuth();
   const { requireAuthAction } = useActionGuard();
   const [bets, setBets] = useState<PaperBet[]>([]);
@@ -375,4 +375,12 @@ function asString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+export default function BetsPage() {
+  return (
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 300 }} /></div>}>
+      <BetsContent />
+    </Suspense>
+  );
 }

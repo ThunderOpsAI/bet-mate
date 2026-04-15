@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
@@ -23,7 +23,7 @@ type JamesRuleSet = {
   notes: string;
 };
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { user, token, refreshUser } = useAuth();
   const [username, setUsername] = useState(user?.username ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
@@ -330,5 +330,13 @@ export default function SettingsPage() {
         <strong>18+</strong> | This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Please gamble responsibly.
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 200 }} /></div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }

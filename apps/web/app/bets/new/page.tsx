@@ -1,12 +1,12 @@
 "use client";
-import { useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Save } from "lucide-react";
 import { ML_API } from "../../lib/mlApi";
 import { useAuth } from "../../providers/AuthProvider";
 import { useActionGuard } from "../../lib/useActionGuard";
 
-export default function NewBetPage() {
+function NewBetContent() {
   const router = useRouter();
   const { token } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -144,5 +144,13 @@ export default function NewBetPage() {
         Paper bets are local tracking records only. BetMate does not place wagers or handle payments.
       </div>
     </div>
+  );
+}
+
+export default function NewBetPage() {
+  return (
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 300 }} /></div>}>
+      <NewBetContent />
+    </Suspense>
   );
 }
