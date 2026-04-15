@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient, type Bet } from "@prisma/client";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
@@ -38,7 +38,7 @@ router.post("/", async (req: AuthRequest, res) => {
   const { eventType, eventId, eventName, eventTime, betType, selection, odds, stake, wasAIRecommended, notes } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new Error("User not found");
 
@@ -110,7 +110,7 @@ router.get("/", async (req: AuthRequest, res) => {
     ]);
 
     return res.json({
-      bets: bets.map((b) => ({ ...b, stake: Number(b.stake), payout: b.payout ? Number(b.payout) : null })),
+      bets: bets.map((b: Bet) => ({ ...b, stake: Number(b.stake), payout: b.payout ? Number(b.payout) : null })),
       pagination: { total, limit: take, offset: skip },
     });
   } catch {
@@ -130,7 +130,7 @@ router.patch("/:betId/settle", async (req: AuthRequest, res) => {
   const { status, payout } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const bet = await tx.bet.findFirst({ where: { id: betId, userId } });
       if (!bet) throw new Error("Bet not found");
       if (bet.status !== "PENDING") throw new Error("Bet already settled");
@@ -180,7 +180,7 @@ router.delete("/:betId", async (req: AuthRequest, res) => {
   const { betId } = req.params;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const bet = await tx.bet.findFirst({ where: { id: betId, userId } });
       if (!bet) throw new Error("Bet not found");
 

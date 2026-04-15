@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient, type BankrollHistory } from "@prisma/client";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
@@ -94,7 +94,7 @@ router.get("/bankroll", async (req: AuthRequest, res) => {
         wonBets,
         winRate: totalBets > 0 ? Math.round((wonBets / totalBets) * 100) : 0,
       },
-      history: history.map((h) => ({ ...h, amount: Number(h.amount) })),
+      history: history.map((h: BankrollHistory) => ({ ...h, amount: Number(h.amount) })),
     });
   } catch {
     return res.status(500).json({ error: "Failed to fetch bankroll" });
@@ -115,7 +115,7 @@ router.post("/bankroll/adjust", async (req: AuthRequest, res) => {
   const { amount, reason } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new Error("User not found");
 
@@ -148,7 +148,7 @@ router.post("/bankroll/reset", async (req: AuthRequest, res) => {
   const { newBaseline } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new Error("User not found");
 

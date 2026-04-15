@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
+import { API_BASE } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
 
 type JamesRuleSet = {
@@ -37,8 +38,6 @@ function SettingsContent() {
   const [resettingBankroll, setResettingBankroll] = useState(false);
   const { requireAuthAction } = useActionGuard();
 
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
-
   useEffect(() => {
     const loadJames = async () => {
       try {
@@ -61,7 +60,7 @@ function SettingsContent() {
       setSuccess("");
       setLoading(true);
       try {
-        const res = await fetch(`${API}/user/profile`, {
+        const res = await fetch(`${API_BASE}/user/profile`, {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ username, email }),
@@ -85,7 +84,7 @@ function SettingsContent() {
       if (!confirm("Are you sure you want to reset your bankroll baseline to your current bankroll amount? This doesn't delete prediction histories.")) return;
       setResettingBankroll(true);
       try {
-        const res = await fetch(`${API}/user/bankroll/reset`, {
+        const res = await fetch(`${API_BASE}/user/bankroll/reset`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({}),

@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { API_BASE } from "../lib/api";
 
 type User = {
   id: string;
@@ -20,8 +21,6 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -38,7 +37,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (emailOrUsername: string, password: string) => {
-    const res = await fetch(`${API}/auth/login`, {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ emailOrUsername, password }),
@@ -55,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(async (email: string, username: string, password: string, startingBankroll: number) => {
-    const res = await fetch(`${API}/auth/register`, {
+    const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, username, password, startingBankroll }),
@@ -81,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refreshUser = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(`${API}/user/profile`, {
+      const res = await fetch(`${API_BASE}/user/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
