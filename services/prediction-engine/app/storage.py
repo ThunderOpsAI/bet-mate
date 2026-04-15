@@ -396,7 +396,9 @@ def create_paper_bet(
     prediction_log_id: Optional[int] = None,
     origin: str = "user",
     system_bet_id: Optional[int] = None,
+    user_id: str = "legacy",
 ) -> Dict[str, Any]:
+    user_id = (user_id or "").strip()
     sport = sport.strip().lower()
     event_id = event_id.strip()
     event_name = event_name.strip()
@@ -406,6 +408,8 @@ def create_paper_bet(
     stake = float(stake)
     odds = _optional_float(odds)
 
+    if not user_id:
+        raise ValueError("user_id is required")
     if not sport or not event_id or not selection:
         raise ValueError("sport, event_id, and selection are required")
     if stake <= 0:
@@ -436,6 +440,7 @@ def create_paper_bet(
                 updated_at,
                 settled_at,
                 prediction_log_id,
+                user_id,
                 sport,
                 event_id,
                 event_name,
@@ -450,13 +455,14 @@ def create_paper_bet(
                 origin,
                 system_bet_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 created_at,
                 created_at,
                 settled_at,
                 prediction["id"] if prediction else prediction_log_id,
+                user_id,
                 sport,
                 event_id,
                 event_name,
@@ -489,12 +495,16 @@ def get_paper_bets(
     status: Optional[str] = None,
     sport: Optional[str] = None,
     limit: int = 50,
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     limit = max(1, min(int(limit), 200))
     status = status.strip().upper() if status else None
     sport = sport.strip().lower() if sport else None
     conditions = []
     params = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
 
     if status and status != "ALL":
         conditions.append("status = ?")
@@ -519,10 +529,13 @@ def get_paper_bets(
     return [_row_to_paper_bet(row) for row in rows]
 
 
-def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
+def get_paper_bet_summary(sport: Optional[str] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     sport = sport.strip().lower() if sport else None
     conditions = []
     params: list = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
     if sport and sport != "all":
         conditions.append("sport = ?")
         params.append(sport)
@@ -579,11 +592,14 @@ def get_paper_bet_summary(sport: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
-def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30) -> List[Dict[str, Any]]:
+def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
     sport = sport.strip().lower() if sport else None
     days = max(1, min(int(days), 365))
     conditions = ["status != 'PENDING'", "settled_at IS NOT NULL"]
     params = []
+    if user_id:
+        conditions.append("user_id = ?")
+        params.append(user_id)
 
     if sport and sport != "all":
         conditions.append("sport = ?")
@@ -652,6 +668,7 @@ def settle_paper_bet(
     bet_id: int,
     status: str,
     payout: Optional[float] = None,
+    user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     status = status.strip().upper()
     if status not in {"WON", "LOST", "VOID"}:
@@ -659,7 +676,10 @@ def settle_paper_bet(
 
     updated_at = datetime.now(timezone.utc).isoformat()
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
         if not row:
             raise ValueError("paper bet not found")
 
@@ -679,19 +699,25 @@ def settle_paper_bet(
             """
             UPDATE paper_bet_log
             SET updated_at = ?, settled_at = ?, status = ?, payout = ?, profit = ?
-            WHERE id = ?
+            WHERE id = ? AND (? IS NULL OR user_id = ?)
             """,
-            (updated_at, updated_at, status, settled_payout, profit, bet_id),
+            (updated_at, updated_at, status, settled_payout, profit, bet_id, user_id, user_id),
         )
         conn.commit()
-        updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
+        if user_id:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id)).fetchone()
+        else:
+            updated_row = conn.execute("SELECT * FROM paper_bet_log WHERE id = ?", (bet_id,)).fetchone()
 
     return _row_to_paper_bet(updated_row)
 
 
-def delete_paper_bet(bet_id: int) -> bool:
+def delete_paper_bet(bet_id: int, user_id: Optional[str] = None) -> bool:
     with _connect() as conn:
-        cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
+        if user_id:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ? AND user_id = ?", (bet_id, user_id))
+        else:
+            cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -1369,6 +1395,7 @@ def _ensure_schema(conn) -> None:
             updated_at TEXT NOT NULL,
             settled_at TEXT,
             prediction_log_id INTEGER,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
             sport TEXT NOT NULL,
             event_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
@@ -1383,12 +1410,14 @@ def _ensure_schema(conn) -> None:
         )
         """
     )
+    _ensure_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
     # dedupe is now called once from init_db(), not on every connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_user_created_at ON paper_bet_log (user_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     conn.execute(
@@ -1568,6 +1597,7 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "updated_at": row["updated_at"],
         "settled_at": row["settled_at"],
         "prediction_log_id": row["prediction_log_id"],
+        "user_id": row["user_id"] if _row_has_key(row, "user_id") else "legacy",
         "sport": row["sport"],
         "event_id": row["event_id"],
         "event_name": row["event_name"],

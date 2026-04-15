@@ -5,6 +5,10 @@ Tests endpoints for predictions, paper bets, and settlement.
 
 import os
 import re
+import json
+import base64
+import hashlib
+import hmac
 import pytest
 from app.time_utils import today_melbourne
 
@@ -13,6 +17,27 @@ os.environ["DATABASE_URL"] = ""
 os.environ["BETMATE_DB_PATH"] = ":memory:"
 
 from fastapi.testclient import TestClient
+
+
+def _jwt_for_user(user_id: str) -> str:
+    header = {"alg": "HS256", "typ": "JWT"}
+    payload = {"sub": user_id}
+
+    def _b64(data: dict) -> str:
+        raw = json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+    header_b64 = _b64(header)
+    payload_b64 = _b64(payload)
+    signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+    secret = os.getenv("JWT_SECRET", "change-me-in-production").encode("utf-8")
+    signature = hmac.new(secret, signing_input, hashlib.sha256).digest()
+    sig_b64 = base64.urlsafe_b64encode(signature).decode("utf-8").rstrip("=")
+    return f"{header_b64}.{payload_b64}.{sig_b64}"
+
+
+def _auth_headers(user_id: str) -> dict:
+    return {"Authorization": f"Bearer {_jwt_for_user(user_id)}"}
 
 
 @pytest.fixture
@@ -179,19 +204,19 @@ class TestSettlementEndpoint:
 
 class TestPaperBetEndpoints:
     def test_get_paper_bets_empty(self, client):
-        response = client.get("/api/paper-bets")
+        response = client.get("/api/paper-bets", headers=_auth_headers("user_a"))
         assert response.status_code == 200
         data = response.json()
         assert data["bets"] == []
 
     def test_get_paper_bet_summary_empty(self, client):
-        response = client.get("/api/paper-bets/summary")
+        response = client.get("/api/paper-bets/summary", headers=_auth_headers("user_a"))
         assert response.status_code == 200
         data = response.json()
         assert data["summary"]["total_bets"] == 0
 
     def test_get_paper_bet_trend_empty(self, client):
-        response = client.get("/api/paper-bets/trend")
+        response = client.get("/api/paper-bets/trend", headers=_auth_headers("user_a"))
         assert response.status_code == 200
         data = response.json()
         assert data["trend"] == []
@@ -200,6 +225,7 @@ class TestPaperBetEndpoints:
         response = client.post(
             "/api/paper-bets",
             json={"sport": "afl", "event_id": "g1", "selection": "A", "stake": 0},
+            headers=_auth_headers("user_a"),
         )
         assert response.status_code == 400
 
@@ -227,6 +253,7 @@ class TestPaperBetEndpoints:
                 "stake": 10,
                 "odds": 1.67,
             },
+            headers=_auth_headers("user_a"),
         )
         assert create_response.status_code == 200
         bet = create_response.json()["bet"]
@@ -237,6 +264,7 @@ class TestPaperBetEndpoints:
         settle_response = client.patch(
             f"/api/paper-bets/{bet_id}/settle",
             json={"status": "WON"},
+            headers=_auth_headers("user_a"),
         )
         assert settle_response.status_code == 200
         settled_bet = settle_response.json()["bet"]
@@ -265,24 +293,75 @@ class TestPaperBetEndpoints:
                 "stake": 10,
                 "odds": 1.82,
             },
+            headers=_auth_headers("user_a"),
         )
         bet_id = create_response.json()["bet"]["id"]
 
-        delete_response = client.delete(f"/api/paper-bets/{bet_id}")
+        delete_response = client.delete(f"/api/paper-bets/{bet_id}", headers=_auth_headers("user_a"))
         assert delete_response.status_code == 200
         assert delete_response.json()["deleted"] is True
 
         # Deleting again should 404
-        delete_again = client.delete(f"/api/paper-bets/{bet_id}")
+        delete_again = client.delete(f"/api/paper-bets/{bet_id}", headers=_auth_headers("user_a"))
         assert delete_again.status_code == 404
 
     def test_paper_bet_sport_filter(self, client):
-        response = client.get("/api/paper-bets?sport=afl")
+        response = client.get("/api/paper-bets?sport=afl", headers=_auth_headers("user_a"))
         assert response.status_code == 200
 
     def test_paper_bet_status_filter(self, client):
-        response = client.get("/api/paper-bets?status=PENDING")
+        response = client.get("/api/paper-bets?status=PENDING", headers=_auth_headers("user_a"))
         assert response.status_code == 200
+
+    def test_paper_bets_are_user_scoped_for_list_create_and_void(self, client):
+        create_user_a = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "authz_g1",
+                "event_name": "Team A vs Team B",
+                "selection": "Team A",
+                "stake": 10,
+                "odds": 2.0,
+            },
+            headers=_auth_headers("user_a"),
+        )
+        assert create_user_a.status_code == 200
+        bet_id = create_user_a.json()["bet"]["id"]
+
+        create_user_b = client.post(
+            "/api/paper-bets",
+            json={
+                "sport": "afl",
+                "event_id": "authz_g2",
+                "event_name": "Team C vs Team D",
+                "selection": "Team C",
+                "stake": 8,
+                "odds": 1.9,
+            },
+            headers=_auth_headers("user_b"),
+        )
+        assert create_user_b.status_code == 200
+
+        list_user_a = client.get("/api/paper-bets", headers=_auth_headers("user_a"))
+        assert list_user_a.status_code == 200
+        assert all(bet["user_id"] == "user_a" for bet in list_user_a.json()["bets"])
+        assert all(bet["id"] != create_user_b.json()["bet"]["id"] for bet in list_user_a.json()["bets"])
+
+        void_cross_user = client.patch(
+            f"/api/paper-bets/{bet_id}/settle",
+            json={"status": "VOID"},
+            headers=_auth_headers("user_b"),
+        )
+        assert void_cross_user.status_code == 400
+
+        void_owner = client.patch(
+            f"/api/paper-bets/{bet_id}/settle",
+            json={"status": "VOID"},
+            headers=_auth_headers("user_a"),
+        )
+        assert void_owner.status_code == 200
+        assert void_owner.json()["bet"]["status"] == "VOID"
 
 
 class TestModelMetadata:

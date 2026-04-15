@@ -263,6 +263,7 @@ def _run_sqlite_schema(conn):
             updated_at TEXT NOT NULL,
             settled_at TEXT,
             prediction_log_id INTEGER,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
             sport TEXT NOT NULL,
             event_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
@@ -352,6 +353,7 @@ def _run_sqlite_schema(conn):
     _ensure_sqlite_column(conn, "prediction_log", "settled_at", "TEXT")
     _ensure_sqlite_column(conn, "paper_bet_log", "origin", "TEXT DEFAULT 'user'")
     _ensure_sqlite_column(conn, "paper_bet_log", "system_bet_id", "INTEGER")
+    _ensure_sqlite_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
     _ensure_sqlite_column(conn, "system_bets", "legs_json", "TEXT")
 
     # Indexes
@@ -360,6 +362,7 @@ def _run_sqlite_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_user_created_at ON paper_bet_log (user_id, created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
@@ -427,6 +430,7 @@ def _run_pg_schema(cursor):
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             settled_at TIMESTAMPTZ,
             prediction_log_id INTEGER,
+            user_id TEXT NOT NULL DEFAULT 'legacy',
             sport TEXT NOT NULL,
             event_id TEXT NOT NULL,
             event_name TEXT NOT NULL,
@@ -510,6 +514,10 @@ def _run_pg_schema(cursor):
 
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'user'")
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS system_bet_id INTEGER REFERENCES system_bets(id)")
+    cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS user_id TEXT")
+    cursor.execute("UPDATE paper_bet_log SET user_id = 'legacy' WHERE user_id IS NULL")
+    cursor.execute("ALTER TABLE paper_bet_log ALTER COLUMN user_id SET DEFAULT 'legacy'")
+    cursor.execute("ALTER TABLE paper_bet_log ALTER COLUMN user_id SET NOT NULL")
     cursor.execute("ALTER TABLE system_bets ADD COLUMN IF NOT EXISTS legs_json JSONB")
 
     # Indexes
@@ -518,6 +526,7 @@ def _run_pg_schema(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_created_at ON prediction_log (created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_settled_at ON prediction_log (settled_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_status ON paper_bet_log (status)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_user_created_at ON paper_bet_log (user_id, created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_event ON paper_bet_log (sport, event_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_paper_bet_log_created_at ON paper_bet_log (created_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
@@ -531,6 +540,17 @@ def _run_pg_schema(cursor):
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_results_unique_event
         ON prediction_results (sport, event_id)
     """)
+    cursor.execute("ALTER TABLE paper_bet_log ENABLE ROW LEVEL SECURITY")
+    cursor.execute("ALTER TABLE paper_bet_log FORCE ROW LEVEL SECURITY")
+    cursor.execute("DROP POLICY IF EXISTS paper_bet_log_user_isolation ON paper_bet_log")
+    cursor.execute(
+        """
+        CREATE POLICY paper_bet_log_user_isolation
+        ON paper_bet_log
+        USING (current_setting('request.jwt.claim.sub', true) = user_id)
+        WITH CHECK (current_setting('request.jwt.claim.sub', true) = user_id)
+        """
+    )
 
 
 def _ensure_sqlite_column(conn, table_name: str, column_name: str, column_type: str) -> None:
