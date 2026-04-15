@@ -240,7 +240,6 @@ class TestPaperBetEndpoints:
                 "stake": 0.5,
                 "odds": 1.9,
             },
-            headers=_auth_headers("user_a"),
         )
         high_response = client.post(
             "/api/paper-bets",
@@ -252,7 +251,6 @@ class TestPaperBetEndpoints:
                 "stake": 10001,
                 "odds": 1.9,
             },
-            headers=_auth_headers("user_a"),
         )
 
         assert low_response.status_code == 400
@@ -272,7 +270,6 @@ class TestPaperBetEndpoints:
                 "odds": 2.1,
                 "bet_type": "quinella",
             },
-            headers=_auth_headers("user_a"),
         )
 
         assert response.status_code == 400
@@ -290,7 +287,6 @@ class TestPaperBetEndpoints:
                 "odds": 6.0,
                 "bet_type": "quinella",
             },
-            headers=_auth_headers("user_a"),
         )
 
         assert response.status_code == 200
@@ -462,9 +458,8 @@ class TestPaperBetEndpoints:
                 "stake": 20,
                 "odds": 2.0,
             },
-            headers=_auth_headers("user_a"),
         ).json()["bet"]
-        client.patch(f"/api/paper-bets/{won_bet['id']}/settle", json={"status": "WON"}, headers=_auth_headers("user_a"))
+        client.patch(f"/api/paper-bets/{won_bet['id']}/settle", json={"status": "WON"})
 
         lost_bet = client.post(
             "/api/paper-bets",
@@ -476,9 +471,8 @@ class TestPaperBetEndpoints:
                 "stake": 15,
                 "odds": 2.5,
             },
-            headers=_auth_headers("user_a"),
         ).json()["bet"]
-        client.patch(f"/api/paper-bets/{lost_bet['id']}/settle", json={"status": "LOST"}, headers=_auth_headers("user_a"))
+        client.patch(f"/api/paper-bets/{lost_bet['id']}/settle", json={"status": "LOST"})
 
         client.post(
             "/api/paper-bets",
@@ -490,10 +484,9 @@ class TestPaperBetEndpoints:
                 "stake": 12,
                 "odds": 1.9,
             },
-            headers=_auth_headers("user_a"),
         )
 
-        summary_response = client.get("/api/paper-bets/summary?sport=afl", headers=_auth_headers("user_a"))
+        summary_response = client.get("/api/paper-bets/summary?sport=afl")
         assert summary_response.status_code == 200
         summary = summary_response.json()["summary"]
         assert summary["total_bets"] == 3
@@ -541,7 +534,6 @@ class TestResultIngestionSettlement:
                 "stake": 20,
                 "odds": 1.75,
             },
-            headers=_auth_headers("user_a"),
         ).json()["bet"]
         racing_bet = client.post(
             "/api/paper-bets",
@@ -553,7 +545,6 @@ class TestResultIngestionSettlement:
                 "stake": 10,
                 "odds": 2.85,
             },
-            headers=_auth_headers("user_a"),
         ).json()["bet"]
 
         monkeypatch.setattr(main_mod.afl_scraper, "fetch_completed_afl_results", lambda **kwargs: [])
@@ -580,7 +571,7 @@ class TestResultIngestionSettlement:
         assert ingest_response.status_code == 200
         assert ingest_response.json()["ingestion"]["settled"] == 2
 
-        bets = {bet["id"]: bet for bet in client.get("/api/paper-bets", headers=_auth_headers("user_a")).json()["bets"]}
+        bets = {bet["id"]: bet for bet in client.get("/api/paper-bets").json()["bets"]}
         assert bets[nba_bet["id"]]["status"] == "WON"
         assert bets[nba_bet["id"]]["profit"] == 15.0
         assert bets[racing_bet["id"]]["status"] == "LOST"
