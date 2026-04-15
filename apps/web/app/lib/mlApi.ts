@@ -16,6 +16,8 @@ function withProtocol(url: string) {
 
 export function normalizeMlApiUrl(rawUrl = process.env.NEXT_PUBLIC_ML_API) {
   const candidate = rawUrl?.trim() || DEFAULT_ML_API;
+  // Relative proxy path (e.g. /api/ml-proxy) — pass through as-is, no protocol needed
+  if (candidate.startsWith("/")) return candidate.replace(/\/+$/, "");
   return withProtocol(candidate).replace(/\/+$/, "");
 }
 
