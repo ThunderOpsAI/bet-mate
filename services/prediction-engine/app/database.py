@@ -16,7 +16,9 @@ Usage:
 
 import os
 import sqlite3
+import shutil
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from typing import Optional
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -195,6 +197,55 @@ def init_database() -> None:
     print(f"[Database] Initialized ({DB_BACKEND})")
 
 
+def validate_persistence_configuration() -> None:
+    """Validate storage durability assumptions before serving traffic."""
+    if DB_BACKEND != "sqlite":
+        return
+
+    require_persistent = os.getenv("BETMATE_REQUIRE_PERSISTENT_STORAGE", "").strip().lower() in {"1", "true", "yes", "on"}
+    if not require_persistent:
+        return
+
+    normalized = BETMATE_DB_PATH.strip()
+    if normalized == ":memory:":
+        raise RuntimeError("BETMATE_REQUIRE_PERSISTENT_STORAGE is enabled but SQLite is configured in-memory")
+
+    temp_roots = ("/tmp/", "/private/tmp/", "/var/folders/")
+    if any(normalized.startswith(root) for root in temp_roots):
+        raise RuntimeError(
+            "BETMATE_REQUIRE_PERSISTENT_STORAGE is enabled but BETMATE_DB_PATH points to a temporary directory"
+        )
+
+
+def create_sqlite_backup(backup_dir: str) -> Optional[str]:
+    """Snapshot SQLite database file for disaster recovery. Returns backup path."""
+    if DB_BACKEND != "sqlite":
+        return None
+
+    source = BETMATE_DB_PATH
+    if source == ":memory:" or not os.path.exists(source):
+        return None
+
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup_path = os.path.join(backup_dir, f"betmate-backup-{timestamp}.sqlite3")
+    shutil.copy2(source, backup_path)
+    return backup_path
+
+
+def restore_sqlite_backup(backup_path: str) -> None:
+    """Restore SQLite database file from a backup snapshot."""
+    if DB_BACKEND != "sqlite":
+        raise RuntimeError("restore_sqlite_backup is only supported for sqlite backend")
+    if not os.path.exists(backup_path):
+        raise FileNotFoundError(backup_path)
+    if BETMATE_DB_PATH == ":memory:":
+        raise RuntimeError("cannot restore backup into in-memory sqlite database")
+
+    os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
+    shutil.copy2(backup_path, BETMATE_DB_PATH)
+
+
 def _init_sqlite():
     """Run SQLite schema creation."""
     os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
@@ -345,6 +396,17 @@ def _run_sqlite_schema(conn):
             improvement_metric REAL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_retrain_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date TEXT NOT NULL UNIQUE,
+            started_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL,
+            profile_count INTEGER NOT NULL,
+            tuned_profiles INTEGER NOT NULL,
+            summary_json TEXT NOT NULL
+        )
+    """)
 
     # Ensure columns exist for schema migrations
     _ensure_sqlite_column(conn, "prediction_log", "updated_at", "TEXT")
@@ -368,6 +430,7 @@ def _run_sqlite_schema(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_event ON system_bets (sport, event_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_profile ON system_bets (profile_key, created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_weekly_retrain_log_run_date ON weekly_retrain_log (run_date)")
     conn.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_log_unique_selection
         ON prediction_log (sport, event_id, selection)
@@ -511,6 +574,17 @@ def _run_pg_schema(cursor):
             improvement_metric DOUBLE PRECISION
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS weekly_retrain_log (
+            id SERIAL PRIMARY KEY,
+            run_date DATE NOT NULL UNIQUE,
+            started_at TIMESTAMPTZ NOT NULL,
+            completed_at TIMESTAMPTZ NOT NULL,
+            profile_count INTEGER NOT NULL,
+            tuned_profiles INTEGER NOT NULL,
+            summary_json JSONB NOT NULL DEFAULT '{}'
+        )
+    """)
 
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'user'")
     cursor.execute("ALTER TABLE paper_bet_log ADD COLUMN IF NOT EXISTS system_bet_id INTEGER REFERENCES system_bets(id)")
@@ -532,6 +606,7 @@ def _run_pg_schema(cursor):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_run ON system_bets (run_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_event ON system_bets (sport, event_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_system_bets_profile ON system_bets (profile_key, created_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_weekly_retrain_log_run_date ON weekly_retrain_log (run_date)")
     cursor.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS idx_prediction_log_unique_selection
         ON prediction_log (sport, event_id, selection)

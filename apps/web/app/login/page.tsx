@@ -1,12 +1,15 @@
 "use client";
 import { useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "../providers/AuthProvider";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const returnUrl = searchParams.get("returnUrl") || "/";
+
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -18,7 +21,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(emailOrUsername, password);
-      router.push("/");
+      router.push(returnUrl);
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {
@@ -33,6 +36,12 @@ export default function LoginPage() {
           <h1>BetMate</h1>
           <p>Track smarter. Bet informed.</p>
         </div>
+
+        {searchParams.get("returnUrl") && !error && (
+          <div className="info-message" style={{ marginBottom: "1rem", padding: "0.75rem", background: "var(--bg-secondary)", borderRadius: 6, fontSize: "0.9rem" }}>
+            Please log in to continue your action.
+          </div>
+        )}
 
         {error && <div className="error-message">{error}</div>}
 

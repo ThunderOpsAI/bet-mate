@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.database as database
 import app.storage as storage
 from app.ml.afl import AFLPredictor
 from app.ml.nba import NBAPredictor
@@ -16,6 +18,7 @@ from app.time_utils import MELBOURNE_TZ, now_melbourne, today_melbourne
 
 
 DEFAULT_SCHEDULER_TIME = "05:00"
+DEFAULT_WEEKLY_RETRAIN_DAY = "sun"
 
 
 def _settle_ingested_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -142,6 +145,9 @@ def run_nightly_cycle(
     max_results: int = 50,
     afl_year: Optional[int] = None,
     nba_days_back: int = 7,
+    weekly_retrain_enabled: bool = False,
+    weekly_retrain_day: str = DEFAULT_WEEKLY_RETRAIN_DAY,
+    backup_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
     storage.init_db()
     effective_date = run_date or today_melbourne().isoformat()
@@ -174,6 +180,17 @@ def run_nightly_cycle(
                 reference_date=effective_date,
             )
 
+    weekly_retrain = _run_weekly_retrain_if_due(
+        effective_date=effective_date,
+        target_profiles=target_profiles,
+        enabled=weekly_retrain_enabled,
+        scheduled_day=weekly_retrain_day,
+    )
+
+    backup_path = None
+    if backup_dir:
+        backup_path = database.create_sqlite_backup(backup_dir)
+
     return {
         "run_date": effective_date,
         "generated_cards": [
@@ -187,7 +204,59 @@ def run_nightly_cycle(
         ],
         "ingestion": ingestion,
         "auto_tune": tuning,
+        "weekly_retrain": weekly_retrain,
+        "backup": {"path": backup_path, "created": bool(backup_path)} if backup_dir else {"created": False},
     }
+
+
+def _run_weekly_retrain_if_due(
+    effective_date: str,
+    target_profiles: Sequence[str],
+    enabled: bool,
+    scheduled_day: str,
+) -> Dict[str, Any]:
+    if not enabled:
+        return {"ran": False, "reason": "weekly retrain disabled"}
+
+    run_day = _weekday_from_iso_date(effective_date)
+    scheduled_weekday = _weekday_from_name(scheduled_day)
+    if run_day != scheduled_weekday:
+        return {"ran": False, "reason": "not scheduled weekday", "scheduled_day": scheduled_day}
+
+    existing = storage.get_weekly_retrain_run(effective_date)
+    if existing:
+        return {"ran": False, "reason": "already ran for date", "run": existing}
+
+    summary = storage.run_weekly_retrain(effective_date, profile_keys=list(target_profiles))
+    return {"ran": True, "summary": summary}
+
+
+def _weekday_from_iso_date(value: str) -> int:
+    return datetime.strptime(value, "%Y-%m-%d").weekday()
+
+
+def _weekday_from_name(value: str) -> int:
+    weekdays = {
+        "mon": 0,
+        "monday": 0,
+        "tue": 1,
+        "tues": 1,
+        "tuesday": 1,
+        "wed": 2,
+        "wednesday": 2,
+        "thu": 3,
+        "thursday": 3,
+        "fri": 4,
+        "friday": 4,
+        "sat": 5,
+        "saturday": 5,
+        "sun": 6,
+        "sunday": 6,
+    }
+    normalized = value.strip().lower()
+    if normalized not in weekdays:
+        raise ValueError("weekly retrain day must be mon..sun")
+    return weekdays[normalized]
 
 
 def _parse_csv(value: str) -> List[str]:
@@ -206,6 +275,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--max-results", type=int, default=50, help="Maximum completed results to ingest per sport.")
     parser.add_argument("--afl-year", type=int, help="Optional AFL year override for completed result ingestion.")
     parser.add_argument("--nba-days-back", type=int, default=7, help="How many days of NBA completed results to inspect.")
+    parser.add_argument("--weekly-retrain", action="store_true", help="Enable weekly retrain run when the run date matches --weekly-retrain-day.")
+    parser.add_argument("--weekly-retrain-day", default=DEFAULT_WEEKLY_RETRAIN_DAY, help="Weekly retrain day name (mon..sun).")
+    parser.add_argument("--backup-dir", help="Optional SQLite backup directory after cycle.")
     args = parser.parse_args(argv)
 
     strategy_service = build_nightly_strategy_service(load_models=True)
@@ -219,6 +291,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         max_results=args.max_results,
         afl_year=args.afl_year,
         nba_days_back=args.nba_days_back,
+        weekly_retrain_enabled=args.weekly_retrain,
+        weekly_retrain_day=args.weekly_retrain_day,
+        backup_dir=args.backup_dir or os.getenv("BETMATE_SQLITE_BACKUP_DIR"),
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

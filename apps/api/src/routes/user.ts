@@ -135,4 +135,49 @@ router.post("/bankroll/adjust", async (req: AuthRequest, res) => {
   }
 });
 
+// POST /api/user/bankroll/reset
+const resetSchema = z.object({
+  newBaseline: z.number().optional(),
+});
+
+router.post("/bankroll/reset", async (req: AuthRequest, res) => {
+  const parsed = resetSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+
+  const userId = req.userId!;
+  const { newBaseline } = parsed.data;
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) throw new Error("User not found");
+
+      const targetBaseline = newBaseline !== undefined ? newBaseline : Number(user.currentBankroll);
+      const difference = targetBaseline - Number(user.currentBankroll);
+
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          startingBankroll: targetBaseline,
+          currentBankroll: targetBaseline,
+        },
+      });
+
+      await tx.bankrollHistory.create({
+        data: {
+          userId,
+          amount: difference,
+          reason: "baseline_reset",
+        },
+      });
+
+      return targetBaseline;
+    });
+
+    return res.json({ bankroll: result });
+  } catch (err: any) {
+    return res.status(500).json({ error: "Failed to reset bankroll baseline" });
+  }
+});
+
 export default router;
