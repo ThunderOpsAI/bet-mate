@@ -465,6 +465,7 @@ def create_paper_bet(
                 system_bet_id
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
             """,
             (
                 created_at,
