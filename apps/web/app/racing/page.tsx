@@ -4,6 +4,7 @@ import { Brain, Trophy, MapPin, ChevronDown, ChevronUp, BarChart3, Bell, BellOff
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "../providers/AuthProvider";
+import PaperBetAction from "../components/PaperBetAction";
 
 type BlackbookConfig = {
   probability_threshold: number;
@@ -263,19 +264,17 @@ export default function RacingPage() {
                               <td className="fair-odds">${p.fair_odds}</td>
                               <td>
                                 <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                                  <Link
-                                    className="btn btn-sm btn-secondary"
-                                    href={paperBetHref({
+                                  <PaperBetAction 
+                                    bet={{
                                       sport: "racing",
-                                      eventId: race.race_id,
-                                      eventName: `${race.venue} R${race.race_number}`,
+                                      event_id: race.race_id,
+                                      event_name: `${race.venue} R${race.race_number}`,
                                       selection: p.name,
                                       odds: p.fair_odds,
-                                      betType: "win",
-                                    })}
-                                  >
-                                    Track Bet
-                                  </Link>
+                                      bet_type: "win",
+                                      stake: 10,
+                                    }}
+                                  />
                                   {user && user.id !== "guest" && (
                                     <button
                                       className="btn btn-sm btn-outline"

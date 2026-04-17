@@ -459,6 +459,38 @@ def create_paper_bet(bet: PaperBetInput, user_id: str = Depends(require_user_id)
         "summary": storage.get_paper_bet_summary(bet.sport, user_id=user_id),
     }
 
+@app.post("/api/paper-bets/batch")
+def create_paper_bets_batch(bets: List[PaperBetInput], user_id: str = Depends(require_user_id)):
+    created_bets = []
+    # If there are a lot of bets, consider using a database transaction if storage supports it.
+    # For now, we'll loop to reuse existing logic.
+    for bet in bets:
+        try:
+            created = storage.create_paper_bet(
+                user_id=user_id,
+                sport=bet.sport,
+                event_id=bet.event_id,
+                event_name=bet.event_name,
+                selection=bet.selection,
+                stake=bet.stake,
+                odds=bet.odds,
+                bet_type=bet.bet_type,
+                notes=bet.notes,
+                prediction_log_id=bet.prediction_log_id,
+            )
+            created_bets.append(created)
+        except ValueError as exc:
+            # Continue to next if one fails? Or return which ones failed?
+            # For simplicity, we just log and continue.
+            print(f"[Batch] Failed to create bet: {exc}")
+
+    return {
+        "success": True,
+        "count": len(created_bets),
+        "bets": created_bets,
+        "summary": storage.get_paper_bet_summary(user_id=user_id),
+    }
+
 @app.patch("/api/paper-bets/{bet_id}/settle")
 def settle_paper_bet(bet_id: int, settlement: PaperBetSettleInput, user_id: str = Depends(require_user_id)):
     try:

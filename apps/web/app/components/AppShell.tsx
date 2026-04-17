@@ -3,6 +3,7 @@ import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
+import PaperBetslip from "./PaperBetslip";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -30,6 +31,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
         <main className="page-content">{children}</main>
+        <PaperBetslip />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Brain, Zap, BarChart3 } from "lucide-react";
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
+import PaperBetAction from "../components/PaperBetAction";
 
 type NBAGame = {
   game_id: string;
@@ -126,34 +127,32 @@ export default function NBAPage() {
                 <span className="context-chip">{game.features.away_b2b ? "⚡ Away B2B" : "✅ Away Rested"}</span>
                 {pred && (
                   <>
-                    <Link
-                      className="btn btn-sm btn-secondary"
-                      href={paperBetHref({
-                        sport: "nba",
-                        eventId: game.game_id,
-                        eventName: `${game.home_team} vs ${game.away_team}`,
-                        selection: game.home_team,
-                        odds: pred.predictions.fair_odds_home,
-                        betType: "head_to_head",
-                      })}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      Paper Bet Home
-                    </Link>
-                    <Link
-                      className="btn btn-sm btn-secondary"
-                      href={paperBetHref({
-                        sport: "nba",
-                        eventId: game.game_id,
-                        eventName: `${game.home_team} vs ${game.away_team}`,
-                        selection: game.away_team,
-                        odds: pred.predictions.fair_odds_away,
-                        betType: "head_to_head",
-                      })}
-                      onClick={(event) => event.stopPropagation()}
-                    >
-                      Paper Bet Away
-                    </Link>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <PaperBetAction 
+                        bet={{
+                          sport: "nba",
+                          event_id: game.game_id,
+                          event_name: `${game.home_team} vs ${game.away_team}`,
+                          selection: game.home_team,
+                          odds: pred.predictions.fair_odds_home,
+                          bet_type: "head_to_head",
+                          stake: 10,
+                        }}
+                      />
+                    </div>
+                    <div onClick={(e) => e.stopPropagation()}>
+                      <PaperBetAction 
+                        bet={{
+                          sport: "nba",
+                          event_id: game.game_id,
+                          event_name: `${game.home_team} vs ${game.away_team}`,
+                          selection: game.away_team,
+                          odds: pred.predictions.fair_odds_away,
+                          bet_type: "head_to_head",
+                          stake: 10,
+                        }}
+                      />
+                    </div>
                   </>
                 )}
               </div>
