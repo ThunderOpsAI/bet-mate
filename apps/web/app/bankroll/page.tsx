@@ -62,9 +62,7 @@ export default function BankrollPage() {
   const fetchData = async () => {
     try {
       setError("");
-      if (!token) throw new Error("Please sign in to view paper bankroll.");
-      
-      const headers = { Authorization: `Bearer ${token}` };
+      const headers = { Authorization: `Bearer ${token || "guest"}` };
       const [summaryResponse, betsResponse, trendResponse] = await Promise.all([
         fetch(`${ML_API}/api/paper-bets/summary`, { headers }),
         fetch(`${ML_API}/api/paper-bets?limit=25`, { headers }),

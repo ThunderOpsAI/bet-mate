@@ -44,7 +44,7 @@ function NewBetContent() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token || "guest"}`,
         },
         body: JSON.stringify({
           sport,
@@ -59,9 +59,6 @@ function NewBetContent() {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        if (res.status === 401) {
-          throw new Error("Session expired. Please sign in again.");
-        }
         throw new Error(data.detail || "Failed to log paper bet");
       }
       router.push("/bets");
@@ -81,11 +78,6 @@ function NewBetContent() {
 
       <div className="card">
         <h3 style={{ marginBottom: "1.25rem", fontWeight: 700 }}>Log a Paper Bet</h3>
-        {!token && (
-          <div className="info-message" style={{ marginBottom: "1rem", padding: "1rem", background: "var(--bg-secondary)", borderRadius: 6 }}>
-            You must be signed in to log a paper bet. <a href={`/login?returnUrl=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "")}`} style={{ color: "var(--blue)", textDecoration: "underline" }}>Sign in here</a>.
-          </div>
-        )}
         {error && <div className="error-message">{error}</div>}
 
         <form onSubmit={handleSubmit}>

@@ -274,9 +274,9 @@ export default function RacingPage() {
                                       betType: "win",
                                     })}
                                   >
-                                    Paper Bet
+                                    Track Bet
                                   </Link>
-                                  {user && (
+                                  {user && user.id !== "guest" && (
                                     <button
                                       className="btn btn-sm btn-outline"
                                       title="Watch this horse"
@@ -436,6 +436,8 @@ function paperBetHref(params: {
     selection: params.selection,
     odds: String(params.odds),
     bet_type: params.betType,
+    stake: "10",
+    notes: `Model pick for ${params.eventName}`,
   });
 
   return `/bets/new?${search.toString()}`;

@@ -21,18 +21,29 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const GUEST_USER: User = {
+  id: "guest",
+  email: "guest@betmate.local",
+  username: "Guest",
+  currentBankroll: 250,
+};
+
+const GUEST_TOKEN = "guest";
+
+function persistGuestSession() {
+  localStorage.setItem("betmate_token", GUEST_TOKEN);
+  localStorage.setItem("betmate_user", JSON.stringify(GUEST_USER));
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem("betmate_token");
-    const savedUser = localStorage.getItem("betmate_user");
-    if (saved && savedUser) {
-      setToken(saved);
-      try { setUser(JSON.parse(savedUser)); } catch { /* ignore */ }
-    }
+    setToken(GUEST_TOKEN);
+    setUser(GUEST_USER);
+    persistGuestSession();
     setIsLoading(false);
   }, []);
 
@@ -71,14 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem("betmate_token");
-    localStorage.removeItem("betmate_user");
+    setUser(GUEST_USER);
+    setToken(GUEST_TOKEN);
+    persistGuestSession();
   }, []);
 
   const refreshUser = useCallback(async () => {
-    if (!token) return;
+    if (!token || token === GUEST_TOKEN) return;
     try {
       const res = await fetch(`${API_BASE}/user/profile`, {
         headers: { Authorization: `Bearer ${token}` },

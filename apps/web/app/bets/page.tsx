@@ -72,21 +72,13 @@ function BetsContent() {
   const fetchBets = async () => {
     try {
       setError("");
-      if (!token) {
-        setBets([]);
-        setSummary(null);
-        throw new Error("Please sign in to view paper bets.");
-      }
-      const authHeaders = { Authorization: `Bearer ${token}` };
+      const authHeaders = { Authorization: `Bearer ${token || "guest"}` };
       const [betsResponse, summaryResponse] = await Promise.all([
         fetch(`${ML_API}/api/paper-bets?limit=200`, { headers: authHeaders }),
         fetch(`${ML_API}/api/paper-bets/summary`, { headers: authHeaders }),
       ]);
 
       if (!betsResponse.ok || !summaryResponse.ok) {
-        if (betsResponse.status === 401 || summaryResponse.status === 401) {
-          throw new Error("Session expired. Please sign in again.");
-        }
         throw new Error("Paper bets unavailable");
       }
 
@@ -110,7 +102,7 @@ function BetsContent() {
     requireAuthAction(async () => {
       await fetch(`${ML_API}/api/paper-bets/${betId}/settle`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || "guest"}` },
         body: JSON.stringify({ status }),
       });
       void fetchBets();
@@ -120,7 +112,7 @@ function BetsContent() {
   const deleteBet = async (betId: number) => {
     requireAuthAction(async () => {
       if (!confirm("Delete this paper bet?")) return;
-      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token || "guest"}` } });
       void fetchBets();
     });
   };
