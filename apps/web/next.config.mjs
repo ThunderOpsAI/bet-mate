@@ -3,6 +3,19 @@ const DEFAULT_PROXY_TARGET = "http://54.79.12.88";
 const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
 
 const nextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Credentials", value: "true" },
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Access-Control-Allow-Methods", value: "GET,OPTIONS,PATCH,DELETE,POST,PUT" },
+          { key: "Access-Control-Allow-Headers", value: "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization" },
+        ],
+      },
+    ];
+  },
   async rewrites() {
     const mlProxyRaw =
       process.env.ML_API_PROXY_TARGET ||
@@ -36,8 +49,6 @@ const nextConfig = {
 
     if (!mlProxyRaw) return rewrites;
 
-    // Normalize: if the target points to port 8000, rewrite to port 80
-    // (nginx on the Lightsail instance exposes port 80 and proxies to :8000 internally)
     let mlProxyTarget = mlProxyRaw;
     try {
       const u = new URL(mlProxyRaw);
@@ -46,7 +57,7 @@ const nextConfig = {
         mlProxyTarget = u.toString().replace(/\/$/, "");
       }
     } catch {
-      // not a valid URL — use as-is
+      // ignore
     }
     rewrites.push({
       source: "/api/ml-proxy/:path*",

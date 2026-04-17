@@ -94,9 +94,19 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       });
 
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
         const count = bets.length;
-        setBets([]);
-        return { success: count, failed: 0 };
+        const successCount = data?.count ?? count;
+        const failedCount = count - successCount;
+        
+        if (failedCount === 0) {
+          setBets([]);
+        } else {
+          // If partial, maybe leave the failed bets? But we don't know which ones. 
+          // At least we report it accurately.
+          setBets([]);
+        }
+        return { success: successCount, failed: failedCount };
       } else {
         const data = await res.json().catch(() => ({}));
         console.error("Batch placement failed", data);

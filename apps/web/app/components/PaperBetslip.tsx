@@ -16,8 +16,9 @@ export default function PaperBetslip() {
 
   const [placing, setPlacing] = useState(false);
   const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
-  if (bets.length === 0 && !isBetslipOpen) return null;
+  if (bets.length === 0 && !isBetslipOpen && !result) return null;
 
   const handlePlaceBets = async () => {
     setPlacing(true);
@@ -32,6 +33,16 @@ export default function PaperBetslip() {
         setIsBetslipOpen(false);
       }
     }, 3000);
+  };
+
+  const handleClearBets = () => {
+    if (confirmClear) {
+      clearBetslip();
+      setConfirmClear(false);
+    } else {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 3000);
+    }
   };
 
   const totalStake = bets.reduce((sum, b) => sum + b.stake, 0);
@@ -60,7 +71,12 @@ export default function PaperBetslip() {
               <CheckCircle2 size={48} className={result.failed === 0 ? "text-green" : "text-yellow"} />
               <h3>{result.failed === 0 ? "Bets Logged!" : "Partial Success"}</h3>
               <p>{result.success} bets recorded successfully.</p>
-              {result.failed > 0 && <p className="text-red">{result.failed} bets failed to log.</p>}
+              {result.failed > 0 ? (
+                <div className="betslip-error-box">
+                  <p className="text-red">{result.failed} bets failed to log.</p>
+                  <span className="small">Please verify your bet history.</span>
+                </div>
+              ) : null}
             </div>
           ) : bets.length === 0 ? (
             <div className="betslip-empty">
@@ -115,8 +131,12 @@ export default function PaperBetslip() {
                   </div>
                 </div>
                 <div className="betslip-actions">
-                  <button className="btn btn-secondary btn-sm" onClick={clearBetslip} disabled={placing}>
-                    <Trash2 size={14} /> Clear
+                  <button 
+                    className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`} 
+                    onClick={handleClearBets} 
+                    disabled={placing}
+                  >
+                    <Trash2 size={14} /> {confirmClear ? "Confirm" : "Clear"}
                   </button>
                   <button className="btn btn-primary btn-block" onClick={handlePlaceBets} disabled={placing}>
                     {placing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
@@ -139,7 +159,7 @@ export default function PaperBetslip() {
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
           box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-          z-index: 1000;
+          z-index: 10000;
           overflow: hidden;
           transition: transform var(--transition-slow), opacity var(--transition);
           display: flex;
@@ -149,7 +169,8 @@ export default function PaperBetslip() {
 
         .betslip-container.collapsed {
           width: auto;
-          min-width: 200px;
+          min-width: 180px;
+          border-radius: 999px;
         }
 
         .betslip-header {
@@ -161,6 +182,10 @@ export default function PaperBetslip() {
           justify-content: space-between;
           cursor: pointer;
           user-select: none;
+        }
+
+        .collapsed .betslip-header {
+          border-bottom: none;
         }
 
         .betslip-title {
@@ -419,15 +444,41 @@ export default function PaperBetslip() {
         .text-red { color: var(--red); }
         .text-yellow { color: var(--yellow); }
 
+        .betslip-error-box {
+          margin-top: 1rem;
+          padding: 0.75rem;
+          background: var(--red-bg);
+          border: 1px solid rgba(239, 68, 68, 0.2);
+          border-radius: var(--radius-sm);
+        }
+
+        .betslip-error-box .small {
+          display: block;
+          margin-top: 0.25rem;
+          font-size: 0.8rem;
+          color: var(--text-dim);
+        }
+
+        .btn-danger {
+          background: var(--red);
+          color: white;
+        }
+        .btn-danger:hover {
+          background: #dc2626;
+        }
+
         @media (max-width: 640px) {
           .betslip-container {
-            bottom: 0;
-            right: 0;
-            width: 100%;
-            border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+            bottom: max(1.5rem, env(safe-area-inset-bottom));
+            right: 1rem;
+            width: calc(100% - 2rem);
+            max-height: 65vh;
+            border-radius: var(--radius-lg);
           }
           .betslip-container.collapsed {
-            width: 100%;
+            width: auto;
+            right: 1rem;
+            bottom: max(1.5rem, env(safe-area-inset-bottom));
           }
         }
       `}</style>
