@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { PrismaClient, type Prediction } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma: any = new PrismaClient();
 
 const SAMPLE_RACE = {
   id: "sample-race-1",
@@ -57,9 +57,9 @@ router.get("/today", async (_req, res) => {
     for (const race of races) {
       const key = `${race.venue}-${race.raceDate.toISOString().slice(0, 10)}`;
       const topPicks = race.predictions
-        .sort((a: Prediction, b: Prediction) => b.winProbability - a.winProbability)
+        .sort((a: any, b: any) => b.winProbability - a.winProbability)
         .slice(0, 3)
-        .map((p: Prediction) => ({ horseName: p.horseName, winProbability: p.winProbability, confidence: p.confidence }));
+        .map((p: any) => ({ horseName: p.horseName, winProbability: p.winProbability, confidence: p.confidence }));
 
       if (!byVenue.has(key)) {
         byVenue.set(key, { venueName: race.venue, raceDate: race.raceDate.toISOString().slice(0, 10), races: [] });

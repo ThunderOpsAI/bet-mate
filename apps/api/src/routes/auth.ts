@@ -5,7 +5,7 @@ import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma: any = new PrismaClient();
 const jwtSecret = process.env.JWT_SECRET ?? "change-me-in-production";
 
 const memoryUsers = new Map<
