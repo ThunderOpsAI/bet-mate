@@ -540,6 +540,20 @@ def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput, user_
     return {"config": config}
 
 
+@app.get("/blackbook")
+def list_blackbook_auto_bets(user_id: str = Depends(require_user_id)):
+    configs = storage.list_blackbook_auto_bet_configs_for_user(user_id=user_id)
+    return {"configs": configs}
+
+
+@app.delete("/blackbook/{runner}/auto-bet")
+def delete_blackbook_auto_bet(runner: str, user_id: str = Depends(require_user_id)):
+    deleted = storage.delete_blackbook_auto_bet_config(runner=runner, user_id=user_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="auto-bet config not found")
+    return {"deleted": True}
+
+
 @app.get("/api/strategy-profiles")
 def list_strategy_profiles():
     return {"profiles": storage.list_strategy_profiles()}

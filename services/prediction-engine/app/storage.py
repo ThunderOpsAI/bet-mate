@@ -416,12 +416,12 @@ def create_paper_bet(
         raise ValueError("stake must be between 1 and 10000")
 
     supported_bet_types = {
-        "racing": {"win", "place", "quinella"},
-        "afl": {"win", "head_to_head"},
-        "nba": {"win", "head_to_head"},
+        "racing": {"win", "place", "each way", "ew", "tri", "first 4", "quinella", "exacta", "trifecta"},
+        "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
     }
-    allowed_types = supported_bet_types.get(sport, {"win"})
-    if bet_type not in allowed_types:
+    allowed_types = supported_bet_types.get(sport)
+    if allowed_types is not None and bet_type not in allowed_types:
         raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
 
     created_at = datetime.now(timezone.utc).isoformat()
@@ -737,14 +737,12 @@ def upsert_blackbook_auto_bet_config(
         raise ValueError("probability_threshold must be between 1.0 and 99.9")
 
     supported_bet_types = {
-        "racing": {"win", "place", "quinella"},
-        "afl": {"win", "head_to_head"},
-        "nba": {"win", "head_to_head"},
+        "racing": {"win", "place", "each way", "ew", "tri", "first 4", "quinella", "exacta", "trifecta"},
+        "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
     }
     allowed_types = supported_bet_types.get(sport)
-    if not allowed_types:
-        raise ValueError(f"sport '{sport}' is not supported")
-    if bet_type not in allowed_types:
+    if allowed_types is not None and bet_type not in allowed_types:
         raise ValueError(f"bet_type '{bet_type}' is not supported for sport '{sport}'")
 
     created_at = datetime.now(timezone.utc).isoformat()
@@ -810,6 +808,36 @@ def list_blackbook_auto_bet_configs_for_runner(runner: str) -> List[Dict[str, An
             (runner,),
         ).fetchall()
     return [_row_to_blackbook_auto_bet_config(r) for r in rows]
+
+
+def list_blackbook_auto_bet_configs_for_user(user_id: str) -> List[Dict[str, Any]]:
+    """Return all auto-bet configs for a given user."""
+    user_id = user_id.strip().lower()
+    if not user_id:
+        return []
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        rows = conn.execute(
+            "SELECT * FROM blackbook_auto_bet_config WHERE user_id = ? ORDER BY created_at DESC",
+            (user_id,),
+        ).fetchall()
+    return [_row_to_blackbook_auto_bet_config(r) for r in rows]
+
+
+def delete_blackbook_auto_bet_config(runner: str, user_id: str) -> bool:
+    """Delete an auto-bet config for a given user and runner."""
+    runner = runner.strip()
+    user_id = user_id.strip().lower()
+    if not runner or not user_id:
+        return False
+    with _connect() as conn:
+        _ensure_blackbook_table(conn)
+        cursor = conn.execute(
+            "DELETE FROM blackbook_auto_bet_config WHERE runner = ? AND user_id = ?",
+            (runner, user_id),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def settle_paper_bet(

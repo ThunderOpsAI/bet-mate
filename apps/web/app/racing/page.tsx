@@ -93,7 +93,10 @@ export default function RacingPage() {
     try {
       await fetch(`${ML_API}/blackbook/${encodeURIComponent(horseName)}/auto-bet`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${user.id}`
+        },
         body: JSON.stringify({
           user_id: user.id,
           sport: "racing",
