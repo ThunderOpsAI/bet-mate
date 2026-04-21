@@ -279,7 +279,10 @@ none
 
 
 ### Commit status
-Pending final local commit for Phase 5 work.
+Committed
+Primary feature commit hash: `8d679b1`
+Primary feature commit message: "Implement Phase 5 betting literacy opportunities UX"
+Handover update is committed separately after this document update.
 
 ### Push status
 Not pushed — owner will review and push
