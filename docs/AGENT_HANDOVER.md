@@ -166,7 +166,7 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 2 — BetMate Bob Explainability
+Phase 4 — Onboarding + Confidence + Persistent Slip
 
 ### Agent ID
 Codex
@@ -180,72 +180,79 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Build the Phase 2 explainability layer in `apps/web/app/`.
-- Create the Bob explanation utility from existing ML response data.
-- Add a reusable explain drawer/modal component.
-- Integrate “Why this pick?” entry points into Dashboard, Racing, AFL, and NBA prediction surfaces.
-- Use the existing `feature_impact`, `ai_insights_context`, and `model_metadata` API contract.
-- Keep the tone honest, confidence-aware, and useful.
-- Stay narrow to Phase 2 only.
-- Include the supplied Bob/logo assets if appropriate to this phase, otherwise document them for next phase.
+- Implement the Phase 4 onboarding, confidence, urgency, and persistent paper betslip work in `apps/web/app/`.
+- Keep the work frontend-only and scoped to the documented API payload already used by the app.
+- Add a first-run onboarding tour that references the Phase 2 Bob explainability flow.
+- Add confidence labels derived from `ai_insights_context`.
+- Add event urgency/status indicators where the existing fixture payload exposes usable timing/status data.
+- Strengthen localStorage betslip persistence so it restores cleanly and syncs across tabs.
+- Add the "How BetMate Works" explainer page under the App Router path, not `src/`.
+- Stay narrow to Phase 4 only.
 
 ### API contracts confirmed before this session
-- Relied on the handover-confirmed prediction response contract:
-  - `feature_impact`
+- Relied on the existing prediction payload fields already confirmed in the handover:
   - `ai_insights_context`
+  - `feature_impact`
   - `model_metadata`
+- Did not require any new backend contract for betslip persistence because Phase 4 is localStorage v1.
 
 ### Owner instructions for this session
 - "Read docs/AGENT_HANDOVER.md and docs/BUILD_SPEC.md first."
-- "Phase 1 is complete. Start Phase 2 — BetMate Bob Explainability."
+- "Phase 1 is complete"
+- "Phase 2 is complete and committed locally"
+- "Continue from the next appropriate phase/task only"
 - Frontend code is in `apps/web/app/`, not `apps/web/src/`.
-- "Stay narrow to Phase 2 only. No unrelated refactors."
+- "Keep work narrow and phase-aligned"
+- "Avoid unrelated refactors"
 - "Do not push."
 - "Before finishing: update docs/AGENT_HANDOVER.md with your session details."
 - "Commit completed work with a descriptive message."
-- Follow-up: Bob and BetMate logo source images are under `docs/`; use the original on the website if it fits this phase, otherwise record them for next phase.
+- "Inspect the current working tree and recent commit"
+- "Continue from the next appropriate phase/task only"
 
 ### Files touched
-- `apps/web/app/lib/bob/explainer.ts` (created)
-- `apps/web/app/components/ExplainDrawer.tsx` (created)
+- `apps/web/app/lib/betslip/persistSlip.ts` (created)
+- `apps/web/app/lib/predictionSignals.ts` (created)
+- `apps/web/app/components/PredictionSignalBadges.tsx` (created)
+- `apps/web/app/components/OnboardingTour.tsx` (created)
+- `apps/web/app/how-it-works/page.tsx` (created)
 - `apps/web/app/page.tsx` (modified)
 - `apps/web/app/racing/page.tsx` (modified)
 - `apps/web/app/afl/page.tsx` (modified)
 - `apps/web/app/nba/page.tsx` (modified)
+- `apps/web/app/providers/PaperBetslipProvider.tsx` (modified)
+- `apps/web/app/components/AppShell.tsx` (modified)
 - `apps/web/app/components/Sidebar.tsx` (modified)
 - `apps/web/app/globals.css` (modified)
-- `apps/web/public/brand/betmate-bob-original.png` (created)
-- `apps/web/public/brand/betmate-logo.png` (created)
-- `docs/Betmate Bob.png` (source asset retained)
-- `docs/Betmate Logo.png` (source asset retained)
 
 ### What I did NOT touch
-- I did not change backend ML logic or API contracts.
-- I did not change non-Phase-2 product flows outside the target prediction surfaces and shared shell branding needed for the supplied logo.
+- I did not change backend ML logic, weights, or API contracts.
+- I did not introduce server-side betslip sync or any Phase 3 snapshot work.
+- I did not refactor unrelated screens outside the shared shell and the target prediction surfaces.
 
 ### What was completed
-- Added a shared Bob explainability engine at `apps/web/app/lib/bob/explainer.ts` that normalizes both the documented structured contract and the existing looser frontend shapes.
-- Built a reusable `ExplainDrawer` component with Bob-branded copy blocks for probability, fair odds, market context, feature drivers, caution flags, notes, and model metadata.
-- Integrated “Why this pick?” entry points into Dashboard racing rows, Dashboard AFL/NBA cards, Racing table rows, and AFL/NBA game cards.
-- Replaced the raw expanded feature-bar dumps on Racing/AFL/NBA pages with Bob explainability prompts and inline context so the detail view stays useful without exposing noisy internals by default.
-- Copied the supplied original Bob and BetMate logo assets into `apps/web/public/brand/`.
-- Wired the original BetMate Bob art into the explain drawer and the supplied BetMate logo into the sidebar brand area.
+- Added shared Phase 4 signal helpers so confidence labels and urgency states can be derived consistently from the existing fixture and prediction payloads.
+- Added reusable confidence and urgency badges across Dashboard, Racing, AFL, and NBA prediction surfaces.
+- Created a first-run `OnboardingTour` overlay that introduces predictions, Bob's "Why this pick?" flow, the paper betslip, and the bankroll/analytics loop.
+- Created an App Router `how-it-works` page that explains the engine, nightly scraping, weekly retraining, fair odds, paper bets, and responsible use.
+- Reworked paper betslip persistence into a dedicated localStorage utility layer with restore-on-load, persisted open state, and cross-tab sync via `storage` events.
+- Updated shared shell navigation so the new explainer page is reachable and the onboarding flow can surface it directly.
 
 ### What was not completed
 - No automated verification was run because owner rules say not to test unless explicitly asked.
 
 ### Decisions made
-- Kept all Phase 2 work under `apps/web/app/` to match the actual App Router structure while following the build spec intent.
-- Normalized the API inputs inside the Bob explainer rather than refactoring shared page fetch logic, to stay narrow and avoid backend/API changes.
-- Used one clear “Why” action per AFL/NBA card for the model lean instead of trying to fabricate separate explanations for both sides from matchup-level feature data.
-- Kept racing explanations row-level because the page already exposes individual horse selections.
-- Used the original Bob art in the drawer and the supplied logo in the sidebar because both fit the explainability/brand scope cleanly without requiring a larger sitewide rebrand pass.
+- Followed the sequencing note in `BUILD_SPEC.md` and moved to Phase 4 instead of Phase 3 because Phase 3 is explicitly deferred until the Phase 2 and Phase 4 UX is validated.
+- Kept all new frontend work under `apps/web/app/` even where the build spec still references `src`, matching the actual repo structure and owner instruction.
+- Built the onboarding tour as a lightweight native component instead of adding a third-party tour dependency, to stay narrow and avoid unrelated package churn.
+- Limited urgency badges to states the current fixture data can honestly support. No fake "Settled" flow was added because the app does not yet have settlement state wired into these prediction cards.
+- Added a hydration guard to betslip persistence so an existing saved slip is not overwritten on first mount.
 
 ### Questions asked owner
 - No blocking clarification questions were needed after reading the handover/spec; scope and API contract were explicit enough to proceed.
 
 ### Owner answers received
-- Supplied Bob and logo source images under `docs/` and asked that they be used if they fit this phase, otherwise noted for next phase.
+- No new answers were required in this session after the handover/spec review because phase ordering and scope were explicit enough to proceed.
 
 ### Schema / migration changes
 none
@@ -257,30 +264,29 @@ none
 none
 
 ### UI/UX changes
-- Added a reusable Bob explanation drawer/modal with mobile-friendly overlay behavior.
-- Added visible “Why this pick?” triggers across the four requested prediction surfaces.
-- Shifted expanded sport-page detail areas away from raw feature dumps toward Bob-guided explanation prompts.
-- Updated sidebar branding to use the supplied BetMate logo.
+- Added first-run onboarding guidance inside the app shell.
+- Added confidence and urgency badges to core prediction cards and event rows.
+- Added an in-product "How It Works" education page linked from navigation and the tour.
+- Improved the paper betslip experience so it survives refreshes and stays in sync across tabs.
 
 ### Known issues / blockers
 - None blocking inside scope.
-- Explainability on AFL/NBA is intentionally tied to the model-lean side only because the current feature-impact payload is matchup-level, not side-specific.
+- Urgency labels depend on whatever timing/status fields each sport payload currently exposes, so some cards may show fewer states when the backend response is sparse.
 
 ### Scope creep check
-- Scope stayed narrow to Phase 2 explainability plus the owner-supplied Bob/logo asset integration that fit the same user-facing surface.
+- Scope stayed within Phase 4 frontend UX work and reused existing shared shell surfaces only where needed to expose that work.
 
 ### ML Engine impact
 none
 
 ### Tests run
 none
-  - `npx tsc --noEmit` inside `apps/web` → failed because no local TypeScript CLI package is installed
 
 
 ### Commit status
 Committed
-Primary feature commit hash: `17b5c77`
-Primary feature commit message: "Add shared ML cache and refresh controls"
+Primary feature commit hash: `c746191`
+Primary feature commit message: "Implement Phase 4 onboarding and persistence UX"
 Handover update is committed separately after this document update.
 
 ### Push status
@@ -289,19 +295,21 @@ Not pushed — owner will review and push
 ### Notes for next agent
 - ML logic correctly bypasses XGBoost and performs the manual weights defined in `app/ml/weights.py`.
 - Be mindful that the backend relies heavily on Pydantic schemas in `main.py`.
-- **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. All lib and component files for Phase 1 should be created under `apps/web/app/lib/` and `apps/web/app/components/`.
+- **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. Keep new frontend work under `app/`.
+- Phase 4 confidence badges currently derive from `ai_insights_context` only; if a later phase needs richer confidence logic, extend the shared helper instead of re-implementing page-specific variants.
+- Phase 4 urgency badges are intentionally honest about missing state; do not add settlement UI without a real settled-data source.
 
 ### Recommended next work
-Phase 1 — Shared ML Cache + Refresh UX
+Phase 5 — Betting Literacy + Opportunity Discovery
 
-#### Phase 1 Prompt for Next Agent:
-"Starting Phase 1: Shared ML Cache + Refresh UX. 
-Goal: Implement a shared client-side cache and auto-refresh logic to make the app feel instant.
-1. Create `apps/web/app/lib/cache/mlDataCache.ts` with a 5-min TTL.
-2. Implement auto-refresh logic on Dashboard, Racing, AFL, and NBA pages.
-3. Add `RefreshControls.tsx` to handle manual refreshes and countdowns.
-4. Ensure background refreshes are non-blocking (keep existing data visible).
-Reference BUILD_SPEC.md Phase 1 for full details. Note: code is in `apps/web/app/`, not `src/`."
+#### Phase 5 Prompt for Next Agent:
+"Starting Phase 5: Betting Literacy + Opportunity Discovery.
+Goal: help users understand value and quickly find the best current opportunities without inventing cross-sport ranking that the spec defers to V2.
+1. Add fair-odds/value education affordances using shared UI under `apps/web/app/components/`.
+2. Add sport-specific opportunity sections for Racing, AFL, and NBA using the existing confidence/urgency signals where useful.
+3. Add a small dashboard summary of top sport-specific opportunities only.
+4. Keep all work in `apps/web/app/`, stay frontend-only, and avoid touching backend contracts.
+Reference BUILD_SPEC.md Phase 5 for details, and preserve the honest/responsible framing established in Phases 2 and 4."
 
 
 ---
