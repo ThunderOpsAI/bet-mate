@@ -260,10 +260,20 @@ Not pushed — owner will review and push
 
 ### Notes for next agent
 - ML logic correctly bypasses XGBoost and performs the manual weights defined in `app/ml/weights.py`.
-- Be mindful that the backend relies heavily on Pydantic `main.py` logic.
+- Be mindful that the backend relies heavily on Pydantic schemas in `main.py`.
+- **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. All lib and component files for Phase 1 should be created under `apps/web/app/lib/` and `apps/web/app/components/`.
 
 ### Recommended next work
-- Phase 1 (Cache + Refresh UX)
+Phase 1 — Shared ML Cache + Refresh UX
+
+#### Phase 1 Prompt for Next Agent:
+"Starting Phase 1: Shared ML Cache + Refresh UX. 
+Goal: Implement a shared client-side cache and auto-refresh logic to make the app feel instant.
+1. Create `apps/web/app/lib/cache/mlDataCache.ts` with a 5-min TTL.
+2. Implement auto-refresh logic on Dashboard, Racing, AFL, and NBA pages.
+3. Add `RefreshControls.tsx` to handle manual refreshes and countdowns.
+4. Ensure background refreshes are non-blocking (keep existing data visible).
+Reference BUILD_SPEC.md Phase 1 for full details. Note: code is in `apps/web/app/`, not `src/`."
 
 
 ---

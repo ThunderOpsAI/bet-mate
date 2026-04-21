@@ -964,6 +964,70 @@ tr:hover td {
   opacity: 0.7;
 }
 
+/* ---- Refresh Controls ---- */
+.refresh-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1.25rem;
+  padding: 0.9rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.refresh-controls-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.refresh-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: var(--bg-glass);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.refresh-pill.is-refreshing {
+  color: var(--accent-hover);
+  border-color: rgba(99, 102, 241, 0.16);
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.refresh-action {
+  min-width: 132px;
+  justify-content: center;
+}
+
+.refresh-spinner {
+  animation: refresh-spin 1s linear infinite;
+}
+
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+  .refresh-controls {
+    align-items: stretch;
+  }
+
+  .refresh-action {
+    width: 100%;
+  }
+}
+
 /* ---- Loading State ---- */
 .dashboard-loading {
   display: flex;
