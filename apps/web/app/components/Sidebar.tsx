@@ -28,11 +28,11 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           <Image
             src="/brand/betmate-logo.png"
             alt="BetMate"
-            width={132}
-            height={42}
+            width={156}
+            height={50}
             className="sidebar-brand-logo"
+            priority
           />
-          <h1>BetMate</h1>
         </div>
         <nav>
           <ul className="sidebar-nav">

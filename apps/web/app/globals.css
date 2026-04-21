@@ -94,24 +94,14 @@ body {
   padding: 1.25rem 1.5rem;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
 .sidebar-brand-logo {
-  width: 132px;
+  width: 156px;
+  max-width: 100%;
   height: auto;
   object-fit: contain;
-}
-
-.sidebar-brand h1 {
-  font-size: 1.25rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  letter-spacing: -0.02em;
 }
 
 .sidebar-nav {
@@ -611,6 +601,25 @@ select.form-input {
   padding: 0.5rem 1rem 0.9rem;
 }
 
+.ask-bob-panel-header {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) 140px;
+  margin-bottom: 1rem;
+}
+
+.ask-bob-panel-art {
+  aspect-ratio: 1 / 1;
+  position: relative;
+  width: 100%;
+}
+
+.ask-bob-panel-art-image {
+  object-fit: contain;
+  object-position: center;
+}
+
 .strategy-reasoning-toggle {
   width: 100%;
   display: flex;
@@ -708,13 +717,11 @@ select.form-input {
   margin-bottom: 2rem;
 }
 
-.auth-card .auth-brand h1 {
-  font-size: 1.75rem;
-  font-weight: 800;
-  background: linear-gradient(135deg, var(--accent), #a78bfa);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+.auth-brand-logo {
+  display: block;
+  height: auto;
+  margin: 0 auto 0.9rem;
+  max-width: 100%;
 }
 
 .auth-card .auth-brand p {
@@ -1496,6 +1503,66 @@ tr:hover td {
   margin-bottom: 2rem;
 }
 
+.bob-home-spotlight {
+  align-items: center;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.22), transparent 34%),
+    linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(17, 24, 39, 0.86));
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 22px;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(180px, 240px);
+  margin-bottom: 2rem;
+  overflow: hidden;
+  padding: 1.35rem 1.4rem;
+}
+
+.bob-home-kicker {
+  align-items: center;
+  color: #bfdbfe;
+  display: inline-flex;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.7rem;
+  text-transform: uppercase;
+}
+
+.bob-home-spotlight-copy h3 {
+  font-size: 1.35rem;
+  line-height: 1.15;
+  margin-bottom: 0.55rem;
+}
+
+.bob-home-spotlight-copy p {
+  color: var(--text-secondary);
+  max-width: 58ch;
+}
+
+.bob-home-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.bob-home-spotlight-art {
+  aspect-ratio: 1 / 1;
+  justify-self: end;
+  max-width: 220px;
+  min-height: 180px;
+  position: relative;
+  width: 100%;
+}
+
+.bob-home-spotlight-art-image {
+  filter: drop-shadow(0 20px 36px rgba(15, 23, 42, 0.38));
+  object-fit: contain;
+  object-position: center;
+}
+
 .opportunity-section {
   margin: 1.5rem 0 1.75rem;
   padding: 1.2rem;
@@ -1923,6 +1990,76 @@ tr:hover td {
   padding: 0 1.25rem 1.25rem;
   border-top: 1px solid var(--border);
   animation: slideDown 0.3s ease;
+}
+
+.race-board-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.race-board-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: all var(--transition);
+}
+
+.race-board-card:hover {
+  border-color: rgba(59, 130, 246, 0.28);
+}
+
+.race-board-card.expanded {
+  border-color: rgba(59, 130, 246, 0.34);
+  box-shadow: 0 8px 32px rgba(59, 130, 246, 0.08);
+}
+
+.race-board-header {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  text-align: left;
+  width: 100%;
+}
+
+.race-board-title {
+  min-width: 0;
+}
+
+.race-board-summary {
+  align-items: center;
+  color: var(--text-muted);
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 0.6rem;
+  white-space: nowrap;
+}
+
+.race-board-body {
+  border-top: 1px solid var(--border);
+  padding: 0 1.25rem 1.25rem;
+}
+
+.race-board-model-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.race-board-model-pill span {
+  background: rgba(59, 130, 246, 0.12);
+  border-radius: 999px;
+  color: #bfdbfe;
+  font-size: 0.74rem;
+  font-weight: 700;
+  padding: 0.18rem 0.5rem;
 }
 
 @keyframes slideDown {
@@ -2532,6 +2669,16 @@ tr:hover td {
     justify-content: flex-end;
   }
 
+  .bob-home-spotlight,
+  .ask-bob-panel-header {
+    grid-template-columns: 1fr;
+  }
+
+  .bob-home-spotlight-art,
+  .ask-bob-panel-art {
+    justify-self: center;
+  }
+
   .dashboard-card-actions {
     margin-top: 0.75rem;
   }
@@ -2579,6 +2726,15 @@ tr:hover td {
   .race-detail-preview {
     flex-wrap: wrap;
     gap: 0.5rem;
+  }
+
+  .race-board-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .race-board-summary {
+    white-space: normal;
   }
 
   .feature-bar-row {

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import Image from "next/image";
 import { Bot, Brain, TrendingUp, Wallet } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 
@@ -145,9 +146,25 @@ export default function StrategyPage() {
       )}
 
       <div className="card" style={{ marginTop: "1.5rem" }}>
-        <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1rem" }}>
-          <Brain size={18} /> Ask Bob About Today&apos;s Card
-        </h3>
+        <div className="ask-bob-panel-header">
+          <div>
+            <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.45rem" }}>
+              <Brain size={18} /> Ask Bob About Today&apos;s Card
+            </h3>
+            <p className="muted-copy">
+              Ask for the reasoning behind today&apos;s strategy card and get a plain-English read before you log anything.
+            </p>
+          </div>
+          <div className="ask-bob-panel-art" aria-hidden="true">
+            <Image
+              src="/brand/betmate-bob-original.png"
+              alt=""
+              fill
+              sizes="160px"
+              className="ask-bob-panel-art-image"
+            />
+          </div>
+        </div>
         <form onSubmit={handleBobChat}>
           <div className="form-group">
             <label className="form-label">Question</label>

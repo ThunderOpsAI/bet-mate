@@ -2,6 +2,7 @@
 import { Suspense, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 
 function LoginRedirect() {
   const router = useRouter();
@@ -13,14 +14,21 @@ function LoginRedirect() {
   }, [router, returnUrl]);
 
   return (
-    <div className="auth-container">
-      <div className="auth-card">
-        <div className="auth-brand">
-          <h1>BetMate</h1>
-          <p>Guest mode is active.</p>
-        </div>
-        <Link href={returnUrl} className="btn btn-primary btn-block">
-          Open BetMate
+      <div className="auth-container">
+        <div className="auth-card">
+          <div className="auth-brand">
+            <Image
+              src="/brand/betmate-logo.png"
+              alt="BetMate"
+              width={188}
+              height={60}
+              className="auth-brand-logo"
+              priority
+            />
+            <p>Guest mode is active.</p>
+          </div>
+          <Link href={returnUrl} className="btn btn-primary btn-block">
+            Open BetMate
         </Link>
       </div>
     </div>

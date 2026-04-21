@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type {
   BobExplanation,
@@ -50,6 +51,7 @@ import {
   trackRefreshOutcome,
   trackStaleCache,
 } from "./lib/monitoring/performance";
+import { isPhase2MainRace } from "./lib/racingMainRaces";
 
 type RaceSummary = {
   race_id: string;
@@ -612,8 +614,11 @@ export default function DashboardPage() {
     );
   }
 
+  const mainRacePredictionRaces = races.filter(
+    (race) => racePredictions[race.race_id] && isPhase2MainRace(race),
+  );
   const racingOpportunities = rankOpportunities(
-    races.flatMap((race) => {
+    mainRacePredictionRaces.flatMap((race) => {
       const prediction = racePredictions[race.race_id];
       const confidenceSignal = prediction
         ? getConfidenceSignal(prediction.ai_insights_context)
@@ -763,6 +768,37 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
+      <section className="bob-home-spotlight">
+        <div className="bob-home-spotlight-copy">
+          <span className="bob-home-kicker">
+            <Brain size={14} /> BetMate Bob
+          </span>
+          <h3>Bob is ready below the main navigation</h3>
+          <p>
+            Ask for the plain-English case behind today&apos;s strategy card, then
+            jump into the racing board to log paper bets across the full Australian
+            schedule.
+          </p>
+          <div className="bob-home-actions">
+            <Link href="/strategy" className="btn btn-primary">
+              Ask Bob
+            </Link>
+            <Link href="/racing" className="btn btn-secondary">
+              Open Racing
+            </Link>
+          </div>
+        </div>
+        <div className="bob-home-spotlight-art" aria-hidden="true">
+          <Image
+            src="/brand/betmate-bob-original.png"
+            alt=""
+            fill
+            sizes="220px"
+            className="bob-home-spotlight-art-image"
+          />
+        </div>
+      </section>
+
       {!hasDashboardData && refreshFailed ? (
         <ErrorState
           title="Today’s predictions are still loading"
@@ -829,14 +865,22 @@ export default function DashboardPage() {
       </ErrorBoundary>
 
       <div className="section-header">
-        <h3>🏇 Top Racing Predictions</h3>
+        <h3>🏇 Main Racing Predictions</h3>
         <Link href="/racing" className="btn btn-sm btn-secondary">
           View All <ChevronRight size={14} />
         </Link>
       </div>
       <ErrorBoundary sectionName="Dashboard racing predictions">
+        {mainRacePredictionRaces.length === 0 ? (
+          <div className="card">
+            <p className="muted-copy">
+              No approved main-race prediction cards are attached right now. The
+              full Australian race board is still available on the Racing page.
+            </p>
+          </div>
+        ) : (
         <div className="predictions-grid">
-          {races.slice(0, 3).map((race) => {
+          {mainRacePredictionRaces.slice(0, 3).map((race) => {
           const prediction = racePredictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
           const confidenceSignal = prediction
@@ -952,6 +996,7 @@ export default function DashboardPage() {
           );
           })}
         </div>
+        )}
       </ErrorBoundary>
 
       <div className="section-header" style={{ marginTop: "2rem" }}>
