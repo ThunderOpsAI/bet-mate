@@ -166,10 +166,10 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 0 — ML Engine Weight Configuration
+Phase 1 — Shared ML Cache + Refresh UX
 
 ### Agent ID
-Agent-Antigravity
+Codex
 
 ### Repo
 ```
@@ -177,53 +177,59 @@ BetMate (monorepo)
 ```
 
 ### Branch worked on
-Owner has not specified branch restrictions, working on current checked out branch.
+`v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Implement Racing Weights base score and multipliers.
-- Implement NBA Weights base score and multipliers.
-- Implement AFL Weights base score and multipliers.
-- Create Weight Configuration File (`app/ml/weights.py`).
-- Update Feature Extraction in schemas and pre-processing.
-- Fix discrepancy between repo architecture (`prediction-engine`) and build spec references (`ml-engine`).
+- Review Phase 0 completion status before frontend work.
+- Create shared ML cache with 5-minute TTL.
+- Implement auto-refresh logic on Dashboard, Racing, AFL, and NBA pages.
+- Add shared refresh controls UI for manual refresh and countdowns.
+- Keep cached data visible during background refreshes.
+- Align dashboard AFL/NBA actions with the existing "Log Selection" / paper betslip flow.
 
 ### API contracts confirmed before this session
-- Confirmed prediction API shape requires model_metadata.version on success.
+- Relied on existing ML endpoints and Phase 0 contract confirmation from the handover.
 
 ### Owner instructions for this session
-- Yes correct all the issues and start coding phase 0
+- "Starting Phase 1: Shared ML Cache + Refresh UX."
+- Frontend code is in `apps/web/app/`, not `apps/web/src/`.
+- Follow-up: use the same `Log Selection` / add-to-betslip action in dashboard AFL/NBA cards and place the away action physically under the away team.
 
 ### Files touched
-- `services/prediction-engine/app/ml/weights.py` (created)
-- `services/prediction-engine/app/ml/racing.py` (modified)
-- `services/prediction-engine/app/ml/nba.py` (modified)
-- `services/prediction-engine/app/ml/afl.py` (modified)
-- `services/prediction-engine/app/main.py` (modified)
+- `apps/web/app/lib/cache/mlDataCache.ts` (created)
+- `apps/web/app/components/RefreshControls.tsx` (created)
+- `apps/web/app/page.tsx` (modified)
+- `apps/web/app/racing/page.tsx` (modified)
+- `apps/web/app/afl/page.tsx` (modified)
+- `apps/web/app/nba/page.tsx` (modified)
+- `apps/web/app/globals.css` (modified)
 
 ### What I did NOT touch
-- I did not run the daily snapshots or jobs since they are part of Phase 3.
-- I did not test the ML cache.
+- I did not change backend ML logic or API contracts.
+- I did not touch non-Phase-1 routes outside the target pages/components.
 
 ### What was completed
-- Created `weights.py` with domain-expert weights for Racing, NBA, and AFL.
-- Updated `racing.py`, `nba.py`, and `afl.py` to calculate predictions manually using the weights instead of XGBoost as specified by "Weights are frozen until auto-tune conditions are met".
-- Replaced missing schema items on models and normalizations on the predictors.
-- Modified `Horse` schema in `main.py` to allow the engine to receive the features without raising `AttributeError` via `getattr`.
-- Embedded `WEIGHTS_VERSION` string in the return payloads to be compliant with API contract schema `model_metadata`.
-- Wrote and tested via script that the syntax of models holds up.
+- Added a shared client-side ML cache keyed by `fixtures:{sport}:{date}` and `predictions:{sport}:{date}` with a 5-minute TTL.
+- Persisted cache entries in memory plus `sessionStorage` so data survives route navigation in the current browser session.
+- Added reusable refresh controls showing last-updated time, next auto-refresh countdown, manual refresh button, and non-blocking refresh state.
+- Updated Dashboard, Racing, AFL, and NBA pages to hydrate from cache first, refresh in the background, and only show a full-page loader when no cache exists.
+- Kept stale data visible on refresh failures and scheduled a shorter retry window instead of blanking the page.
+- Updated dashboard AFL/NBA cards to use the same `PaperBetAction` flow as the sport pages, with each action placed under its corresponding team.
 
 ### What was not completed
-none — all assigned tasks completed
+- No automated verification was completed because the workspace does not currently expose a local TypeScript CLI.
 
 ### Decisions made
-- Put the weights inside `services/prediction-engine/app/ml/weights.py` instead of the non-existent `services/ml-engine/src/config/weights.py` from the docs.
-- Adjusted features mapped from `Horse` schema directly inside the endpoints and `predict()` methods to implement the required weights format.
+- Implemented the Phase 1 paths under `apps/web/app/` to match the actual repo layout, while keeping the build spec semantics.
+- Used a shared cache utility instead of page-local timers so all target routes read/write the same keys.
+- Used `sessionStorage` in addition to module memory so cached data survives client-side navigation and reloads within the same session.
+- Reused `PaperBetAction` on dashboard AFL/NBA cards to keep the action label and behavior consistent with the sport pages.
 
 ### Questions asked owner
-none
+- One follow-up handled in-thread: dashboard AFL/NBA actions should match the "Log Selection" copy/flow and the away action should sit under the away team.
 
 ### Owner answers received
-none
+- Confirmed dashboard AFL/NBA should use the same "Log Selection" / betslip flow and the away action should be positioned under the away team.
 
 ### Schema / migration changes
 none
@@ -232,28 +238,34 @@ none
 none
 
 ### Backend/API changes
-- Add `model_metadata` with string `version` to API `predict` return bodies for NBA, AFL, Racing, to fulfill contract.
+none
 
 ### UI/UX changes
-none
+- Added shared refresh metadata and controls to Dashboard, Racing, AFL, and NBA.
+- Dashboard AFL/NBA cards now use the same modal-driven logging flow as the sport pages.
+- Away-team action on dashboard cards now sits directly under the away team block.
 
 ### Known issues / blockers
-none
+- `tsc` is not available on PATH in this workspace, and `npx tsc --noEmit` also failed because no local TypeScript package is installed for CLI use. Manual code review was done, but compiler verification is still outstanding.
 
 ### Scope creep check
-- Yes: Added new features to BaseModel `Horse` in `main.py` so Pydantic doesn't throw `AttributeError` when extracting features. This is implicitly required by Phase 0 task 0.5.
+- No meaningful scope creep beyond the owner-requested dashboard CTA/layout follow-up.
 
 ### ML Engine impact
-- Impact: Switched away from XGBoost dynamic predictions to static domain formulas for all 3 sports.
+none
 
 ### Tests run
-none — owner instructed no testing
+none
+- Attempted compiler check:
+  - `tsc --noEmit -p apps/web/tsconfig.json` → failed because `tsc` command is unavailable
+  - `npx tsc --noEmit` inside `apps/web` → failed because no local TypeScript CLI package is installed
 
 
 ### Commit status
 Committed
-Commit hash: (Will be committed by owner)
-Commit message: "feat(phase0): implement domain-expert manual weights for Phase 0"
+Primary feature commit hash: `17b5c77`
+Primary feature commit message: "Add shared ML cache and refresh controls"
+Handover update is committed separately after this document update.
 
 ### Push status
 Not pushed — owner will review and push
