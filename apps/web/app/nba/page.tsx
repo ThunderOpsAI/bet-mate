@@ -17,6 +17,7 @@ import {
 import BestNbaOpportunities from "../components/nba/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -88,7 +89,7 @@ function isNbaPredictionEntry(
 }
 
 async function fetchTodayNbaGames() {
-  const response = await fetch(`${ML_API}/api/nba/games/today`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/nba/games/today`, {
     cache: "no-store",
   });
 
@@ -104,7 +105,7 @@ async function fetchNbaPredictions(games: NBAGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/nba`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/nba`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -245,6 +246,7 @@ export default function NBAPage() {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedGames, cachedPredictions } = hydrateFromCache();
 
     if (cachedGames) {

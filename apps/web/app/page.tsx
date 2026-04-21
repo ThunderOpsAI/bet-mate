@@ -31,6 +31,7 @@ import PaperBetAction from "./components/PaperBetAction";
 import { buildBobExplanation } from "./lib/bob/explainer";
 import { ML_API } from "./lib/mlApi";
 import { getEdgePercent, rankOpportunities } from "./lib/opportunityScore";
+import { fetchWithTimeout } from "./lib/fetchWithTimeout";
 import {
   getConfidenceSignal,
   getUrgencySignal,
@@ -182,7 +183,9 @@ function isNbaPredictionEntry(
 
 async function fetchEngineStatus() {
   try {
-    const response = await fetch(`${ML_API}/health`, { cache: "no-store" });
+    const response = await fetchWithTimeout(`${ML_API}/health`, {
+      cache: "no-store",
+    });
     return response.ok ? "online" : "offline";
   } catch {
     return "offline" as const;
@@ -190,7 +193,9 @@ async function fetchEngineStatus() {
 }
 
 async function fetchTodayRaces() {
-  const response = await fetch(`${ML_API}/api/races/today`, { cache: "no-store" });
+  const response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
   }
@@ -200,7 +205,7 @@ async function fetchTodayRaces() {
 }
 
 async function fetchUpcomingAflGames() {
-  const response = await fetch(`${ML_API}/api/afl/games/upcoming`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -212,7 +217,7 @@ async function fetchUpcomingAflGames() {
 }
 
 async function fetchTodayNbaGames() {
-  const response = await fetch(`${ML_API}/api/nba/games/today`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/nba/games/today`, {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -227,7 +232,7 @@ async function fetchRacePredictions(races: RaceSummary[]) {
   const entries = await Promise.all(
     races.map(async (race) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/racing`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/racing`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(race),
@@ -254,7 +259,7 @@ async function fetchAflPredictions(games: AFLGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/afl`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/afl`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -281,7 +286,7 @@ async function fetchNbaPredictions(games: NBAGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/nba`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/nba`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -558,6 +563,7 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const cached = hydrateFromCache();
     const hasFixtureCache =
       !!cached.cachedRaces || !!cached.cachedAflGames || !!cached.cachedNbaGames;

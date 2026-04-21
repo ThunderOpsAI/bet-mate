@@ -17,6 +17,7 @@ import {
 import BestAflOpportunities from "../components/afl/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -111,7 +112,7 @@ function isAflPredictionEntry(
 }
 
 async function fetchUpcomingAflGames() {
-  const response = await fetch(`${ML_API}/api/afl/games/upcoming`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, {
     cache: "no-store",
   });
 
@@ -127,7 +128,7 @@ async function fetchAflPredictions(games: AFLGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/afl`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/afl`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -272,6 +273,7 @@ export default function AFLPage() {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedGames, cachedPredictions } = hydrateFromCache();
 
     if (cachedGames) {

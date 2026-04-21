@@ -25,6 +25,7 @@ import {
 import BestRacingOpportunities from "../components/racing/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -132,7 +133,9 @@ function isRacePredictionEntry(
 }
 
 async function fetchTodayRaces() {
-  const response = await fetch(`${ML_API}/api/races/today`, { cache: "no-store" });
+  const response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
   }
@@ -145,7 +148,7 @@ async function fetchRacePredictions(races: Race[]) {
   const entries = await Promise.all(
     races.map(async (race) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/racing`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/racing`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(race),
@@ -332,6 +335,7 @@ export default function RacingPage() {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedRaces, cachedPredictions } = hydrateFromCache();
 
     if (cachedRaces) {
