@@ -166,7 +166,7 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 4 — Onboarding + Confidence + Persistent Slip
+Phase 5 — Betting Literacy + Opportunity Discovery
 
 ### Agent ID
 Codex
@@ -180,21 +180,19 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Implement the Phase 4 onboarding, confidence, urgency, and persistent paper betslip work in `apps/web/app/`.
-- Keep the work frontend-only and scoped to the documented API payload already used by the app.
-- Add a first-run onboarding tour that references the Phase 2 Bob explainability flow.
-- Add confidence labels derived from `ai_insights_context`.
-- Add event urgency/status indicators where the existing fixture payload exposes usable timing/status data.
-- Strengthen localStorage betslip persistence so it restores cleanly and syncs across tabs.
-- Add the "How BetMate Works" explainer page under the App Router path, not `src/`.
-- Stay narrow to Phase 4 only.
+- Implement Phase 5 betting literacy and opportunity discovery work in `apps/web/app/`.
+- Add shared fair-odds and value education affordances under `apps/web/app/components/`.
+- Add sport-specific opportunity sections for Racing, AFL, and NBA using the existing confidence and urgency signals where useful.
+- Add a small dashboard summary of top sport-specific opportunities only.
+- Stay frontend-only, avoid cross-sport ranking, and preserve the honest/responsible framing from Phases 2 and 4.
 
 ### API contracts confirmed before this session
 - Relied on the existing prediction payload fields already confirmed in the handover:
   - `ai_insights_context`
   - `feature_impact`
   - `model_metadata`
-- Did not require any new backend contract for betslip persistence because Phase 4 is localStorage v1.
+- Racing pages already expose live market price via `betfair_back_price`, which is enough for honest edge/value messaging there.
+- AFL and NBA pages still only expose fair odds on the frontend surfaces touched in this session, so their opportunity sections were kept model-led rather than price-edge driven.
 
 ### Owner instructions for this session
 - "Read docs/AGENT_HANDOVER.md and docs/BUILD_SPEC.md first."
@@ -211,42 +209,39 @@ BetMate (monorepo)
 - "Continue from the next appropriate phase/task only"
 
 ### Files touched
-- `apps/web/app/lib/betslip/persistSlip.ts` (created)
-- `apps/web/app/lib/predictionSignals.ts` (created)
-- `apps/web/app/components/PredictionSignalBadges.tsx` (created)
-- `apps/web/app/components/OnboardingTour.tsx` (created)
-- `apps/web/app/how-it-works/page.tsx` (created)
+- `apps/web/app/components/EducationTooltip.tsx` (created)
+- `apps/web/app/components/OpportunitySection.tsx` (created)
+- `apps/web/app/components/racing/BestOpportunities.tsx` (created)
+- `apps/web/app/components/afl/BestOpportunities.tsx` (created)
+- `apps/web/app/components/nba/BestOpportunities.tsx` (created)
+- `apps/web/app/lib/opportunityScore.ts` (created)
 - `apps/web/app/page.tsx` (modified)
 - `apps/web/app/racing/page.tsx` (modified)
 - `apps/web/app/afl/page.tsx` (modified)
 - `apps/web/app/nba/page.tsx` (modified)
-- `apps/web/app/providers/PaperBetslipProvider.tsx` (modified)
-- `apps/web/app/components/AppShell.tsx` (modified)
-- `apps/web/app/components/Sidebar.tsx` (modified)
 - `apps/web/app/globals.css` (modified)
 
 ### What I did NOT touch
 - I did not change backend ML logic, weights, or API contracts.
-- I did not introduce server-side betslip sync or any Phase 3 snapshot work.
-- I did not refactor unrelated screens outside the shared shell and the target prediction surfaces.
+- I did not add any backend pricing feed, cross-sport ranking, or Phase 3 snapshot work.
+- I did not refactor unrelated pages outside the dashboard and the three sport prediction surfaces.
 
 ### What was completed
-- Added shared Phase 4 signal helpers so confidence labels and urgency states can be derived consistently from the existing fixture and prediction payloads.
-- Added reusable confidence and urgency badges across Dashboard, Racing, AFL, and NBA prediction surfaces.
-- Created a first-run `OnboardingTour` overlay that introduces predictions, Bob's "Why this pick?" flow, the paper betslip, and the bankroll/analytics loop.
-- Created an App Router `how-it-works` page that explains the engine, nightly scraping, weekly retraining, fair odds, paper bets, and responsible use.
-- Reworked paper betslip persistence into a dedicated localStorage utility layer with restore-on-load, persisted open state, and cross-tab sync via `storage` events.
-- Updated shared shell navigation so the new explainer page is reachable and the onboarding flow can surface it directly.
+- Added shared education tooltip UI for fair odds, edge/value, model probability, and market disagreement concepts.
+- Added a client-side opportunity scoring helper that combines edge, confidence, urgency, and win probability without inventing any cross-sport normalisation.
+- Added sport-specific opportunity sections for Racing, AFL, and NBA, with Racing showing real price edge only when live market odds are available.
+- Added a compact dashboard summary showing top Racing, AFL, and NBA opportunities separately instead of creating a cross-sport ranked feed.
+- Added inline value badges where Racing already has honest live market comparison data, including dashboard racing cards and full racing table rows.
 
 ### What was not completed
 - No automated verification was run because owner rules say not to test unless explicitly asked.
 
 ### Decisions made
-- Followed the sequencing note in `BUILD_SPEC.md` and moved to Phase 4 instead of Phase 3 because Phase 3 is explicitly deferred until the Phase 2 and Phase 4 UX is validated.
 - Kept all new frontend work under `apps/web/app/` even where the build spec still references `src`, matching the actual repo structure and owner instruction.
-- Built the onboarding tour as a lightweight native component instead of adding a third-party tour dependency, to stay narrow and avoid unrelated package churn.
-- Limited urgency badges to states the current fixture data can honestly support. No fake "Settled" flow was added because the app does not yet have settlement state wired into these prediction cards.
-- Added a hydration guard to betslip persistence so an existing saved slip is not overwritten on first mount.
+- Used the Phase 4 shared confidence and urgency helpers as inputs to opportunity ranking so the new sections stay consistent with the current trust language.
+- Kept Racing as the only sport with explicit edge/value claims because that is the only touched surface that already exposes live market price in the current frontend payload.
+- Framed AFL and NBA opportunity sections as model-led discovery cards, explicitly noting that no live market price is attached there yet.
+- Added sport-specific dashboard summaries only, preserving the spec rule that cross-sport ranked feeds are deferred to V2.
 
 ### Questions asked owner
 - No blocking clarification questions were needed after reading the handover/spec; scope and API contract were explicit enough to proceed.
@@ -264,17 +259,17 @@ none
 none
 
 ### UI/UX changes
-- Added first-run onboarding guidance inside the app shell.
-- Added confidence and urgency badges to core prediction cards and event rows.
-- Added an in-product "How It Works" education page linked from navigation and the tour.
-- Improved the paper betslip experience so it survives refreshes and stays in sync across tabs.
+- Added reusable betting literacy tooltips for fair odds, edge/value, model probability, and market disagreement.
+- Added sport-specific opportunity discovery sections above Racing, AFL, and NBA prediction lists.
+- Added a compact dashboard opportunities summary for the top Racing, AFL, and NBA reads.
+- Added positive-value badges to racing selections where live market odds are longer than model fair odds.
 
 ### Known issues / blockers
 - None blocking inside scope.
-- Urgency labels depend on whatever timing/status fields each sport payload currently exposes, so some cards may show fewer states when the backend response is sparse.
+- AFL and NBA opportunity sections remain model-led because those pages do not currently expose explicit market odds on the touched frontend payloads.
 
 ### Scope creep check
-- Scope stayed within Phase 4 frontend UX work and reused existing shared shell surfaces only where needed to expose that work.
+- Scope stayed within Phase 5 frontend UX work and reused shared signal helpers rather than expanding backend contracts or ranking logic.
 
 ### ML Engine impact
 none
@@ -284,10 +279,7 @@ none
 
 
 ### Commit status
-Committed
-Primary feature commit hash: `c746191`
-Primary feature commit message: "Implement Phase 4 onboarding and persistence UX"
-Handover update is committed separately after this document update.
+Pending final local commit for Phase 5 work.
 
 ### Push status
 Not pushed — owner will review and push
@@ -296,20 +288,21 @@ Not pushed — owner will review and push
 - ML logic correctly bypasses XGBoost and performs the manual weights defined in `app/ml/weights.py`.
 - Be mindful that the backend relies heavily on Pydantic schemas in `main.py`.
 - **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. Keep new frontend work under `app/`.
-- Phase 4 confidence badges currently derive from `ai_insights_context` only; if a later phase needs richer confidence logic, extend the shared helper instead of re-implementing page-specific variants.
-- Phase 4 urgency badges are intentionally honest about missing state; do not add settlement UI without a real settled-data source.
+- Phase 4 confidence badges still derive from `ai_insights_context` only; Phase 5 opportunity ranking reuses those signals rather than introducing a new confidence contract.
+- Racing value badges rely on `betfair_back_price`; AFL and NBA still need real frontend market odds before any honest edge calculation can be shown there.
+- The new dashboard opportunity summary is intentionally split by sport. Do not collapse it into one cross-sport ranked list unless the owner explicitly approves V2 behaviour.
 
 ### Recommended next work
-Phase 5 — Betting Literacy + Opportunity Discovery
+Phase 6 — Paper Bet Flow + Blackbook Tightening
 
-#### Phase 5 Prompt for Next Agent:
-"Starting Phase 5: Betting Literacy + Opportunity Discovery.
-Goal: help users understand value and quickly find the best current opportunities without inventing cross-sport ranking that the spec defers to V2.
-1. Add fair-odds/value education affordances using shared UI under `apps/web/app/components/`.
-2. Add sport-specific opportunity sections for Racing, AFL, and NBA using the existing confidence/urgency signals where useful.
-3. Add a small dashboard summary of top sport-specific opportunities only.
-4. Keep all work in `apps/web/app/`, stay frontend-only, and avoid touching backend contracts.
-Reference BUILD_SPEC.md Phase 5 for details, and preserve the honest/responsible framing established in Phases 2 and 4."
+#### Phase 6 Prompt for Next Agent:
+"Starting Phase 6: Paper Bet Flow + Blackbook Tightening.
+Goal: make paper betting actions more consistent and safer now that Phase 4 persistence and Phase 5 opportunity discovery are in place.
+1. Add consistent one-click paper bet actions across Racing, AFL, and NBA prediction cards where the spec calls for them.
+2. Add smart betslip warnings for duplicates, stale odds, event-started state, and missing/unavailable selections using the existing slip state and current frontend payloads only.
+3. Tighten the Blackbook/watch-rule UX without inventing backend trigger behaviour that does not already exist.
+4. Keep all work in `apps/web/app/`, stay narrow, and do not run tests unless the owner asks.
+Reference BUILD_SPEC.md Phase 6 for details."
 
 
 ---

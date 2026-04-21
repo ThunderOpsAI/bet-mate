@@ -16,15 +16,19 @@ import {
   Brain,
 } from "lucide-react";
 import Link from "next/link";
+import BestAflOpportunities from "./components/afl/BestOpportunities";
 import ExplainDrawer from "./components/ExplainDrawer";
+import BestNbaOpportunities from "./components/nba/BestOpportunities";
 import {
   ConfidenceBadge,
   UrgencyBadge,
 } from "./components/PredictionSignalBadges";
+import BestRacingOpportunities from "./components/racing/BestOpportunities";
 import RefreshControls from "./components/RefreshControls";
 import PaperBetAction from "./components/PaperBetAction";
 import { buildBobExplanation } from "./lib/bob/explainer";
 import { ML_API } from "./lib/mlApi";
+import { getEdgePercent, rankOpportunities } from "./lib/opportunityScore";
 import {
   getConfidenceSignal,
   getUrgencySignal,
@@ -569,6 +573,110 @@ export default function DashboardPage() {
     );
   }
 
+  const racingOpportunities = rankOpportunities(
+    races.flatMap((race) => {
+      const prediction = racePredictions[race.race_id];
+      const confidenceSignal = prediction
+        ? getConfidenceSignal(prediction.ai_insights_context)
+        : null;
+      const urgencySignal = getUrgencySignal({
+        startTime: race.start_time,
+        eventDate: race.meeting_date,
+      });
+
+      if (!prediction) {
+        return [];
+      }
+
+      return prediction.predictions.map((pick) => {
+        const horse = race.horses.find(
+          (candidate) => candidate.horse_id === pick.horse_id,
+        );
+
+        return {
+          id: `${race.race_id}-${pick.horse_id}`,
+          sport: "racing" as const,
+          selectionName: pick.name,
+          eventLabel: `${race.venue} R${race.race_number}`,
+          probability: pick.win_probability,
+          fairOdds: pick.fair_odds,
+          marketOdds: horse?.betfair_back_price ?? null,
+          confidenceSignal,
+          urgencySignal,
+          href: "/racing",
+        };
+      });
+    }),
+  ).slice(0, 3);
+
+  const aflOpportunities = rankOpportunities(
+    aflGames.flatMap((game) => {
+      const prediction = aflPredictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const homeWins = homePct > awayPct;
+
+      return [
+        {
+          id: game.game_id,
+          sport: "afl" as const,
+          selectionName: homeWins ? game.home_team : game.away_team,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability: homeWins ? homePct : awayPct,
+          fairOdds: homeWins
+            ? prediction.predictions.fair_odds_home
+            : prediction.predictions.fair_odds_away,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          }),
+          href: "/afl",
+          note:
+            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
+        },
+      ];
+    }),
+  ).slice(0, 2);
+
+  const nbaOpportunities = rankOpportunities(
+    nbaGames.flatMap((game) => {
+      const prediction = nbaPredictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const homeWins = homePct > awayPct;
+
+      return [
+        {
+          id: game.game_id,
+          sport: "nba" as const,
+          selectionName: homeWins ? game.home_team : game.away_team,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability: homeWins ? homePct : awayPct,
+          fairOdds: homeWins
+            ? prediction.predictions.fair_odds_home
+            : prediction.predictions.fair_odds_away,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+          }),
+          href: "/nba",
+          note:
+            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
+        },
+      ];
+    }),
+  ).slice(0, 2);
+
   return (
     <div>
       <ExplainDrawer
@@ -641,6 +749,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <div className="dashboard-opportunities-grid">
+        <BestRacingOpportunities opportunities={racingOpportunities} compact />
+        <BestAflOpportunities opportunities={aflOpportunities} compact />
+        <BestNbaOpportunities opportunities={nbaOpportunities} compact />
+      </div>
+
       <div className="section-header">
         <h3>🏇 Top Racing Predictions</h3>
         <Link href="/racing" className="btn btn-sm btn-secondary">
@@ -684,8 +798,17 @@ export default function DashboardPage() {
                 <span className="badge badge-accent">{race.distance}m</span>
               </div>
               <div className="prediction-picks">
-                {top3.map((pick, index) => (
-                  <div key={pick.horse_id} className="prediction-pick-row">
+                {top3.map((pick, index) => {
+                  const horse = race.horses.find(
+                    (candidate) => candidate.horse_id === pick.horse_id,
+                  );
+                  const edgePercent = getEdgePercent(
+                    pick.fair_odds,
+                    horse?.betfair_back_price,
+                  );
+
+                  return (
+                    <div key={pick.horse_id} className="prediction-pick-row">
                     <div className="prediction-pick-left">
                       <span className={`pick-rank rank-${index + 1}`}>
                         {index + 1}
@@ -697,6 +820,11 @@ export default function DashboardPage() {
                         {pick.win_probability}%
                       </span>
                       <span className="prediction-odds">${pick.fair_odds}</span>
+                      {edgePercent ? (
+                        <span className="value-badge positive">
+                          Edge +{edgePercent.toFixed(0)}%
+                        </span>
+                      ) : null}
                       <button
                         type="button"
                         className="why-pick-button"
@@ -732,8 +860,9 @@ export default function DashboardPage() {
                         Paper
                       </Link>
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           );

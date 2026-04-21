@@ -20,6 +20,7 @@ import {
   ConfidenceBadge,
   UrgencyBadge,
 } from "../components/PredictionSignalBadges";
+import BestRacingOpportunities from "../components/racing/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
@@ -36,6 +37,7 @@ import {
   getConfidenceSignal,
   getUrgencySignal,
 } from "../lib/predictionSignals";
+import { getEdgePercent, rankOpportunities } from "../lib/opportunityScore";
 import { useAuth } from "../providers/AuthProvider";
 import PaperBetAction from "../components/PaperBetAction";
 
@@ -345,6 +347,39 @@ export default function RacingPage() {
     selectedVenue === "all"
       ? races
       : races.filter((race) => race.venue === selectedVenue);
+  const racingOpportunities = rankOpportunities(
+    filteredRaces.flatMap((race) => {
+      const prediction = predictions[race.race_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const confidenceSignal = getConfidenceSignal(prediction.ai_insights_context);
+      const urgencySignal = getUrgencySignal({
+        startTime: race.start_time,
+        eventDate: race.meeting_date,
+      });
+
+      return prediction.predictions.map((pick) => {
+        const horse = race.horses.find(
+          (candidate) => candidate.horse_id === pick.horse_id,
+        );
+
+        return {
+          id: `${race.race_id}-${pick.horse_id}`,
+          sport: "racing" as const,
+          selectionName: pick.name,
+          eventLabel: `${race.venue} R${race.race_number}`,
+          probability: pick.win_probability,
+          fairOdds: pick.fair_odds,
+          marketOdds: horse?.betfair_back_price ?? null,
+          confidenceSignal,
+          urgencySignal,
+          href: "/racing",
+        };
+      });
+    }),
+  ).slice(0, 5);
 
   return (
     <div>
@@ -377,6 +412,8 @@ export default function RacingPage() {
           </button>
         ))}
       </div>
+
+      <BestRacingOpportunities opportunities={racingOpportunities} />
 
       <div className="race-list">
         {filteredRaces.map((race) => {
@@ -461,6 +498,10 @@ export default function RacingPage() {
                           const horse = race.horses.find(
                             (candidate) => candidate.horse_id === pick.horse_id,
                           );
+                          const edgePercent = getEdgePercent(
+                            pick.fair_odds,
+                            horse?.betfair_back_price,
+                          );
 
                           return (
                             <tr
@@ -494,7 +535,14 @@ export default function RacingPage() {
                                   {pick.win_probability}%
                                 </span>
                               </td>
-                              <td className="fair-odds">${pick.fair_odds}</td>
+                              <td className="fair-odds">
+                                ${pick.fair_odds}
+                                {edgePercent ? (
+                                  <span className="value-badge positive">
+                                    Edge +{edgePercent.toFixed(0)}%
+                                  </span>
+                                ) : null}
+                              </td>
                               <td>
                                 <div
                                   style={{

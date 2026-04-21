@@ -12,6 +12,7 @@ import {
   ConfidenceBadge,
   UrgencyBadge,
 } from "../components/PredictionSignalBadges";
+import BestAflOpportunities from "../components/afl/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
@@ -28,6 +29,7 @@ import {
   getConfidenceSignal,
   getUrgencySignal,
 } from "../lib/predictionSignals";
+import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 
 type AFLGame = {
@@ -315,6 +317,41 @@ export default function AFLPage() {
     );
   }
 
+  const aflOpportunities = rankOpportunities(
+    games.flatMap((game) => {
+      const prediction = predictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const homeWins = homePct > awayPct;
+
+      return [
+        {
+          id: game.game_id,
+          sport: "afl" as const,
+          selectionName: homeWins ? game.home_team : game.away_team,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability: homeWins ? homePct : awayPct,
+          fairOdds: homeWins
+            ? prediction.predictions.fair_odds_home
+            : prediction.predictions.fair_odds_away,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          }),
+          href: "/afl",
+          note:
+            "Live market prices are not attached here yet, so this section stays honest by ranking model leans instead of claiming a price edge.",
+        },
+      ];
+    }),
+  ).slice(0, 5);
+
   return (
     <div>
       <ExplainDrawer
@@ -328,6 +365,8 @@ export default function AFLPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
+
+      <BestAflOpportunities opportunities={aflOpportunities} />
 
       <div className="game-cards-list">
         {games.map((game) => {

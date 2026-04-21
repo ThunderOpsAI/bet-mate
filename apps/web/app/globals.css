@@ -809,6 +809,90 @@ select.form-input {
   gap: 0.45rem;
 }
 
+.education-tooltip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.education-tooltip {
+  position: relative;
+  display: inline-flex;
+}
+
+.education-tooltip-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  cursor: help;
+  transition: all var(--transition-fast);
+}
+
+.education-tooltip-trigger:hover,
+.education-tooltip-trigger:focus-visible {
+  color: var(--text-primary);
+  border-color: rgba(99, 102, 241, 0.45);
+  outline: none;
+}
+
+.education-tooltip-content {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  width: min(260px, 70vw);
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(8, 15, 28, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition:
+    opacity var(--transition-fast),
+    transform var(--transition-fast);
+  z-index: 20;
+}
+
+.education-tooltip:hover .education-tooltip-content,
+.education-tooltip:focus-within .education-tooltip-content {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.value-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.value-badge.positive {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  color: #6ee7b7;
+}
+
+.value-badge.neutral {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.22);
+  color: #93c5fd;
+}
+
 .tour-overlay {
   position: fixed;
   inset: 0;
@@ -1324,6 +1408,131 @@ tr:hover td {
 
 .prediction-card:hover::before {
   opacity: 1;
+}
+
+.dashboard-opportunities-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.opportunity-section {
+  margin: 1.5rem 0 1.75rem;
+  padding: 1.2rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(59, 130, 246, 0.05), transparent 50%),
+    rgba(17, 24, 39, 0.72);
+}
+
+.opportunity-section.compact {
+  margin: 0;
+  padding: 1rem;
+}
+
+.opportunity-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.opportunity-section-header h3 {
+  font-size: 1rem;
+  margin-bottom: 0.25rem;
+}
+
+.opportunity-section-header p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  max-width: 70ch;
+}
+
+.opportunity-empty {
+  margin-top: 1rem;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  padding: 1rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.opportunity-list {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+}
+
+.opportunity-list.compact {
+  margin-top: 0.85rem;
+}
+
+.opportunity-card {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.opportunity-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.opportunity-card-top h4 {
+  font-size: 1rem;
+}
+
+.opportunity-card-top p {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.opportunity-rank {
+  display: inline-block;
+  margin-bottom: 0.2rem;
+  color: var(--accent-hover);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.opportunity-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.opportunity-summary {
+  margin-top: 0.85rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.opportunity-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.opportunity-score-label {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.opportunity-score-value {
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 .prediction-card-header {
