@@ -295,7 +295,7 @@ none
 
 ### Commit status
 Committed
-Primary feature commit hash: `record after commit from git log`
+Primary feature commit hash: `5b6f276`
 Primary feature commit message: `"Implement Phase 6 paper bet flow safeguards"`
 
 ### Push status
