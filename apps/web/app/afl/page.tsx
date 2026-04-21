@@ -7,6 +7,8 @@ import type {
   ModelMetadata,
 } from "../lib/bob/explainer";
 import { Brain, CircleDot, BarChart3 } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
 import {
   ConfidenceBadge,
@@ -25,6 +27,11 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
+import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "../lib/monitoring/performance";
 import {
   getConfidenceSignal,
   getUrgencySignal,
@@ -153,6 +160,7 @@ export default function AFLPage() {
   >("connecting");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
@@ -202,6 +210,10 @@ export default function AFLPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -214,6 +226,8 @@ export default function AFLPage() {
       fetchUpcomingAflGames,
       { force: true },
     ).catch((error) => {
+      refreshHadFailure = true;
+      usedCacheFallback = true;
       console.error("Failed to refresh AFL fixtures:", error);
       scheduleMlDataCacheRetry(fixturesKey);
       return readMlDataCache<AFLGame[]>(fixturesKey);
@@ -230,6 +244,8 @@ export default function AFLPage() {
         () => fetchAflPredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
         console.error("Failed to refresh AFL predictions:", error);
         scheduleMlDataCacheRetry(predictionsKey);
         return readMlDataCache<Record<string, AFLPrediction>>(predictionsKey);
@@ -242,8 +258,13 @@ export default function AFLPage() {
 
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/afl", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
@@ -306,6 +327,10 @@ export default function AFLPage() {
     };
   }, []);
 
+  useEffect(() => {
+    trackStaleCache("/afl", lastUpdated);
+  }, [lastUpdated]);
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -351,6 +376,22 @@ export default function AFLPage() {
       ];
     }),
   ).slice(0, 5);
+  const hasAflData = games.length > 0 || Object.keys(predictions).length > 0;
+  const aflStatus = getCachedViewStatus({
+    resourceLabel: "AFL data",
+    hasData: hasAflData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
+  const liveScoresStatus =
+    liveStatus === "connected" || !hasAflData
+      ? null
+      : {
+          title: "AFL scores refreshing",
+          message:
+            "Live score updates are reconnecting. Predictions stay available while that feed catches up.",
+        };
 
   return (
     <div>
@@ -366,10 +407,47 @@ export default function AFLPage() {
         onRefresh={refreshPage}
       />
 
-      <BestAflOpportunities opportunities={aflOpportunities} />
+      {(aflStatus || liveScoresStatus) ? (
+        <div className="status-stack">
+          {aflStatus ? (
+            <ErrorState
+              title={aflStatus.title}
+              message={aflStatus.message}
+              tone={aflStatus.tone}
+              actionLabel="Refresh now"
+              onAction={() => void refreshPage()}
+              compact
+            />
+          ) : null}
+          {liveScoresStatus ? (
+            <ErrorState
+              title={liveScoresStatus.title}
+              message={liveScoresStatus.message}
+              tone="info"
+              compact
+            />
+          ) : null}
+        </div>
+      ) : null}
 
-      <div className="game-cards-list">
-        {games.map((game) => {
+      {!hasAflData && refreshFailed ? (
+        <ErrorState
+          title="AFL board unavailable"
+          message="BetMate could not load a usable AFL snapshot yet. Try a manual refresh while the cached board warms up."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : (
+        <>
+
+      <ErrorBoundary sectionName="AFL opportunities">
+        <BestAflOpportunities opportunities={aflOpportunities} />
+      </ErrorBoundary>
+
+      <ErrorBoundary sectionName="AFL predictions">
+        <div className="game-cards-list">
+          {games.map((game) => {
           const prediction = predictions[game.game_id];
           const liveScore = liveScores[game.game_id];
           const homeScore = toScore(liveScore?.hscore ?? game.hscore);
@@ -541,8 +619,11 @@ export default function AFLPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> AFL predictions are generated by machine

@@ -166,7 +166,7 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 6 — Paper Bet Flow + Blackbook Tightening
+Phase 8 — Error Clarity + Performance Budget
 
 ### Agent ID
 Codex
@@ -180,19 +180,18 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Add consistent one-click paper bet actions across Racing, AFL, and NBA prediction surfaces in `apps/web/app/`.
-- Tighten the persistent paper betslip with duplicate, stale-odds, event-started, and missing/unavailable data safeguards using current frontend payloads only.
-- Tighten Blackbook/watch-rule UX without inventing unsupported backend trigger behaviour.
-- Stay frontend-only, keep scope narrow, and preserve the honest/responsible framing from earlier phases.
+- Continue only from the next appropriate approved phase after Phase 6.
+- Keep the Phase 8 pass frontend-only, narrow, and aligned to the cached prediction surfaces already living in `apps/web/app/`.
+- Make refresh failures and stale data understandable without changing backend contracts or inventing unsupported recovery behaviour.
+- Preserve cached content and isolate section crashes so one broken block does not blank the whole page.
 
 ### API contracts confirmed before this session
-- Relied on the existing prediction payload fields already confirmed in the handover:
+- Confirmed the existing prediction payload fields already documented in the handover remain available:
   - `ai_insights_context`
   - `feature_impact`
   - `model_metadata`
-- Racing pages already expose live market price via `betfair_back_price`, which is enough for honest stale-odds comparisons when that price is present in the current tab snapshot.
-- AFL and NBA pages still only expose fair odds on the touched frontend surfaces, so their paper bet flow remains model-led and explicitly does not claim live market comparison.
-- Existing Blackbook frontend/backend flow still writes to `/blackbook/{runner}/auto-bet` with stake, bet type, probability threshold, enabled flag, and optional notification fields only.
+- Phase 7 is still explicitly gated by settled-result volume and retrain history from `docs/BUILD_SPEC.md`, so it was not the next approved phase for this session.
+- This Phase 8 slice relies on the existing frontend cache metadata only; no new API fields were required.
 
 ### Owner instructions for this session
 - "Read docs/AGENT_HANDOVER.md and docs/BUILD_SPEC.md first."
@@ -209,12 +208,10 @@ BetMate (monorepo)
 - "Continue from the next appropriate phase/task only"
 
 ### Files touched
-- `apps/web/app/lib/betslip/betKey.ts` (created)
-- `apps/web/app/components/PaperBetAction.tsx` (modified)
-- `apps/web/app/components/PaperBetslip.tsx` (modified)
-- `apps/web/app/providers/PaperBetslipProvider.tsx` (modified)
-- `apps/web/app/lib/betslip/persistSlip.ts` (modified)
-- `apps/web/app/blackbook/page.tsx` (modified)
+- `apps/web/app/components/ErrorBoundary.tsx` (created)
+- `apps/web/app/components/ErrorState.tsx` (created)
+- `apps/web/app/lib/monitoring/performance.ts` (created)
+- `apps/web/app/globals.css` (modified)
 - `apps/web/app/page.tsx` (modified)
 - `apps/web/app/racing/page.tsx` (modified)
 - `apps/web/app/afl/page.tsx` (modified)
@@ -222,42 +219,37 @@ BetMate (monorepo)
 
 ### What I did NOT touch
 - I did not change backend ML logic, weights, or API contracts.
-- I did not add server sync for the paper betslip, settlement changes, or new feedback/watch-rule database tables.
-- I did not invent new Blackbook trigger types, opponent rules, or plain-English parsing.
-- I did not refactor unrelated pages outside the dashboard, sport prediction surfaces, and Blackbook UX.
+- I did not change `apps/web/src/` paths from the old build spec examples; all new work stayed under `apps/web/app/`.
+- I did not add new analytics vendors, Vercel configuration, or backend monitoring endpoints.
+- I did not refactor unrelated feature flows such as paper betslip logic, Blackbook rules, or model analytics contracts.
 
 ### What was completed
-- Reworked `PaperBetAction` into a consistent quick-add action that opens the persistent slip, avoids silently adding exact duplicates, and shows the current slip count inline across dashboard, Racing, AFL, and NBA prediction surfaces.
-- Extended the local paper betslip model with lightweight frontend-only metadata and a shared selection-key helper so the slip can reason about duplicate selections, event timing, and current tab snapshots.
-- Added betslip warning and submission safeguards:
-  - blocks logging when an event has already started
-  - blocks logging when odds are missing/unusable
-  - blocks logging when a selection is marked unavailable in the current snapshot
-  - flags duplicate selections already present in persisted state
-  - flags racing odds moves greater than 10% when a fresh Betfair price is honestly available in the current tab
-  - explicitly explains that AFL/NBA remain model-fair-odds only because live market comparison is not available on these touched surfaces
-- Updated racing paper-bet actions to use live market price when available and keep fair-odds fallback when not.
-- Tightened racing watch-rule copy to read as a saved watch rule rather than promising invisible automation.
-- Reworked the Blackbook page so it:
-  - explains the current supported scope up front
-  - offers direct “Add Horse” / “Add Team” entry points
-  - provides browse links to today’s runners and upcoming AFL/NBA games
-  - includes a simple builder for the currently supported saved-rule payload only
-  - rephrases existing items as straightforward watch rules with threshold, stake, and notification preferences
+- Added reusable Phase 8 frontend primitives:
+  - `ErrorState` for friendly cached/stale/unavailable messaging
+  - `ErrorBoundary` for isolating section crashes
+  - `lib/monitoring/performance.ts` for lightweight refresh/stale telemetry events tied to the existing cache flow
+- Updated the dashboard, Racing, AFL, and NBA pages to keep cached content visible during refresh failures and show honest delayed/unavailable copy instead of failing silently.
+- Added page-level status messaging for:
+  - cached snapshot fallback
+  - stale snapshot visibility
+  - unavailable snapshot states when no usable cache exists
+  - background refresh progress while saved content remains on screen
+- Added an AFL-specific reconnecting message so users know live scores may lag while predictions remain available.
+- Wrapped major prediction/opportunity sections on dashboard, Racing, AFL, and NBA with local error boundaries so one crashing block does not take down the whole page.
 
 ### What was not completed
 - No automated verification was run because owner rules say not to test unless explicitly asked.
+- I did not extend the same Phase 8 treatment into Blackbook or Analytics in this session because the owner asked to keep the work narrow and phase-aligned.
 
 ### Decisions made
 - Kept all new frontend work under `apps/web/app/` even where the build spec still references `src`, matching the actual repo structure and owner instruction.
-- Reused the existing persistent Phase 4 paper betslip flow rather than introducing any server-side persistence or settlement logic.
-- Used current-tab snapshot registration from the existing frontend surfaces to support honest stale-odds checks, instead of inventing background refresh or backend quote syncing.
-- Limited stale-odds comparison to Racing selections with live `betfair_back_price`; AFL and NBA explicitly remain fair-odds-only and show informational messaging instead of fake market checks.
-- Treated event-started, unavailable, and missing-odds states as blocking slip issues, while stale odds remain reviewable with explicit acknowledgement.
-- Rephrased Blackbook UX around “watch rules” and “paper bet stake” so the UI matches the currently supported fields instead of overpromising richer automation.
+- Treated Phase 8, not Phase 7, as the next approved phase because `docs/BUILD_SPEC.md` explicitly gates Phase 7 on settled-result volume and successful weekly retrains.
+- Focused the Phase 8 pass on the cached prediction surfaces introduced in earlier phases because those are the highest-frequency user paths already depending on snapshot metadata.
+- Reused existing cache timestamps and retry scheduling instead of inventing new backend freshness APIs.
+- Kept messaging honest: BetMate now says when it is showing cached or delayed data, but does not pretend to have live market refresh when that payload does not exist.
 
 ### Questions asked owner
-- No blocking clarification questions were needed after reading the handover/spec; scope and API contract were explicit enough to proceed.
+- No blocking clarification questions were needed after reading the handover/spec; the Phase 7 gating and Phase 8 dependency path were explicit enough to proceed.
 
 ### Owner answers received
 - No new answers were required in this session after the handover/spec review because phase ordering and scope were explicit enough to proceed.
@@ -272,19 +264,18 @@ none
 none
 
 ### UI/UX changes
-- Added a one-click quick-add paper bet action with slip count context across dashboard, Racing, AFL, and NBA prediction surfaces.
-- Added safer persistent betslip warnings for duplicates, started events, missing odds, unavailable selections, and racing stale-odds drift where the current frontend can honestly compare prices.
-- Added an explicit stale-odds acknowledgement step before logging selections whose racing price moved materially after being added.
-- Tightened racing watch-rule copy so it reads as a saved rule, not a magic automation promise.
-- Reworked the Blackbook page with clear supported-scope copy, direct add entry points, browse links, and a simple builder for the currently supported rule payload.
+- Dashboard, Racing, AFL, and NBA now explain when BetMate is showing live refresh activity versus cached or delayed snapshots.
+- Cached views remain visible during refresh issues instead of silently degrading.
+- Sections with rendering failures now fall back locally with a retry affordance rather than breaking the whole page.
+- AFL now explicitly tells the user when live scores are reconnecting while predictions remain usable.
 
 ### Known issues / blockers
 - No blocking issues inside scope.
-- Stale-odds comparison only works when the current tab has loaded a fresh frontend snapshot for that selection; this is intentional and surfaced in the UI instead of being faked.
-- AFL and NBA still do not expose live market odds on the touched surfaces, so their paper bet actions and slip warnings stay model-led rather than price-led.
+- Phase 7 remains blocked until the settled-result and retrain thresholds in `docs/BUILD_SPEC.md` are genuinely met.
+- This Phase 8 pass only covers the dashboard and sport prediction surfaces; Blackbook and Analytics still use their existing page-level handling.
 
 ### Scope creep check
-- Scope stayed within Phase 6 frontend UX work and reused the existing local slip/Blackbook contracts rather than expanding backend APIs or automation behaviour.
+- Scope stayed within a narrow frontend-only Phase 8 slice on cached prediction surfaces and shared UI helpers.
 
 ### ML Engine impact
 none
@@ -294,9 +285,9 @@ none
 
 
 ### Commit status
-Committed
-Primary feature commit hash: `5b6f276`
-Primary feature commit message: `"Implement Phase 6 paper bet flow safeguards"`
+Pending local commit creation at end of session
+Primary feature commit hash: `pending`
+Primary feature commit message: `"Implement Phase 8 cached error clarity"`
 
 ### Push status
 Not pushed — owner will review and push
@@ -305,17 +296,16 @@ Not pushed — owner will review and push
 - ML logic correctly bypasses XGBoost and performs the manual weights defined in `app/ml/weights.py`.
 - Be mindful that the backend relies heavily on Pydantic schemas in `main.py`.
 - **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. Keep new frontend work under `app/`.
-- Phase 4 confidence badges still derive from `ai_insights_context` only; this session did not change confidence/urgency contracts.
-- Racing stale-odds checks rely on `betfair_back_price` snapshots registered by the current tab. If future work needs stronger guarantees, it will need explicit product approval for backend quote refresh or frontend polling.
-- AFL and NBA paper bet flows still run on fair odds only because those touched frontend payloads do not provide honest live market odds yet.
-- Blackbook UI now better matches the currently supported rule payload, but richer watch-rule conditions from the build spec still need real backend support before they should be exposed.
+- Phase 7 is still gated. Re-read the settled-result and retrain requirements before touching model-learning/personalization work.
+- The new Phase 8 status layer is currently wired into dashboard, Racing, AFL, and NBA only.
+- Refresh telemetry is lightweight frontend event dispatch only; it does not persist anywhere by itself.
 
 ### Recommended next work
-Phase 7 — Model Learning / Results UX once enough settled data exists
+If the owner wants to continue Phase 8, extend the same error-boundary/status treatment to Analytics and Blackbook. Otherwise wait on Phase 7 until the documented data gates are honestly met.
 
-#### Phase 6 Prompt for Next Agent:
-"Phase 6 is complete on the frontend.
-If the owner wants to continue sequentially, move to the next approved phase only after re-reading BUILD_SPEC.md and confirming data dependencies. Keep the same repo/branch rules, stay in `apps/web/app/`, and do not run tests unless explicitly asked."
+#### Phase 8 Prompt for Next Agent:
+"Phase 8 now covers dashboard plus Racing/AFL/NBA cached prediction surfaces.
+If the owner wants another narrow frontend pass, extend the same honest error/stale-state treatment to remaining pages in `apps/web/app/` without changing backend contracts. Do not start Phase 7 unless the settled-data and retrain gates are truly satisfied."
 
 
 ---

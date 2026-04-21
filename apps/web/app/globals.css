@@ -1277,6 +1277,75 @@ tr:hover td {
   opacity: 0.7;
 }
 
+.status-stack {
+  display: grid;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.status-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.status-card.compact {
+  padding: 0.8rem 0.9rem;
+}
+
+.status-card.tone-info {
+  border-color: rgba(59, 130, 246, 0.18);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.status-card.tone-warning {
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.status-card.tone-danger {
+  border-color: rgba(239, 68, 68, 0.2);
+  background: rgba(127, 29, 29, 0.16);
+}
+
+.status-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.2);
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.status-card-copy {
+  flex: 1;
+}
+
+.status-card-copy h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.94rem;
+  color: var(--text-primary);
+}
+
+.status-card-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  font-size: 0.88rem;
+}
+
+.status-card-action {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
 /* ---- Refresh Controls ---- */
 .refresh-controls {
   display: flex;
@@ -1332,6 +1401,16 @@ tr:hover td {
 }
 
 @media (max-width: 768px) {
+  .status-card {
+    flex-wrap: wrap;
+  }
+
+  .status-card-action {
+    width: 100%;
+    margin-left: 0;
+    justify-content: center;
+  }
+
   .refresh-controls {
     align-items: stretch;
   }

@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import BestAflOpportunities from "./components/afl/BestOpportunities";
+import ErrorBoundary from "./components/ErrorBoundary";
+import ErrorState from "./components/ErrorState";
 import ExplainDrawer from "./components/ExplainDrawer";
 import BestNbaOpportunities from "./components/nba/BestOpportunities";
 import {
@@ -42,6 +44,11 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "./lib/cache/mlDataCache";
+import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "./lib/monitoring/performance";
 
 type RaceSummary = {
   race_id: string;
@@ -318,6 +325,7 @@ export default function DashboardPage() {
   const [engineStatus, setEngineStatus] = useState<"online" | "offline">(
     "offline",
   );
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
@@ -400,6 +408,10 @@ export default function DashboardPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -413,6 +425,8 @@ export default function DashboardPage() {
         refreshMlDataCache(keys.racingFixturesKey, fetchTodayRaces, {
           force: true,
         }).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh racing fixtures:", error);
           scheduleMlDataCacheRetry(keys.racingFixturesKey);
           return readMlDataCache<RaceSummary[]>(keys.racingFixturesKey);
@@ -420,6 +434,8 @@ export default function DashboardPage() {
         refreshMlDataCache(keys.aflFixturesKey, fetchUpcomingAflGames, {
           force: true,
         }).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh AFL fixtures:", error);
           scheduleMlDataCacheRetry(keys.aflFixturesKey);
           return readMlDataCache<AFLGame[]>(keys.aflFixturesKey);
@@ -427,6 +443,8 @@ export default function DashboardPage() {
         refreshMlDataCache(keys.nbaFixturesKey, fetchTodayNbaGames, {
           force: true,
         }).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh NBA fixtures:", error);
           scheduleMlDataCacheRetry(keys.nbaFixturesKey);
           return readMlDataCache<NBAGame[]>(keys.nbaFixturesKey);
@@ -455,6 +473,8 @@ export default function DashboardPage() {
           () => fetchRacePredictions(racingFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh racing predictions:", error);
           scheduleMlDataCacheRetry(keys.racingPredictionsKey);
           return readMlDataCache<Record<string, RacePrediction>>(
@@ -473,6 +493,8 @@ export default function DashboardPage() {
           () => fetchAflPredictions(aflFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh AFL predictions:", error);
           scheduleMlDataCacheRetry(keys.aflPredictionsKey);
           return readMlDataCache<Record<string, AFLPrediction>>(
@@ -489,6 +511,8 @@ export default function DashboardPage() {
           () => fetchNbaPredictions(nbaFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh NBA predictions:", error);
           scheduleMlDataCacheRetry(keys.nbaPredictionsKey);
           return readMlDataCache<Record<string, NBAPrediction>>(
@@ -521,8 +545,13 @@ export default function DashboardPage() {
     await healthPromise;
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/dashboard", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
@@ -561,6 +590,10 @@ export default function DashboardPage() {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    trackStaleCache("/dashboard", lastUpdated);
+  }, [lastUpdated]);
 
   if (loading) {
     return (
@@ -676,6 +709,15 @@ export default function DashboardPage() {
       ];
     }),
   ).slice(0, 2);
+  const hasDashboardData =
+    races.length > 0 || aflGames.length > 0 || nbaGames.length > 0;
+  const dashboardStatus = getCachedViewStatus({
+    resourceLabel: "Dashboard data",
+    hasData: hasDashboardData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
 
   return (
     <div>
@@ -702,6 +744,29 @@ export default function DashboardPage() {
         onRefresh={refreshDashboard}
       />
 
+      {dashboardStatus ? (
+        <div className="status-stack">
+          <ErrorState
+            title={dashboardStatus.title}
+            message={dashboardStatus.message}
+            tone={dashboardStatus.tone}
+            actionLabel="Refresh now"
+            onAction={() => void refreshDashboard()}
+            compact
+          />
+        </div>
+      ) : null}
+
+      {!hasDashboardData && refreshFailed ? (
+        <ErrorState
+          title="Today’s predictions are still loading"
+          message="The engine did not return a usable snapshot yet. Try again in a moment while BetMate keeps retrying."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshDashboard()}
+        />
+      ) : (
+        <>
       <div className="stats-grid">
         <div className="stat-card accent">
           <div className="stat-label">
@@ -749,11 +814,13 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="dashboard-opportunities-grid">
-        <BestRacingOpportunities opportunities={racingOpportunities} compact />
-        <BestAflOpportunities opportunities={aflOpportunities} compact />
-        <BestNbaOpportunities opportunities={nbaOpportunities} compact />
-      </div>
+      <ErrorBoundary sectionName="Dashboard opportunities">
+        <div className="dashboard-opportunities-grid">
+          <BestRacingOpportunities opportunities={racingOpportunities} compact />
+          <BestAflOpportunities opportunities={aflOpportunities} compact />
+          <BestNbaOpportunities opportunities={nbaOpportunities} compact />
+        </div>
+      </ErrorBoundary>
 
       <div className="section-header">
         <h3>🏇 Top Racing Predictions</h3>
@@ -761,8 +828,9 @@ export default function DashboardPage() {
           View All <ChevronRight size={14} />
         </Link>
       </div>
-      <div className="predictions-grid">
-        {races.slice(0, 3).map((race) => {
+      <ErrorBoundary sectionName="Dashboard racing predictions">
+        <div className="predictions-grid">
+          {races.slice(0, 3).map((race) => {
           const prediction = racePredictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
           const confidenceSignal = prediction
@@ -876,8 +944,9 @@ export default function DashboardPage() {
               </div>
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
 
       <div className="section-header" style={{ marginTop: "2rem" }}>
         <h3>🏈 AFL Predictions</h3>
@@ -885,8 +954,9 @@ export default function DashboardPage() {
           View All <ChevronRight size={14} />
         </Link>
       </div>
-      <div className="predictions-grid">
-        {aflGames.slice(0, 3).map((game) => {
+      <ErrorBoundary sectionName="Dashboard AFL predictions">
+        <div className="predictions-grid">
+          {aflGames.slice(0, 3).map((game) => {
           const prediction = aflPredictions[game.game_id];
           const homePct = prediction?.predictions?.home_win_probability ?? 50;
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
@@ -1002,8 +1072,9 @@ export default function DashboardPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
 
       <div className="section-header" style={{ marginTop: "2rem" }}>
         <h3>🏀 NBA Predictions</h3>
@@ -1011,8 +1082,9 @@ export default function DashboardPage() {
           View All <ChevronRight size={14} />
         </Link>
       </div>
-      <div className="predictions-grid">
-        {nbaGames.slice(0, 3).map((game) => {
+      <ErrorBoundary sectionName="Dashboard NBA predictions">
+        <div className="predictions-grid">
+          {nbaGames.slice(0, 3).map((game) => {
           const prediction = nbaPredictions[game.game_id];
           const homePct = prediction?.predictions?.home_win_probability ?? 50;
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
@@ -1122,8 +1194,11 @@ export default function DashboardPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking

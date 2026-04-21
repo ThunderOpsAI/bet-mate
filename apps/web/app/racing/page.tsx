@@ -15,6 +15,8 @@ import {
   Bell,
   BellOff,
 } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
 import {
   ConfidenceBadge,
@@ -33,6 +35,11 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
+import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "../lib/monitoring/performance";
 import {
   getConfidenceSignal,
   getUrgencySignal,
@@ -168,6 +175,7 @@ export default function RacingPage() {
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedRace, setExpandedRace] = useState<string | null>(null);
@@ -233,6 +241,10 @@ export default function RacingPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -243,6 +255,8 @@ export default function RacingPage() {
     const fixturesEntry = await refreshMlDataCache(fixturesKey, fetchTodayRaces, {
       force: true,
     }).catch((error) => {
+      refreshHadFailure = true;
+      usedCacheFallback = true;
       console.error("Failed to refresh racing fixtures:", error);
       scheduleMlDataCacheRetry(fixturesKey);
       return readMlDataCache<Race[]>(fixturesKey);
@@ -259,6 +273,8 @@ export default function RacingPage() {
         () => fetchRacePredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
         console.error("Failed to refresh racing predictions:", error);
         scheduleMlDataCacheRetry(predictionsKey);
         return readMlDataCache<Record<string, RacePrediction>>(predictionsKey);
@@ -271,8 +287,13 @@ export default function RacingPage() {
 
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/racing", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
@@ -331,6 +352,10 @@ export default function RacingPage() {
     };
   }, []);
 
+  useEffect(() => {
+    trackStaleCache("/racing", lastUpdated);
+  }, [lastUpdated]);
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -380,6 +405,14 @@ export default function RacingPage() {
       });
     }),
   ).slice(0, 5);
+  const hasRacingData = races.length > 0 || Object.keys(predictions).length > 0;
+  const racingStatus = getCachedViewStatus({
+    resourceLabel: "Racing data",
+    hasData: hasRacingData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
 
   return (
     <div>
@@ -394,6 +427,30 @@ export default function RacingPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
+
+      {racingStatus ? (
+        <div className="status-stack">
+          <ErrorState
+            title={racingStatus.title}
+            message={racingStatus.message}
+            tone={racingStatus.tone}
+            actionLabel="Refresh now"
+            onAction={() => void refreshPage()}
+            compact
+          />
+        </div>
+      ) : null}
+
+      {!hasRacingData && refreshFailed ? (
+        <ErrorState
+          title="Racing snapshot unavailable"
+          message="BetMate could not load the current race board. Try again shortly while cached data warms back up."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : (
+        <>
 
       <div className="filter-bar">
         <button
@@ -413,10 +470,13 @@ export default function RacingPage() {
         ))}
       </div>
 
-      <BestRacingOpportunities opportunities={racingOpportunities} />
+      <ErrorBoundary sectionName="Racing opportunities">
+        <BestRacingOpportunities opportunities={racingOpportunities} />
+      </ErrorBoundary>
 
-      <div className="race-list">
-        {filteredRaces.map((race) => {
+      <ErrorBoundary sectionName="Racing predictions">
+        <div className="race-list">
+          {filteredRaces.map((race) => {
           const prediction = predictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
           const isExpanded = expandedRace === race.race_id;
@@ -795,8 +855,11 @@ export default function RacingPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> Predictions are generated by machine
