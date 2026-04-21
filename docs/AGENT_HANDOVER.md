@@ -147,17 +147,18 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current Status
-**Phase:** Phase 8 — Error Clarity + Performance Budget (Extended to all pages)
-**Status:** Substantially Complete (except Phase 3 backend optimization)
+**Phase:** Phase 8 complete; Phase 3 remains the only non-deferred major phase
+**Status:** Ready to push for deployment/runtime debugging
 
 - Phase 0-2, 4-6, 8 are implemented.
 - Phase 3 (Snapshot/Batch) is the only remaining unimplemented core phase.
 - Phase 7 is intentionally deferred per data gates.
 - All frontend pages (Dashboard, Racing, AFL, NBA, Analytics, Blackbook) now have Phase 8 error clarity (ErrorState, ErrorBoundary, RefreshControls).
 - Phase 6.3 FeedbackButtons implemented for future prediction reporting.
+- Latest local fix prevents Dashboard/Racing/AFL/NBA from loading forever in local dev when fixture or prediction requests hang.
 
 ### Agent ID
-Antigravity
+Codex
 
 ### Repo
 ```
@@ -168,35 +169,48 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Verify branch stability and implementation status of all phases.
-- Confirm whether every phase except Phase 7 is complete.
-- Complete any narrow appropriate work if incomplete.
-- Perform end-to-end verification.
+- Inspect local branch state, recent commits, and current diff before acting.
+- Consolidate remaining local reliability work into clean commits.
+- Update handover to the true pre-push state.
+- Keep Phase 7 deferred and avoid starting new feature work.
+- Prepare the branch for GitHub push and live deployment/runtime debugging.
 
 ### Files touched
+- `apps/web/app/page.tsx` (timeout/fallback + `isMountedRef` loader fix)
+- `apps/web/app/racing/page.tsx` (timeout/fallback + `isMountedRef` loader fix)
+- `apps/web/app/afl/page.tsx` (timeout/fallback + `isMountedRef` loader fix)
+- `apps/web/app/nba/page.tsx` (timeout/fallback + `isMountedRef` loader fix)
+- `apps/web/app/lib/fetchWithTimeout.ts` (shared client fetch timeout helper)
+- `docs/LIGHTSAIL_OWNER_INSTRUCTIONS.md` (owner deploy/runtime debugging notes)
+- `docs/AGENT_HANDOVER.md` (final pre-push status)
 - `apps/web/app/blackbook/page.tsx` (Phase 8 extension)
 - `apps/web/app/analytics/page.tsx` (Phase 8 extension)
 - `apps/web/app/components/FeedbackButtons.tsx` (Phase 6.3)
 
 ### What I did NOT touch
-- Phase 3 (Daily Snapshot) - This requires backend changes and was deemed out of "narrow" scope for this verification session, but identified as the primary missing piece.
+- Phase 3 (Daily Snapshot / Batch Optimization) - Still the main non-deferred backend phase and intentionally left for a dedicated session.
 - Phase 7 (Model Learning) - Deferred as per data volume requirements.
+- No new product features beyond consolidation/debugging support work.
 
 ### What was completed
-- Extended Phase 8 error clarity (ErrorState, ErrorBoundary, RefreshControls) to the `Analytics` and `Blackbook` pages.
-- Implemented `FeedbackButtons` component (Phase 6.3) to allow prediction quality reporting.
-- Audited the entire repository and confirmed alignment with the `BUILD_SPEC.md` phases.
-- Identified that Phase 3 (Daily Snapshot) is the only major non-deferred phase currently missing.
-- Updated handover documentation with an accurate implementation checklist.
+- Inspected `git status`, recent commits, and the current diff before making changes.
+- Committed the remaining local web reliability fix in `31f56bc` (`fix(web): prevent endless dev loading on ML timeouts`).
+- Added a shared `fetchWithTimeout` helper and applied it to Dashboard/Racing/AFL/NBA fixture and prediction requests so hanging local endpoints fail into the existing error-state path instead of spinning forever.
+- Fixed the dev-mode `isMountedRef` reset bug on Dashboard/Racing/AFL/NBA so loaders can clear correctly after async failures.
+- Preserved the earlier Phase 8 extensions to `Analytics` and `Blackbook`, plus the Phase 6.3 `FeedbackButtons` work already on this branch.
+- Added owner-facing Lightsail deployment/runtime notes for the live ML engine path.
+- Updated handover documentation to reflect the branch state before push.
 
 ### What was not completed
-- Phase 3 implementation (Backend Consolidator Missing).
-- Full browser-based E2E testing due to environment path restrictions for Node/Pnpm binaries.
+- Phase 3 implementation (Backend consolidator / snapshot work).
+- Live deployment/runtime debugging itself - this is the next step after push.
+- Full browser-based E2E verification was not rerun in this session.
 
 ### Decisions made
-- Chose to finish Phase 8 extension as the most "appropriate narrow work" after auditing the branch.
-- Added Phase 6.3 FeedbackButtons to fulfill the UI/UX roadmap for pre-beta feedback.
-- Documented Phase 3 as the next logical task to unlock performance targets.
+- Kept scope to consolidation and debugging support only; no new feature phase work was started.
+- Treated the local loader hang as reliability debt worth committing before any push because it directly affected branch verification.
+- Kept Phase 7 deferred because the documented real-data gates are still the controlling condition.
+- Added Lightsail notes as supporting docs for the upcoming live ML debugging flow instead of mixing in backend feature work.
 
 ### Questions asked owner
 - None.
@@ -205,11 +219,13 @@ BetMate (monorepo)
 - None.
 
 ### Commit status
-TBD (will commit after handover update)
+- `31f56bc` committed: local web timeout/fallback and loader-clear reliability fix.
+- Handover/docs update is the remaining pre-push documentation commit.
 
 ### Recommended next work
-- Implement Phase 3 (Daily Snapshot & Batch Optimization) to consolidate API requests and improve page load performance.
-- Perform a full E2E verification once services are reachable in a stable environment.
+- Push this branch, then debug Lightsail/live ML deployment and runtime behavior against the real environment.
+- If the live stack is stable, Phase 3 (Daily Snapshot & Batch Optimization) remains the next non-deferred implementation target.
+- Do not start Phase 7 unless the documented settled-results and retrain gates are actually satisfied.
 
 ---
 
