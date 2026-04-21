@@ -1,8 +1,11 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import { Activity, BarChart3, Database, Target } from "lucide-react";
+import { Activity, BarChart3, Database, Target, RotateCw, BarChart as ChartIcon } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ML_API } from "../lib/mlApi";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
+import RefreshControls from "../components/RefreshControls";
 
 type ModelMetadata = {
   name: string;
@@ -91,89 +94,83 @@ export default function AnalyticsPage() {
   const [selectedSport, setSelectedSport] = useState("all");
   const [loading, setLoading] = useState(true);
   const [syncingResults, setSyncingResults] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
 
   const loadAnalytics = useCallback(async (showLoading = true, sportFilter = selectedSport) => {
     try {
-      if (showLoading) {
-        setLoading(true);
-      }
+      if (showLoading) setLoading(true);
+      setRefreshing(true);
       setError(null);
-      const sportQuery = sportFilter === "all" ? "" : `?sport=${encodeURIComponent(sportFilter)}`;
-      const trendQuery = sportFilter === "all"
-        ? "?days=30"
-        : `?days=30&sport=${encodeURIComponent(sportFilter)}`;
-      const [metadataResponse, summaryResponse, accuracyResponse, trendResponse, recentResponse] = await Promise.all([
+      
+      const sportParam = sportFilter !== "all" ? `?sport=${sportFilter}` : "";
+
+      const [metadataRes, summaryRes, accuracyRes, trendRes, recentRes] = await Promise.all([
         fetch(`${ML_API}/api/models/metadata`),
-        fetch(`${ML_API}/api/predictions/summary`).catch(() => null),
-        fetch(`${ML_API}/api/predictions/accuracy${sportQuery}`).catch(() => null),
-        fetch(`${ML_API}/api/predictions/accuracy/trend${trendQuery}`).catch(() => null),
-        fetch(`${ML_API}/api/predictions/recent?limit=20`).catch(() => null),
+        fetch(`${ML_API}/api/predictions/summary`),
+        fetch(`${ML_API}/api/predictions/accuracy${sportParam}`),
+        fetch(`${ML_API}/api/predictions/accuracy/trend${sportParam}`),
+        fetch(`${ML_API}/api/predictions/results/recent?limit=100`),
       ]);
 
-      if (!metadataResponse.ok) {
-        throw new Error("Model metadata unavailable");
+      if (metadataRes.ok) {
+        const data = await metadataRes.json();
+        setModels(data.models || []);
+      }
+      if (summaryRes.ok) {
+        const data = await summaryRes.json();
+        setPredictionSummary(data.summary || []);
+      }
+      if (accuracyRes.ok) {
+        const data = await accuracyRes.json();
+        setAccuracy(data.accuracy);
+      }
+      if (trendRes.ok) {
+        const data = await trendRes.json();
+        setAccuracyTrend(data.trend || []);
+      }
+      if (recentRes.ok) {
+        const data = await recentRes.json();
+        setRecentPredictions(data.results || []);
       }
 
-      const data = await metadataResponse.json();
-      setModels(data?.models ?? []);
-      if (summaryResponse?.ok) {
-        const summaryData = await summaryResponse.json();
-        setPredictionSummary(summaryData?.summary ?? []);
-      }
-      if (accuracyResponse?.ok) {
-        const accuracyData = await accuracyResponse.json();
-        setAccuracy(accuracyData?.accuracy ?? null);
-      }
-      if (trendResponse?.ok) {
-        const trendData = await trendResponse.json();
-        setAccuracyTrend(trendData?.trend ?? []);
-      }
-      if (recentResponse?.ok) {
-        const recentData = await recentResponse.json();
-        setRecentPredictions(recentData?.predictions ?? []);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Model metadata unavailable");
+      setLastUpdated(Date.now());
+    } catch (err) {
+      console.error("Failed to load analytics:", err);
+      setError("BetMate could not load the latest model analytics. Check your connection or the ML engine status.");
     } finally {
-      if (showLoading) {
-        setLoading(false);
-      }
+      setLoading(false);
+      setRefreshing(false);
     }
   }, [selectedSport]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    loadAnalytics();
-    return () => controller.abort();
+    void loadAnalytics(true);
   }, [loadAnalytics]);
 
   const syncResults = async () => {
+    setSyncingResults(true);
+    setSyncMessage(null);
     try {
-      setSyncingResults(true);
-      setSyncMessage(null);
-
       const response = await fetch(`${ML_API}/api/predictions/results/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sports: ["afl", "nba"], max_results: 50 }),
+        body: JSON.stringify({ sports: ["afl", "nba"] }),
       });
 
-      if (!response.ok) {
-        throw new Error("Result sync failed");
+      if (response.ok) {
+        const data = await response.json();
+        const { fetched, settled, errors } = data.ingestion || {};
+        setSyncMessage(`Fetched ${fetched} results. Settled ${settled} predictions into history. ${errors?.length ? `(${errors.length} errors)` : ""}`);
+        void loadAnalytics(false);
+      } else {
+        setSyncMessage("Failed to trigger result ingestion.");
       }
-
-      const data = await response.json();
-      setAccuracy(data?.accuracy ?? null);
-      setPredictionSummary(data?.summary ?? []);
-      await loadAnalytics(false, selectedSport);
-
-      const settled = data?.ingestion?.settled ?? 0;
-      const skipped = data?.ingestion?.skipped_unmatched ?? 0;
-      setSyncMessage(`Settled ${settled} events. ${skipped} completed events had no logged predictions.`);
-    } catch (e) {
-      setSyncMessage(e instanceof Error ? e.message : "Result sync failed");
+    } catch (err) {
+      console.error("Sync error:", err);
+      setSyncMessage("Connection error during result sync.");
     } finally {
       setSyncingResults(false);
     }
@@ -190,12 +187,16 @@ export default function AnalyticsPage() {
     );
   }
 
-  if (error) {
+  if (error && !models.length) {
     return (
-      <div className="empty-state">
-        <div className="empty-icon"><Activity size={48} /></div>
-        <h4>Model telemetry unavailable</h4>
-        <p>{error}</p>
+      <div className="status-stack" style={{ padding: "2rem" }}>
+        <ErrorState
+          title="Telemetry board unavailable"
+          message={error}
+          tone="danger"
+          actionLabel="Try again"
+          onAction={() => void loadAnalytics()}
+        />
       </div>
     );
   }
@@ -237,18 +238,39 @@ export default function AnalyticsPage() {
   }));
 
   return (
-    <div>
+    <ErrorBoundary sectionName="Analytics Board">
+      <RefreshControls
+        lastUpdated={lastUpdated}
+        isRefreshing={refreshing}
+        onRefresh={() => void loadAnalytics(false)}
+      />
+
       <div className="section-header">
         <h3>Prediction Analytics</h3>
-        <button className="btn btn-sm btn-secondary" type="button" onClick={syncResults} disabled={syncingResults}>
-          {syncingResults ? "Syncing..." : "Sync Results"}
+        <button
+          className="btn btn-sm btn-secondary"
+          type="button"
+          onClick={syncResults}
+          disabled={syncingResults}
+        >
+          {syncingResults ? (
+            <>
+              <RotateCw size={14} className="animate-spin" /> Syncing...
+            </>
+          ) : (
+            "Sync Results"
+          )}
         </button>
       </div>
 
       {syncMessage && (
-        <div className="engine-banner online">
-          <Activity size={16} />
-          <span>{syncMessage}</span>
+        <div className="status-stack" style={{ marginBottom: "1.5rem" }}>
+          <ErrorState
+            title="Result sync update"
+            message={syncMessage}
+            tone={syncMessage.includes("Failed") ? "warning" : "info"}
+            compact
+          />
         </div>
       )}
 
@@ -476,7 +498,8 @@ export default function AnalyticsPage() {
           );
         })}
       </div>
-    </div>
+      </div>
+    </ErrorBoundary>
   );
 }
 
