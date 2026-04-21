@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "./AuthProvider";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
@@ -50,7 +50,10 @@ export interface PaperBetSelectionSnapshot {
 
 interface PaperBetslipContextType {
   bets: PaperBet[];
-  addBet: (bet: Omit<PaperBet, "id">) => { status: "added" | "duplicate"; id?: string };
+  addBet: (
+    bet: Omit<PaperBet, "id">,
+    options?: { openBetslip?: boolean },
+  ) => { status: "added" | "duplicate"; id?: string };
   removeBet: (id: string) => void;
   clearBetslip: () => void;
   placeBets: () => Promise<{ success: number; failed: number }>;
@@ -70,14 +73,18 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     Record<string, PaperBetSelectionSnapshot>
   >({});
   const [hasHydrated, setHasHydrated] = useState(false);
+  const betsRef = useRef<PaperBet[]>([]);
   const { token } = useAuth();
 
   useEffect(() => {
-    setBets(loadPersistedBetslip());
+    const persistedBets = loadPersistedBetslip();
+    betsRef.current = persistedBets;
+    setBets(persistedBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
     setHasHydrated(true);
 
     return subscribeToBetslipStorage((nextBets, nextOpen) => {
+      betsRef.current = nextBets;
       setBets(nextBets);
       setIsBetslipOpen(nextOpen);
     });
@@ -97,54 +104,77 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     savePersistedBetslipOpen(isBetslipOpen);
   }, [isBetslipOpen, hasHydrated]);
 
-  const addBet = useCallback((newBet: Omit<PaperBet, "id">) => {
-    const key = buildPaperBetKey({
-      sport: newBet.sport,
-      eventId: newBet.event_id,
-      selection: newBet.selection,
-      betType: newBet.bet_type,
-    });
+  const addBet = useCallback(
+    (
+      newBet: Omit<PaperBet, "id">,
+      options?: { openBetslip?: boolean },
+    ) => {
+      const key = buildPaperBetKey({
+        sport: newBet.sport,
+        eventId: newBet.event_id,
+        selection: newBet.selection,
+        betType: newBet.bet_type,
+      });
 
-    const existingBet = bets.find((bet) => {
-      return (
-        buildPaperBetKey({
-          sport: bet.sport,
-          eventId: bet.event_id,
-          selection: bet.selection,
-          betType: bet.bet_type,
-        }) === key
-      );
-    });
+      const shouldOpenBetslip = options?.openBetslip ?? true;
 
-    if (existingBet) {
-      setIsBetslipOpen(true);
-      return { status: "duplicate" as const, id: existingBet.id };
-    }
+      const existingBet = betsRef.current.find((bet) => {
+        return (
+          buildPaperBetKey({
+            sport: bet.sport,
+            eventId: bet.event_id,
+            selection: bet.selection,
+            betType: bet.bet_type,
+          }) === key
+        );
+      });
 
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : Math.random().toString(36).slice(2, 11);
+      if (existingBet) {
+        if (shouldOpenBetslip) {
+          setIsBetslipOpen(true);
+        }
+        return { status: "duplicate" as const, id: existingBet.id };
+      }
 
-    setBets((prev) => [
-      ...prev,
-      { ...newBet, id, added_at: new Date().toISOString() },
-    ]);
-    setIsBetslipOpen(true);
-    return { status: "added" as const, id };
-  }, [bets]);
+      const id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).slice(2, 11);
+
+      const nextBets = [
+        ...betsRef.current,
+        { ...newBet, id, added_at: new Date().toISOString() },
+      ];
+      betsRef.current = nextBets;
+      setBets(nextBets);
+
+      if (shouldOpenBetslip) {
+        setIsBetslipOpen(true);
+      }
+
+      return { status: "added" as const, id };
+    },
+    [],
+  );
 
   const removeBet = useCallback((id: string) => {
-    setBets((prev) => prev.filter((b) => b.id !== id));
+    const nextBets = betsRef.current.filter((bet) => bet.id !== id);
+    betsRef.current = nextBets;
+    setBets(nextBets);
   }, []);
 
   const clearBetslip = useCallback(() => {
+    betsRef.current = [];
     setBets([]);
     clearPersistedBetslip();
   }, []);
 
   const updateBet = useCallback((id: string, updates: Partial<PaperBet>) => {
-    setBets((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
+    const nextBets = betsRef.current.map((bet) =>
+      bet.id === id ? { ...bet, ...updates } : bet,
+    );
+    betsRef.current = nextBets;
+    setBets(nextBets);
   }, []);
 
   const registerSelectionSnapshot = useCallback(

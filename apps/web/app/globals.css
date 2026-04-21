@@ -2115,7 +2115,7 @@ tr:hover td {
 .game-matchup-header {
   display: flex;
   align-items: stretch;
-  gap: 0;
+  gap: 0.9rem;
   margin-bottom: 1rem;
 }
 
@@ -2124,8 +2124,12 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.25rem;
-  padding: 0.5rem;
+  gap: 0.45rem;
+  min-width: 0;
+  padding: 0.85rem 0.75rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .team-label {
@@ -2160,6 +2164,56 @@ tr:hover td {
 .team-odds {
   font-size: 0.78rem;
   color: var(--text-dim);
+}
+
+.matchup-center-block {
+  align-items: center;
+  align-self: stretch;
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.88),
+    rgba(30, 41, 59, 0.74)
+  );
+  border: 1px solid rgba(110, 231, 183, 0.18);
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  justify-content: center;
+  min-width: 220px;
+  padding: 0.95rem 1rem;
+  text-align: center;
+}
+
+.matchup-center-block.nba {
+  border-color: rgba(96, 165, 250, 0.22);
+}
+
+.matchup-center-kicker {
+  color: var(--text-dim);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.matchup-center-title {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.matchup-center-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.matchup-center-subtitle.subtle {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 500;
 }
 
 .vs-divider {
@@ -2510,6 +2564,11 @@ tr:hover td {
   .game-matchup-header {
     flex-direction: column;
     gap: 0.5rem;
+  }
+
+  .matchup-center-block {
+    min-width: 0;
+    width: 100%;
   }
 
   .vs-divider {

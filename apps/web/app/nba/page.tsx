@@ -399,10 +399,42 @@ export default function NBAPage() {
                       Fair: ${prediction.predictions.fair_odds_home}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Home"
+                      loggedLabel="Home Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "nba",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: prediction.predictions.fair_odds_home,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_home,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                      }}
+                    />
+                  ) : null}
                 </div>
 
-                <div className="vs-divider nba">
-                  <span>VS</span>
+                <div className="matchup-center-block nba">
+                  <span className="matchup-center-kicker">NBA Matchup</span>
+                  <span className="matchup-center-title">
+                    {game.home_team} vs {game.away_team}
+                  </span>
+                  <span className="matchup-center-subtitle">
+                    {formatGameStartLabel(game.date)}
+                  </span>
+                  <span className="matchup-center-subtitle subtle">
+                    Head to head market
+                  </span>
                 </div>
 
                 <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
@@ -413,6 +445,29 @@ export default function NBAPage() {
                     <span className="team-odds">
                       Fair: ${prediction.predictions.fair_odds_away}
                     </span>
+                  ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Away"
+                      loggedLabel="Away Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "nba",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: prediction.predictions.fair_odds_away,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_away,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                      }}
+                    />
                   ) : null}
                 </div>
               </div>
@@ -473,40 +528,6 @@ export default function NBAPage() {
                         sport="nba" 
                         eventId={game.game_id} 
                         selection={homeWins ? game.home_team : game.away_team}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                          odds_source: "model_fair",
-                          current_odds: prediction.predictions.fair_odds_home,
-                          can_compare_odds: false,
-                          event_start_time: game.date,
-                        }}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                          odds_source: "model_fair",
-                          current_odds: prediction.predictions.fair_odds_away,
-                          can_compare_odds: false,
-                          event_start_time: game.date,
-                        }}
                       />
                     </div>
                   </>
@@ -580,4 +601,23 @@ export default function NBAPage() {
       </div>
     </div>
   );
+}
+
+function formatGameStartLabel(dateValue?: string | null) {
+  if (!dateValue) {
+    return "Start time pending";
+  }
+
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Start time pending";
+  }
+
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    weekday: "short",
+  }).format(parsedDate);
 }

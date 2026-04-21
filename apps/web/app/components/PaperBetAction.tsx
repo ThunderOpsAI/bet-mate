@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, ListPlus, ShoppingCart } from "lucide-react";
+import { CheckCircle2, ListPlus, ShoppingCart, X } from "lucide-react";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
@@ -25,16 +25,27 @@ interface PaperBetActionProps {
     can_compare_odds?: boolean;
     current_odds?: number | null;
   };
+  variant?: "default" | "phase1";
+  label?: string;
+  loggedLabel?: string;
+  cancelLabel?: string;
+  openBetslipOnAdd?: boolean;
+  fullWidth?: boolean;
 }
 
-export default function PaperBetAction({ bet }: PaperBetActionProps) {
-  const [feedback, setFeedback] = useState<"added" | "duplicate" | null>(null);
-  const {
-    addBet,
-    bets,
-    registerSelectionSnapshot,
-    setIsBetslipOpen,
-  } = usePaperBetslip();
+export default function PaperBetAction({
+  bet,
+  variant = "default",
+  label,
+  loggedLabel,
+  cancelLabel = "Cancel",
+  openBetslipOnAdd = true,
+  fullWidth = false,
+}: PaperBetActionProps) {
+  const [feedback, setFeedback] = useState<
+    "added" | "duplicate" | "removed" | null
+  >(null);
+  const { addBet, bets, registerSelectionSnapshot, removeBet } = usePaperBetslip();
 
   useEffect(() => {
     registerSelectionSnapshot({
@@ -88,7 +99,7 @@ export default function PaperBetAction({ bet }: PaperBetActionProps) {
     [bet.bet_type, bet.event_id, bet.selection, bet.sport],
   );
 
-  const existingSelectionCount = bets.filter((entry) => {
+  const matchingSelections = bets.filter((entry) => {
     return (
       buildPaperBetKey({
         sport: entry.sport,
@@ -97,32 +108,199 @@ export default function PaperBetAction({ bet }: PaperBetActionProps) {
         betType: entry.bet_type,
       }) === selectionKey
     );
-  }).length;
+  });
 
+  const existingSelectionCount = matchingSelections.length;
   const totalSlipCount = bets.length;
 
-  const handleQuickAdd = () => {
-    const result = addBet({
-      sport: bet.sport,
-      event_id: bet.event_id,
-      event_name: bet.event_name,
-      selection_id: bet.selection_id,
-      selection: bet.selection,
-      odds: bet.odds,
-      bet_type: bet.bet_type,
-      stake: bet.stake,
-      notes: bet.notes ?? `Model pick for ${bet.event_name}`,
-      odds_source: bet.odds_source,
-      event_start_time: bet.event_start_time,
-      event_date: bet.event_date,
-      is_closed: bet.is_closed,
-      is_unavailable: bet.is_unavailable,
-      unavailable_reason: bet.unavailable_reason,
-    });
+  const stopCardToggle = (event: React.SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  const handleQuickAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+
+    const result = addBet(
+      {
+        sport: bet.sport,
+        event_id: bet.event_id,
+        event_name: bet.event_name,
+        selection_id: bet.selection_id,
+        selection: bet.selection,
+        odds: bet.odds,
+        bet_type: bet.bet_type,
+        stake: bet.stake,
+        notes: bet.notes ?? `Model pick for ${bet.event_name}`,
+        odds_source: bet.odds_source,
+        event_start_time: bet.event_start_time,
+        event_date: bet.event_date,
+        is_closed: bet.is_closed,
+        is_unavailable: bet.is_unavailable,
+        unavailable_reason: bet.unavailable_reason,
+      },
+      {
+        openBetslip: openBetslipOnAdd,
+      },
+    );
 
     setFeedback(result.status);
-    setIsBetslipOpen(true);
   };
+
+  const handleCancel = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+
+    matchingSelections.forEach((selection) => removeBet(selection.id));
+    setFeedback("removed");
+  };
+
+  if (variant === "phase1") {
+    const phase1PrimaryLabel =
+      existingSelectionCount > 0
+        ? loggedLabel ?? "Selection Logged"
+        : label ?? "Log Selection";
+
+    return (
+      <div
+        className={`paper-bet-action phase1 ${fullWidth ? "full-width" : ""}`}
+        onClick={stopCardToggle}
+        onMouseDown={stopCardToggle}
+      >
+        <button
+          type="button"
+          className={`paper-bet-action-primary ${
+            existingSelectionCount > 0 ? "is-logged" : ""
+          }`}
+          onClick={handleQuickAdd}
+          disabled={existingSelectionCount > 0}
+          title={
+            existingSelectionCount > 0
+              ? "This selection is already in your paper betslip."
+              : "Add this selection to your persistent paper betslip."
+          }
+        >
+          {existingSelectionCount > 0 ? (
+            <CheckCircle2 size={15} />
+          ) : (
+            <ListPlus size={15} />
+          )}
+          <span>{phase1PrimaryLabel}</span>
+          {existingSelectionCount > 0 ? (
+            <span className="paper-bet-action-count">{existingSelectionCount}</span>
+          ) : null}
+        </button>
+
+        {existingSelectionCount > 0 ? (
+          <button
+            type="button"
+            className="paper-bet-action-cancel"
+            onClick={handleCancel}
+            title="Remove this selection from the paper betslip."
+          >
+            <X size={14} />
+            <span>{cancelLabel}</span>
+          </button>
+        ) : null}
+
+        <style jsx>{`
+          .paper-bet-action {
+            align-items: stretch;
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            min-width: 0;
+          }
+
+          .paper-bet-action.full-width {
+            width: 100%;
+          }
+
+          .paper-bet-action-primary,
+          .paper-bet-action-cancel {
+            align-items: center;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            display: inline-flex;
+            font-family: inherit;
+            font-size: 0.8rem;
+            font-weight: 800;
+            gap: 0.4rem;
+            justify-content: center;
+            min-height: 42px;
+            padding: 0.65rem 0.9rem;
+            transition:
+              background var(--transition-fast),
+              border-color var(--transition-fast),
+              box-shadow var(--transition-fast),
+              color var(--transition-fast),
+              transform var(--transition-fast);
+            width: 100%;
+          }
+
+          .paper-bet-action-primary {
+            background: linear-gradient(
+              135deg,
+              rgba(34, 197, 94, 0.9),
+              rgba(16, 185, 129, 0.82)
+            );
+            border-color: rgba(110, 231, 183, 0.4);
+            box-shadow: 0 10px 24px rgba(16, 185, 129, 0.18);
+            color: #f8fffb;
+          }
+
+          .paper-bet-action-primary:hover:not(:disabled) {
+            background: linear-gradient(
+              135deg,
+              rgba(52, 211, 153, 0.96),
+              rgba(16, 185, 129, 0.9)
+            );
+            box-shadow: 0 12px 28px rgba(16, 185, 129, 0.22);
+            transform: translateY(-1px);
+          }
+
+          .paper-bet-action-primary.is-logged {
+            background: linear-gradient(
+              135deg,
+              rgba(37, 99, 235, 0.22),
+              rgba(59, 130, 246, 0.18)
+            );
+            border-color: rgba(96, 165, 250, 0.4);
+            box-shadow: none;
+            color: #dbeafe;
+            cursor: default;
+          }
+
+          .paper-bet-action-primary:disabled {
+            opacity: 1;
+          }
+
+          .paper-bet-action-cancel {
+            background: rgba(15, 23, 42, 0.9);
+            border-color: rgba(248, 113, 113, 0.42);
+            color: #fecaca;
+          }
+
+          .paper-bet-action-cancel:hover {
+            background: rgba(127, 29, 29, 0.28);
+            border-color: rgba(252, 165, 165, 0.55);
+            color: #fee2e2;
+            transform: translateY(-1px);
+          }
+
+          .paper-bet-action-count {
+            align-items: center;
+            background: rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            display: inline-flex;
+            font-size: 0.72rem;
+            justify-content: center;
+            min-width: 1.3rem;
+            padding: 0.1rem 0.35rem;
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   const buttonLabel =
     existingSelectionCount > 0
@@ -130,7 +308,11 @@ export default function PaperBetAction({ bet }: PaperBetActionProps) {
       : "Quick Paper Bet";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}
+      onClick={stopCardToggle}
+      onMouseDown={stopCardToggle}
+    >
       <button
         className="btn btn-sm btn-secondary"
         onClick={handleQuickAdd}
@@ -161,15 +343,10 @@ export default function PaperBetAction({ bet }: PaperBetActionProps) {
       </button>
 
       {feedback === "duplicate" ? (
-        <button
-          type="button"
-          onClick={() => setIsBetslipOpen(true)}
+        <span
           style={{
             alignItems: "center",
-            background: "transparent",
-            border: "none",
             color: "var(--text-dim)",
-            cursor: "pointer",
             display: "inline-flex",
             fontSize: "0.72rem",
             gap: "0.3rem",
@@ -178,7 +355,7 @@ export default function PaperBetAction({ bet }: PaperBetActionProps) {
         >
           <ShoppingCart size={12} />
           Already added. Review it in the slip.
-        </button>
+        </span>
       ) : null}
     </div>
   );

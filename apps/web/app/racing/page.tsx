@@ -617,6 +617,11 @@ export default function RacingPage() {
                                   }}
                                 >
                                   <PaperBetAction
+                                    variant="phase1"
+                                    label="Log Selection"
+                                    loggedLabel="Selection Logged"
+                                    cancelLabel="Cancel"
+                                    openBetslipOnAdd={false}
                                     bet={{
                                       sport: "racing",
                                       event_id: race.race_id,

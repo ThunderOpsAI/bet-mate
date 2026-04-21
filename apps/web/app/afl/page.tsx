@@ -486,10 +486,43 @@ export default function AFLPage() {
                       Fair: ${prediction.predictions.fair_odds_home}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Home"
+                      loggedLabel="Home Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "afl",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: prediction.predictions.fair_odds_home,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_home,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                        is_closed: gameComplete > 0 && gameComplete < 100,
+                      }}
+                    />
+                  ) : null}
                 </div>
 
-                <div className="vs-divider">
-                  <span>VS</span>
+                <div className="matchup-center-block">
+                  <span className="matchup-center-kicker">AFL Matchup</span>
+                  <span className="matchup-center-title">
+                    {game.home_team} vs {game.away_team}
+                  </span>
+                  <span className="matchup-center-subtitle">
+                    {scoreLabel ?? formatGameStartLabel(game.date)}
+                  </span>
+                  <span className="matchup-center-subtitle subtle">
+                    Live scores: {formatLiveStatus(liveStatus)}
+                  </span>
                 </div>
 
                 <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
@@ -501,6 +534,30 @@ export default function AFLPage() {
                       Fair: ${prediction.predictions.fair_odds_away}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Away"
+                      loggedLabel="Away Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "afl",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: prediction.predictions.fair_odds_away,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_away,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                        is_closed: gameComplete > 0 && gameComplete < 100,
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -510,10 +567,6 @@ export default function AFLPage() {
               </div>
 
               <div className="game-context-row">
-                <span className="context-chip">
-                  Live scores: {formatLiveStatus(liveStatus)}
-                </span>
-                {scoreLabel ? <span className="context-chip">{scoreLabel}</span> : null}
                 <span className="context-chip">
                   {weatherMap[game.features.weather_condition] ?? "☀️ Clear"}
                 </span>
@@ -565,42 +618,6 @@ export default function AFLPage() {
                         sport="afl" 
                         eventId={game.game_id} 
                         selection={homeWins ? game.home_team : game.away_team}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                          odds_source: "model_fair",
-                          current_odds: prediction.predictions.fair_odds_home,
-                          can_compare_odds: false,
-                          event_start_time: game.date,
-                          is_closed: gameComplete > 0 && gameComplete < 100,
-                        }}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                          odds_source: "model_fair",
-                          current_odds: prediction.predictions.fair_odds_away,
-                          can_compare_odds: false,
-                          event_start_time: game.date,
-                          is_closed: gameComplete > 0 && gameComplete < 100,
-                        }}
                       />
                     </div>
                   </>
@@ -696,4 +713,23 @@ function formatLiveStatus(status: "connecting" | "connected" | "reconnecting") {
   }
 
   return "connecting";
+}
+
+function formatGameStartLabel(dateValue?: string | null) {
+  if (!dateValue) {
+    return "Start time pending";
+  }
+
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Start time pending";
+  }
+
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    weekday: "short",
+  }).format(parsedDate);
 }
