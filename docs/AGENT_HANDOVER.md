@@ -220,7 +220,8 @@ BetMate (monorepo)
 
 ### Commit status
 - `31f56bc` committed: local web timeout/fallback and loader-clear reliability fix.
-- Handover/docs update is the remaining pre-push documentation commit.
+- `434b65d` committed: handover refresh plus `docs/LIGHTSAIL_OWNER_INSTRUCTIONS.md`.
+- Branch is clean and ready to push.
 
 ### Recommended next work
 - Push this branch, then debug Lightsail/live ML deployment and runtime behavior against the real environment.
