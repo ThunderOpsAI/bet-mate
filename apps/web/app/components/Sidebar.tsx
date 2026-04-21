@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot, BookOpen } from "lucide-react";
 
@@ -23,7 +24,13 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       {open && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 35 }} onClick={onClose} className="sidebar-backdrop" />}
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-brand">
-          <Trophy size={24} style={{ color: "var(--accent)" }} />
+          <Image
+            src="/brand/betmate-logo.png"
+            alt="BetMate"
+            width={132}
+            height={42}
+            className="sidebar-brand-logo"
+          />
           <h1>BetMate</h1>
         </div>
         <nav>

@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type {
+  BobExplanation,
+  FeatureImpactItem,
+  ModelMetadata,
+} from "../lib/bob/explainer";
 import { Brain, Zap, BarChart3 } from "lucide-react";
+import ExplainDrawer from "../components/ExplainDrawer";
 import RefreshControls from "../components/RefreshControls";
+import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -32,8 +39,16 @@ type NBAPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
   };
-  feature_impact: Record<string, number>;
-  ai_insights_context: string;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?:
+    | {
+        data_quality?: "strong" | "moderate" | "thin";
+        calibration_confidence?: number;
+        market_agreement?: boolean;
+        notes?: string[];
+      }
+    | string;
+  model_metadata?: ModelMetadata;
 };
 
 type NBAPredictionEntry = readonly [string, NBAPrediction];
@@ -103,6 +118,9 @@ export default function NBAPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
+    null,
+  );
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
@@ -228,6 +246,11 @@ export default function NBAPage() {
 
   return (
     <div>
+      <ExplainDrawer
+        open={activeExplanation !== null}
+        explanation={activeExplanation}
+        onClose={() => setActiveExplanation(null)}
+      />
       <RefreshControls
         lastUpdated={lastUpdated}
         nextRefreshAt={nextRefreshAt}
@@ -305,6 +328,29 @@ export default function NBAPage() {
                 </span>
                 {prediction ? (
                   <>
+                    <button
+                      type="button"
+                      className="why-pick-button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setActiveExplanation(
+                          buildBobExplanation({
+                            sport: "nba",
+                            selectionName: homeWins ? game.home_team : game.away_team,
+                            opponentName: homeWins ? game.away_team : game.home_team,
+                            probability: homeWins ? homePct : awayPct,
+                            fairOdds: homeWins
+                              ? prediction.predictions.fair_odds_home
+                              : prediction.predictions.fair_odds_away,
+                            featureImpact: prediction.feature_impact,
+                            aiInsightsContext: prediction.ai_insights_context,
+                            modelMetadata: prediction.model_metadata,
+                          }),
+                        );
+                      }}
+                    >
+                      <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
+                    </button>
                     <div onClick={(event) => event.stopPropagation()}>
                       <PaperBetAction
                         bet={{
@@ -370,44 +416,21 @@ export default function NBAPage() {
 
                   <div className="feature-impact-section">
                     <h4>
-                      <BarChart3 size={16} /> ML Feature Impact
+                      <BarChart3 size={16} /> Bob explainability
                     </h4>
-                    <div className="feature-bars">
-                      {Object.entries(prediction.feature_impact)
-                        .sort(([, left], [, right]) => right - left)
-                        .map(([feature, importance]) => (
-                          <div key={feature} className="feature-bar-row">
-                            <span className="feature-label">
-                              {formatFeatureName(feature)}
-                            </span>
-                            <div className="feature-bar-track">
-                              <div
-                                className="feature-bar-fill nba"
-                                style={{
-                                  width: `${
-                                    (importance /
-                                      Math.max(
-                                        ...Object.values(prediction.feature_impact),
-                                      )) *
-                                    100
-                                  }%`,
-                                }}
-                              />
-                            </div>
-                            <span className="feature-value">
-                              {(importance * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                        ))}
-                    </div>
+                    <p className="muted-copy">
+                      Open the "Why" drawer for the lead side to see the real edge,
+                      the caution flags, and whether the model confidence deserves a
+                      heavier or lighter touch.
+                    </p>
                   </div>
 
-                  {prediction.ai_insights_context ? (
-                    <div className="ai-insight-card">
-                      <Brain size={16} />
-                      <span>{prediction.ai_insights_context}</span>
-                    </div>
-                  ) : null}
+                  <div className="explain-inline-card">
+                    <span>
+                      Model lean: {homeWins ? game.home_team : game.away_team} at{" "}
+                      {(homeWins ? homePct : awayPct).toFixed(1)}%
+                    </span>
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -422,8 +445,4 @@ export default function NBAPage() {
       </div>
     </div>
   );
-}
-
-function formatFeatureName(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }

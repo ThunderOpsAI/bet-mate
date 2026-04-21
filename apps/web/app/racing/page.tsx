@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type {
+  BobExplanation,
+  FeatureImpactItem,
+  ModelMetadata,
+} from "../lib/bob/explainer";
 import {
-  Brain,
   Trophy,
   MapPin,
   ChevronDown,
@@ -11,7 +15,9 @@ import {
   Bell,
   BellOff,
 } from "lucide-react";
+import ExplainDrawer from "../components/ExplainDrawer";
 import RefreshControls from "../components/RefreshControls";
+import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -71,8 +77,16 @@ type Prediction = {
 type RacePrediction = {
   race_id: string;
   predictions: Prediction[];
-  feature_impact: Record<string, number>;
-  ai_insights_context: string;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?:
+    | {
+        data_quality?: "strong" | "moderate" | "thin";
+        calibration_confidence?: number;
+        market_agreement?: boolean;
+        notes?: string[];
+      }
+    | string;
+  model_metadata?: ModelMetadata;
 };
 
 type RacePredictionEntry = readonly [string, RacePrediction];
@@ -158,6 +172,9 @@ export default function RacingPage() {
   });
   const [watchSaving, setWatchSaving] = useState(false);
   const [watchSaved, setWatchSaved] = useState<string | null>(null);
+  const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
+    null,
+  );
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
@@ -323,6 +340,11 @@ export default function RacingPage() {
 
   return (
     <div>
+      <ExplainDrawer
+        open={activeExplanation !== null}
+        explanation={activeExplanation}
+        onClose={() => setActiveExplanation(null)}
+      />
       <RefreshControls
         lastUpdated={lastUpdated}
         nextRefreshAt={nextRefreshAt}
@@ -475,6 +497,27 @@ export default function RacingPage() {
                                       stake: 10,
                                     }}
                                   />
+                                  <button
+                                    type="button"
+                                    className="why-pick-button"
+                                    onClick={() =>
+                                      setActiveExplanation(
+                                        buildBobExplanation({
+                                          sport: "racing",
+                                          selectionName: pick.name,
+                                          probability: pick.win_probability,
+                                          fairOdds: pick.fair_odds,
+                                          marketOdds: horse?.betfair_back_price,
+                                          featureImpact: prediction.feature_impact,
+                                          aiInsightsContext:
+                                            prediction.ai_insights_context,
+                                          modelMetadata: prediction.model_metadata,
+                                        }),
+                                      )
+                                    }
+                                  >
+                                    Why this pick?
+                                  </button>
                                   {user && user.id !== "guest" ? (
                                     <button
                                       className="btn btn-sm btn-outline"
@@ -663,44 +706,14 @@ export default function RacingPage() {
 
                   <div className="feature-impact-section">
                     <h4>
-                      <BarChart3 size={16} /> ML Feature Impact
+                      <BarChart3 size={16} /> Bob explainability
                     </h4>
-                    <div className="feature-bars">
-                      {Object.entries(prediction.feature_impact)
-                        .sort(([, left], [, right]) => right - left)
-                        .map(([feature, importance]) => (
-                          <div key={feature} className="feature-bar-row">
-                            <span className="feature-label">
-                              {formatFeatureName(feature)}
-                            </span>
-                            <div className="feature-bar-track">
-                              <div
-                                className="feature-bar-fill"
-                                style={{
-                                  width: `${
-                                    (importance /
-                                      Math.max(
-                                        ...Object.values(prediction.feature_impact),
-                                      )) *
-                                    100
-                                  }%`,
-                                }}
-                              />
-                            </div>
-                            <span className="feature-value">
-                              {(importance * 100).toFixed(1)}%
-                            </span>
-                          </div>
-                        ))}
-                    </div>
+                    <p className="muted-copy">
+                      Each runner now has a dedicated "Why this pick?" view so Bob can
+                      explain the model edge, caution flags, and market context
+                      without flooding the table with raw feature bars.
+                    </p>
                   </div>
-
-                  {prediction.ai_insights_context ? (
-                    <div className="ai-insight-card">
-                      <Brain size={16} />
-                      <span>{prediction.ai_insights_context}</span>
-                    </div>
-                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -715,10 +728,6 @@ export default function RacingPage() {
       </div>
     </div>
   );
-}
-
-function formatFeatureName(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function formatMarketPrice(horse?: HorseData): string {

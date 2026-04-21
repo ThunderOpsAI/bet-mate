@@ -2,6 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type {
+  BobExplanation,
+  FeatureImpactItem,
+  ModelMetadata,
+} from "./lib/bob/explainer";
 import {
   Trophy,
   Zap,
@@ -11,8 +16,10 @@ import {
   Brain,
 } from "lucide-react";
 import Link from "next/link";
+import ExplainDrawer from "./components/ExplainDrawer";
 import RefreshControls from "./components/RefreshControls";
 import PaperBetAction from "./components/PaperBetAction";
+import { buildBobExplanation } from "./lib/bob/explainer";
 import { ML_API } from "./lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -35,6 +42,7 @@ type RaceSummary = {
   horses: Array<{
     horse_id: string;
     name: string;
+    betfair_back_price?: number;
   }>;
 };
 
@@ -46,7 +54,16 @@ type RacePrediction = {
     win_probability: number;
     fair_odds: number;
   }>;
-  ai_insights_context?: string;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?:
+    | {
+        data_quality?: "strong" | "moderate" | "thin";
+        calibration_confidence?: number;
+        market_agreement?: boolean;
+        notes?: string[];
+      }
+    | string;
+  model_metadata?: ModelMetadata;
 };
 
 type AFLGame = {
@@ -66,7 +83,16 @@ type AFLPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
   };
-  ai_insights_context?: string;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?:
+    | {
+        data_quality?: "strong" | "moderate" | "thin";
+        calibration_confidence?: number;
+        market_agreement?: boolean;
+        notes?: string[];
+      }
+    | string;
+  model_metadata?: ModelMetadata;
 };
 
 type NBAGame = {
@@ -86,7 +112,16 @@ type NBAPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
   };
-  ai_insights_context?: string;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?:
+    | {
+        data_quality?: "strong" | "moderate" | "thin";
+        calibration_confidence?: number;
+        market_agreement?: boolean;
+        notes?: string[];
+      }
+    | string;
+  model_metadata?: ModelMetadata;
 };
 
 type RacePredictionEntry = readonly [string, RacePrediction];
@@ -268,6 +303,9 @@ export default function DashboardPage() {
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [engineStatus, setEngineStatus] = useState<"online" | "offline">(
     "offline",
+  );
+  const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
+    null,
   );
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
@@ -523,6 +561,11 @@ export default function DashboardPage() {
 
   return (
     <div>
+      <ExplainDrawer
+        open={activeExplanation !== null}
+        explanation={activeExplanation}
+        onClose={() => setActiveExplanation(null)}
+      />
       <div className={`engine-banner ${engineStatus}`}>
         <Activity size={16} />
         <span>
@@ -633,6 +676,26 @@ export default function DashboardPage() {
                         {pick.win_probability}%
                       </span>
                       <span className="prediction-odds">${pick.fair_odds}</span>
+                      <button
+                        type="button"
+                        className="why-pick-button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setActiveExplanation(
+                            buildBobExplanation({
+                              sport: "racing",
+                              selectionName: pick.name,
+                              probability: pick.win_probability,
+                              fairOdds: pick.fair_odds,
+                              featureImpact: prediction?.feature_impact,
+                              aiInsightsContext: prediction?.ai_insights_context,
+                              modelMetadata: prediction?.model_metadata,
+                            }),
+                          );
+                        }}
+                      >
+                        Why this pick?
+                      </button>
                       <Link
                         className="btn btn-sm btn-secondary"
                         href={paperBetHref({
@@ -651,11 +714,6 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
-              {prediction?.ai_insights_context ? (
-                <div className="ai-insight-badge">
-                  <Brain size={12} /> {prediction.ai_insights_context}
-                </div>
-              ) : null}
             </div>
           );
         })}
@@ -731,9 +789,31 @@ export default function DashboardPage() {
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
               </div>
-              {prediction?.ai_insights_context ? (
-                <div className="ai-insight-badge">
-                  <Brain size={12} /> {prediction.ai_insights_context}
+              {prediction ? (
+                <div className="dashboard-card-actions">
+                  <button
+                    type="button"
+                    className="why-pick-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setActiveExplanation(
+                        buildBobExplanation({
+                          sport: "afl",
+                          selectionName: homeWins ? game.home_team : game.away_team,
+                          opponentName: homeWins ? game.away_team : game.home_team,
+                          probability: homeWins ? homePct : awayPct,
+                          fairOdds: homeWins
+                            ? prediction.predictions.fair_odds_home
+                            : prediction.predictions.fair_odds_away,
+                          featureImpact: prediction.feature_impact,
+                          aiInsightsContext: prediction.ai_insights_context,
+                          modelMetadata: prediction.model_metadata,
+                        }),
+                      );
+                    }}
+                  >
+                    <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -811,9 +891,31 @@ export default function DashboardPage() {
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
               </div>
-              {prediction?.ai_insights_context ? (
-                <div className="ai-insight-badge">
-                  <Brain size={12} /> {prediction.ai_insights_context}
+              {prediction ? (
+                <div className="dashboard-card-actions">
+                  <button
+                    type="button"
+                    className="why-pick-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setActiveExplanation(
+                        buildBobExplanation({
+                          sport: "nba",
+                          selectionName: homeWins ? game.home_team : game.away_team,
+                          opponentName: homeWins ? game.away_team : game.home_team,
+                          probability: homeWins ? homePct : awayPct,
+                          fairOdds: homeWins
+                            ? prediction.predictions.fair_odds_home
+                            : prediction.predictions.fair_odds_away,
+                          featureImpact: prediction.feature_impact,
+                          aiInsightsContext: prediction.ai_insights_context,
+                          modelMetadata: prediction.model_metadata,
+                        }),
+                      );
+                    }}
+                  >
+                    <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
+                  </button>
                 </div>
               ) : null}
             </div>

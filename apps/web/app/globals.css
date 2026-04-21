@@ -98,6 +98,12 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.sidebar-brand-logo {
+  width: 132px;
+  height: auto;
+  object-fit: contain;
+}
+
 .sidebar-brand h1 {
   font-size: 1.25rem;
   font-weight: 800;
@@ -1158,6 +1164,38 @@ tr:hover td {
   color: var(--text-muted);
 }
 
+.dashboard-card-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.9rem;
+}
+
+.why-pick-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border-radius: 999px;
+  padding: 0.45rem 0.8rem;
+  font-size: 0.77rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.why-pick-button:hover {
+  border-color: rgba(129, 140, 248, 0.5);
+  background: rgba(99, 102, 241, 0.16);
+  transform: translateY(-1px);
+}
+
+.why-pick-button:focus-visible {
+  outline: 2px solid rgba(129, 140, 248, 0.65);
+  outline-offset: 2px;
+}
+
 /* ---- AI Insight Badge ---- */
 .ai-insight-badge {
   display: flex;
@@ -1651,6 +1689,225 @@ tr:hover td {
   animation: slideDown 0.3s ease;
 }
 
+.explain-inline-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  color: var(--text-secondary);
+}
+
+.muted-copy {
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+.icon-button {
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.icon-button:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.explain-drawer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+}
+
+.explain-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(10, 14, 26, 0.68);
+}
+
+.explain-drawer-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(520px, 100%);
+  height: 100%;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.18), transparent 34%),
+    linear-gradient(180deg, #12172a 0%, #0d1220 100%);
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: -18px 0 48px rgba(0, 0, 0, 0.35);
+  padding: 1.4rem;
+}
+
+.explain-drawer-header {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1.25rem;
+}
+
+.explain-bob-avatar {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  border-radius: 24px;
+  overflow: hidden;
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.18), rgba(99, 102, 241, 0.22));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.explain-bob-avatar-image {
+  object-fit: cover;
+  object-position: left top;
+  transform: scale(3.25) translate(12%, 5%);
+  transform-origin: top left;
+}
+
+.explain-drawer-title-wrap h3 {
+  font-size: 1.45rem;
+  line-height: 1.1;
+  margin-bottom: 0.4rem;
+}
+
+.explain-drawer-title-wrap p {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.explain-bob-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #c7d2fe;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.45rem;
+}
+
+.explain-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.explain-metric-card {
+  border-radius: 18px;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.explain-metric-card span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-bottom: 0.4rem;
+}
+
+.explain-metric-card strong {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.explain-metric-card.strong strong {
+  color: #86efac;
+}
+
+.explain-metric-card.measured strong {
+  color: #e2e8f0;
+}
+
+.explain-metric-card.cautious strong {
+  color: #fbbf24;
+}
+
+.explain-section {
+  margin-top: 1rem;
+}
+
+.explain-section h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  margin-bottom: 0.7rem;
+  color: var(--text-primary);
+}
+
+.explain-section p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.explain-signal-list,
+.explain-note-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.explain-signal-card,
+.explain-note-card {
+  border-radius: 18px;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.explain-signal-card.caution {
+  background: rgba(251, 191, 36, 0.06);
+  border-color: rgba(251, 191, 36, 0.16);
+}
+
+.explain-signal-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+  font-weight: 700;
+}
+
+.signal-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.signal-pill.positive {
+  background: rgba(34, 197, 94, 0.12);
+  color: #86efac;
+}
+
+.signal-pill.negative {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fbbf24;
+}
+
+.explain-note-card.subtle {
+  color: var(--text-muted);
+}
+
 /* ---- Stats Compare (NBA) ---- */
 .stats-compare {
   display: flex;
@@ -1698,6 +1955,40 @@ tr:hover td {
 /* ---- Mobile Responsive (new components) ---- */
 @media (max-width: 768px) {
   .predictions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prediction-pick-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .dashboard-card-actions {
+    margin-top: 0.75rem;
+  }
+
+  .explain-drawer-panel {
+    width: 100%;
+    top: auto;
+    bottom: 0;
+    height: min(82vh, 760px);
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-top-left-radius: 24px;
+    border-top-right-radius: 24px;
+    box-shadow: 0 -18px 48px rgba(0, 0, 0, 0.32);
+  }
+
+  .explain-drawer-header {
+    grid-template-columns: 72px 1fr auto;
+  }
+
+  .explain-bob-avatar {
+    width: 72px;
+    height: 72px;
+  }
+
+  .explain-metrics-grid {
     grid-template-columns: 1fr;
   }
 

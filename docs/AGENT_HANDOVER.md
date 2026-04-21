@@ -166,7 +166,7 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 1 — Shared ML Cache + Refresh UX
+Phase 2 — BetMate Bob Explainability
 
 ### Agent ID
 Codex
@@ -180,56 +180,72 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Review Phase 0 completion status before frontend work.
-- Create shared ML cache with 5-minute TTL.
-- Implement auto-refresh logic on Dashboard, Racing, AFL, and NBA pages.
-- Add shared refresh controls UI for manual refresh and countdowns.
-- Keep cached data visible during background refreshes.
-- Align dashboard AFL/NBA actions with the existing "Log Selection" / paper betslip flow.
+- Build the Phase 2 explainability layer in `apps/web/app/`.
+- Create the Bob explanation utility from existing ML response data.
+- Add a reusable explain drawer/modal component.
+- Integrate “Why this pick?” entry points into Dashboard, Racing, AFL, and NBA prediction surfaces.
+- Use the existing `feature_impact`, `ai_insights_context`, and `model_metadata` API contract.
+- Keep the tone honest, confidence-aware, and useful.
+- Stay narrow to Phase 2 only.
+- Include the supplied Bob/logo assets if appropriate to this phase, otherwise document them for next phase.
 
 ### API contracts confirmed before this session
-- Relied on existing ML endpoints and Phase 0 contract confirmation from the handover.
+- Relied on the handover-confirmed prediction response contract:
+  - `feature_impact`
+  - `ai_insights_context`
+  - `model_metadata`
 
 ### Owner instructions for this session
-- "Starting Phase 1: Shared ML Cache + Refresh UX."
+- "Read docs/AGENT_HANDOVER.md and docs/BUILD_SPEC.md first."
+- "Phase 1 is complete. Start Phase 2 — BetMate Bob Explainability."
 - Frontend code is in `apps/web/app/`, not `apps/web/src/`.
-- Follow-up: use the same `Log Selection` / add-to-betslip action in dashboard AFL/NBA cards and place the away action physically under the away team.
+- "Stay narrow to Phase 2 only. No unrelated refactors."
+- "Do not push."
+- "Before finishing: update docs/AGENT_HANDOVER.md with your session details."
+- "Commit completed work with a descriptive message."
+- Follow-up: Bob and BetMate logo source images are under `docs/`; use the original on the website if it fits this phase, otherwise record them for next phase.
 
 ### Files touched
-- `apps/web/app/lib/cache/mlDataCache.ts` (created)
-- `apps/web/app/components/RefreshControls.tsx` (created)
+- `apps/web/app/lib/bob/explainer.ts` (created)
+- `apps/web/app/components/ExplainDrawer.tsx` (created)
 - `apps/web/app/page.tsx` (modified)
 - `apps/web/app/racing/page.tsx` (modified)
 - `apps/web/app/afl/page.tsx` (modified)
 - `apps/web/app/nba/page.tsx` (modified)
+- `apps/web/app/components/Sidebar.tsx` (modified)
 - `apps/web/app/globals.css` (modified)
+- `apps/web/public/brand/betmate-bob-original.png` (created)
+- `apps/web/public/brand/betmate-logo.png` (created)
+- `docs/Betmate Bob.png` (source asset retained)
+- `docs/Betmate Logo.png` (source asset retained)
 
 ### What I did NOT touch
 - I did not change backend ML logic or API contracts.
-- I did not touch non-Phase-1 routes outside the target pages/components.
+- I did not change non-Phase-2 product flows outside the target prediction surfaces and shared shell branding needed for the supplied logo.
 
 ### What was completed
-- Added a shared client-side ML cache keyed by `fixtures:{sport}:{date}` and `predictions:{sport}:{date}` with a 5-minute TTL.
-- Persisted cache entries in memory plus `sessionStorage` so data survives route navigation in the current browser session.
-- Added reusable refresh controls showing last-updated time, next auto-refresh countdown, manual refresh button, and non-blocking refresh state.
-- Updated Dashboard, Racing, AFL, and NBA pages to hydrate from cache first, refresh in the background, and only show a full-page loader when no cache exists.
-- Kept stale data visible on refresh failures and scheduled a shorter retry window instead of blanking the page.
-- Updated dashboard AFL/NBA cards to use the same `PaperBetAction` flow as the sport pages, with each action placed under its corresponding team.
+- Added a shared Bob explainability engine at `apps/web/app/lib/bob/explainer.ts` that normalizes both the documented structured contract and the existing looser frontend shapes.
+- Built a reusable `ExplainDrawer` component with Bob-branded copy blocks for probability, fair odds, market context, feature drivers, caution flags, notes, and model metadata.
+- Integrated “Why this pick?” entry points into Dashboard racing rows, Dashboard AFL/NBA cards, Racing table rows, and AFL/NBA game cards.
+- Replaced the raw expanded feature-bar dumps on Racing/AFL/NBA pages with Bob explainability prompts and inline context so the detail view stays useful without exposing noisy internals by default.
+- Copied the supplied original Bob and BetMate logo assets into `apps/web/public/brand/`.
+- Wired the original BetMate Bob art into the explain drawer and the supplied BetMate logo into the sidebar brand area.
 
 ### What was not completed
-- No automated verification was completed because the workspace does not currently expose a local TypeScript CLI.
+- No automated verification was run because owner rules say not to test unless explicitly asked.
 
 ### Decisions made
-- Implemented the Phase 1 paths under `apps/web/app/` to match the actual repo layout, while keeping the build spec semantics.
-- Used a shared cache utility instead of page-local timers so all target routes read/write the same keys.
-- Used `sessionStorage` in addition to module memory so cached data survives client-side navigation and reloads within the same session.
-- Reused `PaperBetAction` on dashboard AFL/NBA cards to keep the action label and behavior consistent with the sport pages.
+- Kept all Phase 2 work under `apps/web/app/` to match the actual App Router structure while following the build spec intent.
+- Normalized the API inputs inside the Bob explainer rather than refactoring shared page fetch logic, to stay narrow and avoid backend/API changes.
+- Used one clear “Why” action per AFL/NBA card for the model lean instead of trying to fabricate separate explanations for both sides from matchup-level feature data.
+- Kept racing explanations row-level because the page already exposes individual horse selections.
+- Used the original Bob art in the drawer and the supplied logo in the sidebar because both fit the explainability/brand scope cleanly without requiring a larger sitewide rebrand pass.
 
 ### Questions asked owner
-- One follow-up handled in-thread: dashboard AFL/NBA actions should match the "Log Selection" copy/flow and the away action should sit under the away team.
+- No blocking clarification questions were needed after reading the handover/spec; scope and API contract were explicit enough to proceed.
 
 ### Owner answers received
-- Confirmed dashboard AFL/NBA should use the same "Log Selection" / betslip flow and the away action should be positioned under the away team.
+- Supplied Bob and logo source images under `docs/` and asked that they be used if they fit this phase, otherwise noted for next phase.
 
 ### Schema / migration changes
 none
@@ -241,23 +257,23 @@ none
 none
 
 ### UI/UX changes
-- Added shared refresh metadata and controls to Dashboard, Racing, AFL, and NBA.
-- Dashboard AFL/NBA cards now use the same modal-driven logging flow as the sport pages.
-- Away-team action on dashboard cards now sits directly under the away team block.
+- Added a reusable Bob explanation drawer/modal with mobile-friendly overlay behavior.
+- Added visible “Why this pick?” triggers across the four requested prediction surfaces.
+- Shifted expanded sport-page detail areas away from raw feature dumps toward Bob-guided explanation prompts.
+- Updated sidebar branding to use the supplied BetMate logo.
 
 ### Known issues / blockers
-- `tsc` is not available on PATH in this workspace, and `npx tsc --noEmit` also failed because no local TypeScript package is installed for CLI use. Manual code review was done, but compiler verification is still outstanding.
+- None blocking inside scope.
+- Explainability on AFL/NBA is intentionally tied to the model-lean side only because the current feature-impact payload is matchup-level, not side-specific.
 
 ### Scope creep check
-- No meaningful scope creep beyond the owner-requested dashboard CTA/layout follow-up.
+- Scope stayed narrow to Phase 2 explainability plus the owner-supplied Bob/logo asset integration that fit the same user-facing surface.
 
 ### ML Engine impact
 none
 
 ### Tests run
 none
-- Attempted compiler check:
-  - `tsc --noEmit -p apps/web/tsconfig.json` → failed because `tsc` command is unavailable
   - `npx tsc --noEmit` inside `apps/web` → failed because no local TypeScript CLI package is installed
 
 
