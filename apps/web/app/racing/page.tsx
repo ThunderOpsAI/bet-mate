@@ -47,6 +47,7 @@ import {
 import { getEdgePercent, rankOpportunities } from "../lib/opportunityScore";
 import { useAuth } from "../providers/AuthProvider";
 import PaperBetAction from "../components/PaperBetAction";
+import FeedbackButtons from "../components/FeedbackButtons";
 
 type BlackbookConfig = {
   probability_threshold: number;
@@ -637,7 +638,8 @@ export default function RacingPage() {
                                   <button
                                     type="button"
                                     className="why-pick-button"
-                                    onClick={() =>
+                                    onClick={(event) => {
+                                      event.stopPropagation();
                                       setActiveExplanation(
                                         buildBobExplanation({
                                           sport: "racing",
@@ -651,10 +653,17 @@ export default function RacingPage() {
                                           modelMetadata: prediction.model_metadata,
                                         }),
                                       )
-                                    }
+                                    }}
                                   >
                                     Why this pick?
                                   </button>
+                                  <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: '0.5rem' }}>
+                                    <FeedbackButtons 
+                                      sport="racing" 
+                                      eventId={race.race_id} 
+                                      selection={pick.name}
+                                    />
+                                  </div>
                                   {user && user.id !== "guest" ? (
                                     <button
                                       className="btn btn-sm btn-outline"

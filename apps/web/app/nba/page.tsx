@@ -38,6 +38,7 @@ import {
 } from "../lib/predictionSignals";
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
+import FeedbackButtons from "../components/FeedbackButtons";
 
 type NBAGame = {
   game_id: string;
@@ -465,6 +466,13 @@ export default function NBAPage() {
                     >
                       <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
                     </button>
+                    <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
+                      <FeedbackButtons 
+                        sport="nba" 
+                        eventId={game.game_id} 
+                        selection={homeWins ? game.home_team : game.away_team}
+                      />
+                    </div>
                     <div onClick={(event) => event.stopPropagation()}>
                       <PaperBetAction
                         bet={{
