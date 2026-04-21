@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "./AuthProvider";
+import { buildPaperBetKey } from "../lib/betslip/betKey";
 import {
   clearPersistedBetslip,
   loadPersistedBetslip,
@@ -16,23 +17,48 @@ export interface PaperBet {
   sport: string;
   event_id: string;
   event_name: string;
+  selection_id?: string;
   bet_type: string;
   selection: string;
   odds?: number;
   stake: number;
   notes?: string;
   added_at?: string;
+  odds_source?: "market" | "model_fair" | "missing";
+  event_start_time?: string;
+  event_date?: string;
+  is_closed?: boolean;
+  is_unavailable?: boolean;
+  unavailable_reason?: string;
+}
+
+export interface PaperBetSelectionSnapshot {
+  sport: string;
+  event_id: string;
+  selection: string;
+  bet_type?: string;
+  current_odds?: number | null;
+  odds_source?: "market" | "model_fair" | "missing";
+  can_compare_odds?: boolean;
+  event_start_time?: string;
+  event_date?: string;
+  is_closed?: boolean;
+  is_unavailable?: boolean;
+  unavailable_reason?: string;
+  last_seen_at?: string;
 }
 
 interface PaperBetslipContextType {
   bets: PaperBet[];
-  addBet: (bet: Omit<PaperBet, "id">) => void;
+  addBet: (bet: Omit<PaperBet, "id">) => { status: "added" | "duplicate"; id?: string };
   removeBet: (id: string) => void;
   clearBetslip: () => void;
   placeBets: () => Promise<{ success: number; failed: number }>;
   isBetslipOpen: boolean;
   setIsBetslipOpen: (open: boolean) => void;
   updateBet: (id: string, updates: Partial<PaperBet>) => void;
+  registerSelectionSnapshot: (snapshot: PaperBetSelectionSnapshot) => void;
+  selectionSnapshots: Record<string, PaperBetSelectionSnapshot>;
 }
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
@@ -40,6 +66,9 @@ const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(u
 export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
   const [bets, setBets] = useState<PaperBet[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
+  const [selectionSnapshots, setSelectionSnapshots] = useState<
+    Record<string, PaperBetSelectionSnapshot>
+  >({});
   const [hasHydrated, setHasHydrated] = useState(false);
   const { token } = useAuth();
 
@@ -69,6 +98,29 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   }, [isBetslipOpen, hasHydrated]);
 
   const addBet = useCallback((newBet: Omit<PaperBet, "id">) => {
+    const key = buildPaperBetKey({
+      sport: newBet.sport,
+      eventId: newBet.event_id,
+      selection: newBet.selection,
+      betType: newBet.bet_type,
+    });
+
+    const existingBet = bets.find((bet) => {
+      return (
+        buildPaperBetKey({
+          sport: bet.sport,
+          eventId: bet.event_id,
+          selection: bet.selection,
+          betType: bet.bet_type,
+        }) === key
+      );
+    });
+
+    if (existingBet) {
+      setIsBetslipOpen(true);
+      return { status: "duplicate" as const, id: existingBet.id };
+    }
+
     const id =
       typeof crypto !== "undefined" && "randomUUID" in crypto
         ? crypto.randomUUID()
@@ -79,7 +131,8 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       { ...newBet, id, added_at: new Date().toISOString() },
     ]);
     setIsBetslipOpen(true);
-  }, []);
+    return { status: "added" as const, id };
+  }, [bets]);
 
   const removeBet = useCallback((id: string) => {
     setBets((prev) => prev.filter((b) => b.id !== id));
@@ -93,6 +146,26 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   const updateBet = useCallback((id: string, updates: Partial<PaperBet>) => {
     setBets((prev) => prev.map((b) => (b.id === id ? { ...b, ...updates } : b)));
   }, []);
+
+  const registerSelectionSnapshot = useCallback(
+    (snapshot: PaperBetSelectionSnapshot) => {
+      const key = buildPaperBetKey({
+        sport: snapshot.sport,
+        eventId: snapshot.event_id,
+        selection: snapshot.selection,
+        betType: snapshot.bet_type,
+      });
+
+      setSelectionSnapshots((prev) => ({
+        ...prev,
+        [key]: {
+          ...snapshot,
+          last_seen_at: snapshot.last_seen_at ?? new Date().toISOString(),
+        },
+      }));
+    },
+    [],
+  );
 
   const placeBets = useCallback(async () => {
     if (bets.length === 0) return { success: 0, failed: 0 };
@@ -155,6 +228,8 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         isBetslipOpen,
         setIsBetslipOpen,
         updateBet,
+        registerSelectionSnapshot,
+        selectionSnapshots,
       }}
     >
       {children}

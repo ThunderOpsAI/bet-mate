@@ -489,6 +489,11 @@ export default function AFLPage() {
                           odds: prediction.predictions.fair_odds_home,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_home,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
+                          is_closed: gameComplete > 0 && gameComplete < 100,
                         }}
                       />
                     </div>
@@ -502,6 +507,11 @@ export default function AFLPage() {
                           odds: prediction.predictions.fair_odds_away,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_away,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
+                          is_closed: gameComplete > 0 && gameComplete < 100,
                         }}
                       />
                     </div>

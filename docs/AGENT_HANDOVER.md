@@ -166,7 +166,7 @@ If you need to change a weight for testing/debugging:
 ## Current Session Block
 
 ### Current phase
-Phase 5 — Betting Literacy + Opportunity Discovery
+Phase 6 — Paper Bet Flow + Blackbook Tightening
 
 ### Agent ID
 Codex
@@ -180,19 +180,19 @@ BetMate (monorepo)
 `v2-betmate-bob-and-ui-ux-upgrades`
 
 ### Assigned scope
-- Implement Phase 5 betting literacy and opportunity discovery work in `apps/web/app/`.
-- Add shared fair-odds and value education affordances under `apps/web/app/components/`.
-- Add sport-specific opportunity sections for Racing, AFL, and NBA using the existing confidence and urgency signals where useful.
-- Add a small dashboard summary of top sport-specific opportunities only.
-- Stay frontend-only, avoid cross-sport ranking, and preserve the honest/responsible framing from Phases 2 and 4.
+- Add consistent one-click paper bet actions across Racing, AFL, and NBA prediction surfaces in `apps/web/app/`.
+- Tighten the persistent paper betslip with duplicate, stale-odds, event-started, and missing/unavailable data safeguards using current frontend payloads only.
+- Tighten Blackbook/watch-rule UX without inventing unsupported backend trigger behaviour.
+- Stay frontend-only, keep scope narrow, and preserve the honest/responsible framing from earlier phases.
 
 ### API contracts confirmed before this session
 - Relied on the existing prediction payload fields already confirmed in the handover:
   - `ai_insights_context`
   - `feature_impact`
   - `model_metadata`
-- Racing pages already expose live market price via `betfair_back_price`, which is enough for honest edge/value messaging there.
-- AFL and NBA pages still only expose fair odds on the frontend surfaces touched in this session, so their opportunity sections were kept model-led rather than price-edge driven.
+- Racing pages already expose live market price via `betfair_back_price`, which is enough for honest stale-odds comparisons when that price is present in the current tab snapshot.
+- AFL and NBA pages still only expose fair odds on the touched frontend surfaces, so their paper bet flow remains model-led and explicitly does not claim live market comparison.
+- Existing Blackbook frontend/backend flow still writes to `/blackbook/{runner}/auto-bet` with stake, bet type, probability threshold, enabled flag, and optional notification fields only.
 
 ### Owner instructions for this session
 - "Read docs/AGENT_HANDOVER.md and docs/BUILD_SPEC.md first."
@@ -209,39 +209,52 @@ BetMate (monorepo)
 - "Continue from the next appropriate phase/task only"
 
 ### Files touched
-- `apps/web/app/components/EducationTooltip.tsx` (created)
-- `apps/web/app/components/OpportunitySection.tsx` (created)
-- `apps/web/app/components/racing/BestOpportunities.tsx` (created)
-- `apps/web/app/components/afl/BestOpportunities.tsx` (created)
-- `apps/web/app/components/nba/BestOpportunities.tsx` (created)
-- `apps/web/app/lib/opportunityScore.ts` (created)
+- `apps/web/app/lib/betslip/betKey.ts` (created)
+- `apps/web/app/components/PaperBetAction.tsx` (modified)
+- `apps/web/app/components/PaperBetslip.tsx` (modified)
+- `apps/web/app/providers/PaperBetslipProvider.tsx` (modified)
+- `apps/web/app/lib/betslip/persistSlip.ts` (modified)
+- `apps/web/app/blackbook/page.tsx` (modified)
 - `apps/web/app/page.tsx` (modified)
 - `apps/web/app/racing/page.tsx` (modified)
 - `apps/web/app/afl/page.tsx` (modified)
 - `apps/web/app/nba/page.tsx` (modified)
-- `apps/web/app/globals.css` (modified)
 
 ### What I did NOT touch
 - I did not change backend ML logic, weights, or API contracts.
-- I did not add any backend pricing feed, cross-sport ranking, or Phase 3 snapshot work.
-- I did not refactor unrelated pages outside the dashboard and the three sport prediction surfaces.
+- I did not add server sync for the paper betslip, settlement changes, or new feedback/watch-rule database tables.
+- I did not invent new Blackbook trigger types, opponent rules, or plain-English parsing.
+- I did not refactor unrelated pages outside the dashboard, sport prediction surfaces, and Blackbook UX.
 
 ### What was completed
-- Added shared education tooltip UI for fair odds, edge/value, model probability, and market disagreement concepts.
-- Added a client-side opportunity scoring helper that combines edge, confidence, urgency, and win probability without inventing any cross-sport normalisation.
-- Added sport-specific opportunity sections for Racing, AFL, and NBA, with Racing showing real price edge only when live market odds are available.
-- Added a compact dashboard summary showing top Racing, AFL, and NBA opportunities separately instead of creating a cross-sport ranked feed.
-- Added inline value badges where Racing already has honest live market comparison data, including dashboard racing cards and full racing table rows.
+- Reworked `PaperBetAction` into a consistent quick-add action that opens the persistent slip, avoids silently adding exact duplicates, and shows the current slip count inline across dashboard, Racing, AFL, and NBA prediction surfaces.
+- Extended the local paper betslip model with lightweight frontend-only metadata and a shared selection-key helper so the slip can reason about duplicate selections, event timing, and current tab snapshots.
+- Added betslip warning and submission safeguards:
+  - blocks logging when an event has already started
+  - blocks logging when odds are missing/unusable
+  - blocks logging when a selection is marked unavailable in the current snapshot
+  - flags duplicate selections already present in persisted state
+  - flags racing odds moves greater than 10% when a fresh Betfair price is honestly available in the current tab
+  - explicitly explains that AFL/NBA remain model-fair-odds only because live market comparison is not available on these touched surfaces
+- Updated racing paper-bet actions to use live market price when available and keep fair-odds fallback when not.
+- Tightened racing watch-rule copy to read as a saved watch rule rather than promising invisible automation.
+- Reworked the Blackbook page so it:
+  - explains the current supported scope up front
+  - offers direct “Add Horse” / “Add Team” entry points
+  - provides browse links to today’s runners and upcoming AFL/NBA games
+  - includes a simple builder for the currently supported saved-rule payload only
+  - rephrases existing items as straightforward watch rules with threshold, stake, and notification preferences
 
 ### What was not completed
 - No automated verification was run because owner rules say not to test unless explicitly asked.
 
 ### Decisions made
 - Kept all new frontend work under `apps/web/app/` even where the build spec still references `src`, matching the actual repo structure and owner instruction.
-- Used the Phase 4 shared confidence and urgency helpers as inputs to opportunity ranking so the new sections stay consistent with the current trust language.
-- Kept Racing as the only sport with explicit edge/value claims because that is the only touched surface that already exposes live market price in the current frontend payload.
-- Framed AFL and NBA opportunity sections as model-led discovery cards, explicitly noting that no live market price is attached there yet.
-- Added sport-specific dashboard summaries only, preserving the spec rule that cross-sport ranked feeds are deferred to V2.
+- Reused the existing persistent Phase 4 paper betslip flow rather than introducing any server-side persistence or settlement logic.
+- Used current-tab snapshot registration from the existing frontend surfaces to support honest stale-odds checks, instead of inventing background refresh or backend quote syncing.
+- Limited stale-odds comparison to Racing selections with live `betfair_back_price`; AFL and NBA explicitly remain fair-odds-only and show informational messaging instead of fake market checks.
+- Treated event-started, unavailable, and missing-odds states as blocking slip issues, while stale odds remain reviewable with explicit acknowledgement.
+- Rephrased Blackbook UX around “watch rules” and “paper bet stake” so the UI matches the currently supported fields instead of overpromising richer automation.
 
 ### Questions asked owner
 - No blocking clarification questions were needed after reading the handover/spec; scope and API contract were explicit enough to proceed.
@@ -259,17 +272,19 @@ none
 none
 
 ### UI/UX changes
-- Added reusable betting literacy tooltips for fair odds, edge/value, model probability, and market disagreement.
-- Added sport-specific opportunity discovery sections above Racing, AFL, and NBA prediction lists.
-- Added a compact dashboard opportunities summary for the top Racing, AFL, and NBA reads.
-- Added positive-value badges to racing selections where live market odds are longer than model fair odds.
+- Added a one-click quick-add paper bet action with slip count context across dashboard, Racing, AFL, and NBA prediction surfaces.
+- Added safer persistent betslip warnings for duplicates, started events, missing odds, unavailable selections, and racing stale-odds drift where the current frontend can honestly compare prices.
+- Added an explicit stale-odds acknowledgement step before logging selections whose racing price moved materially after being added.
+- Tightened racing watch-rule copy so it reads as a saved rule, not a magic automation promise.
+- Reworked the Blackbook page with clear supported-scope copy, direct add entry points, browse links, and a simple builder for the currently supported rule payload.
 
 ### Known issues / blockers
-- None blocking inside scope.
-- AFL and NBA opportunity sections remain model-led because those pages do not currently expose explicit market odds on the touched frontend payloads.
+- No blocking issues inside scope.
+- Stale-odds comparison only works when the current tab has loaded a fresh frontend snapshot for that selection; this is intentional and surfaced in the UI instead of being faked.
+- AFL and NBA still do not expose live market odds on the touched surfaces, so their paper bet actions and slip warnings stay model-led rather than price-led.
 
 ### Scope creep check
-- Scope stayed within Phase 5 frontend UX work and reused shared signal helpers rather than expanding backend contracts or ranking logic.
+- Scope stayed within Phase 6 frontend UX work and reused the existing local slip/Blackbook contracts rather than expanding backend APIs or automation behaviour.
 
 ### ML Engine impact
 none
@@ -280,9 +295,8 @@ none
 
 ### Commit status
 Committed
-Primary feature commit hash: `8d679b1`
-Primary feature commit message: "Implement Phase 5 betting literacy opportunities UX"
-Handover update is committed separately after this document update.
+Primary feature commit hash: `record after commit from git log`
+Primary feature commit message: `"Implement Phase 6 paper bet flow safeguards"`
 
 ### Push status
 Not pushed — owner will review and push
@@ -291,21 +305,17 @@ Not pushed — owner will review and push
 - ML logic correctly bypasses XGBoost and performs the manual weights defined in `app/ml/weights.py`.
 - Be mindful that the backend relies heavily on Pydantic schemas in `main.py`.
 - **Frontend Path Warning:** The repo uses `apps/web/app/` for Next.js, NOT `apps/web/src/`. Keep new frontend work under `app/`.
-- Phase 4 confidence badges still derive from `ai_insights_context` only; Phase 5 opportunity ranking reuses those signals rather than introducing a new confidence contract.
-- Racing value badges rely on `betfair_back_price`; AFL and NBA still need real frontend market odds before any honest edge calculation can be shown there.
-- The new dashboard opportunity summary is intentionally split by sport. Do not collapse it into one cross-sport ranked list unless the owner explicitly approves V2 behaviour.
+- Phase 4 confidence badges still derive from `ai_insights_context` only; this session did not change confidence/urgency contracts.
+- Racing stale-odds checks rely on `betfair_back_price` snapshots registered by the current tab. If future work needs stronger guarantees, it will need explicit product approval for backend quote refresh or frontend polling.
+- AFL and NBA paper bet flows still run on fair odds only because those touched frontend payloads do not provide honest live market odds yet.
+- Blackbook UI now better matches the currently supported rule payload, but richer watch-rule conditions from the build spec still need real backend support before they should be exposed.
 
 ### Recommended next work
-Phase 6 — Paper Bet Flow + Blackbook Tightening
+Phase 7 — Model Learning / Results UX once enough settled data exists
 
 #### Phase 6 Prompt for Next Agent:
-"Starting Phase 6: Paper Bet Flow + Blackbook Tightening.
-Goal: make paper betting actions more consistent and safer now that Phase 4 persistence and Phase 5 opportunity discovery are in place.
-1. Add consistent one-click paper bet actions across Racing, AFL, and NBA prediction cards where the spec calls for them.
-2. Add smart betslip warnings for duplicates, stale odds, event-started state, and missing/unavailable selections using the existing slip state and current frontend payloads only.
-3. Tighten the Blackbook/watch-rule UX without inventing backend trigger behaviour that does not already exist.
-4. Keep all work in `apps/web/app/`, stay narrow, and do not run tests unless the owner asks.
-Reference BUILD_SPEC.md Phase 6 for details."
+"Phase 6 is complete on the frontend.
+If the owner wants to continue sequentially, move to the next approved phase only after re-reading BUILD_SPEC.md and confirming data dependencies. Keep the same repo/branch rules, stay in `apps/web/app/`, and do not run tests unless explicitly asked."
 
 
 ---

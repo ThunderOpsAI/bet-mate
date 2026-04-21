@@ -845,20 +845,30 @@ export default function DashboardPage() {
                       >
                         Why this pick?
                       </button>
-                      <Link
-                        className="btn btn-sm btn-secondary"
-                        href={paperBetHref({
-                          sport: "racing",
-                          eventId: race.race_id,
-                          eventName: `${race.venue} R${race.race_number}`,
-                          selection: pick.name,
-                          odds: pick.fair_odds,
-                          betType: "win",
-                        })}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        Paper
-                      </Link>
+                      <div onClick={(event) => event.stopPropagation()}>
+                        <PaperBetAction
+                          bet={{
+                            sport: "racing",
+                            event_id: race.race_id,
+                            event_name: `${race.venue} R${race.race_number}`,
+                            selection_id: pick.horse_id,
+                            selection: pick.name,
+                            odds: horse?.betfair_back_price ?? pick.fair_odds,
+                            bet_type: "win",
+                            stake: 10,
+                            odds_source: horse?.betfair_back_price
+                              ? "market"
+                              : "model_fair",
+                            current_odds: horse?.betfair_back_price ?? pick.fair_odds,
+                            can_compare_odds: Boolean(
+                              horse?.betfair_back_price &&
+                                horse.betfair_back_price > 1,
+                            ),
+                            event_start_time: race.start_time,
+                            event_date: race.meeting_date,
+                          }}
+                        />
+                      </div>
                     </div>
                     </div>
                   );
@@ -914,6 +924,12 @@ export default function DashboardPage() {
                           odds: prediction.predictions.fair_odds_home,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_home,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
+                          is_closed:
+                            (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
                         }}
                       />
                     </div>
@@ -937,6 +953,12 @@ export default function DashboardPage() {
                           odds: prediction.predictions.fair_odds_away,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_away,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
+                          is_closed:
+                            (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
                         }}
                       />
                     </div>
@@ -1026,6 +1048,10 @@ export default function DashboardPage() {
                           odds: prediction.predictions.fair_odds_home,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_home,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
                         }}
                       />
                     </div>
@@ -1049,6 +1075,10 @@ export default function DashboardPage() {
                           odds: prediction.predictions.fair_odds_away,
                           bet_type: "head_to_head",
                           stake: 10,
+                          odds_source: "model_fair",
+                          current_odds: prediction.predictions.fair_odds_away,
+                          can_compare_odds: false,
+                          event_start_time: game.date,
                         }}
                       />
                     </div>
@@ -1113,24 +1143,4 @@ export default function DashboardPage() {
       </div>
     </div>
   );
-}
-
-function paperBetHref(params: {
-  sport: string;
-  eventId: string;
-  eventName: string;
-  selection: string;
-  odds: number;
-  betType: string;
-}): string {
-  const search = new URLSearchParams({
-    sport: params.sport,
-    event_id: params.eventId,
-    event_name: params.eventName,
-    selection: params.selection,
-    odds: String(params.odds),
-    bet_type: params.betType,
-  });
-
-  return `/bets/new?${search.toString()}`;
 }

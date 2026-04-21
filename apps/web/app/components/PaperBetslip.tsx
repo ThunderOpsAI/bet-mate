@@ -1,32 +1,176 @@
 "use client";
-import React, { useState } from "react";
-import { X, Trash2, Send, ShoppingCart, ChevronUp, ChevronDown, Loader2, CheckCircle2 } from "lucide-react";
+
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  Send,
+  ShoppingCart,
+  Trash2,
+  X,
+} from "lucide-react";
+import {
+  buildPaperBetKey,
+  getOddsShiftPercent,
+  hasEventStarted,
+} from "../lib/betslip/betKey";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
+type BetIssue = {
+  tone: "warning" | "danger" | "info";
+  message: string;
+  blocking: boolean;
+  requiresReview: boolean;
+};
+
 export default function PaperBetslip() {
-  const { 
-    bets, 
-    removeBet, 
-    clearBetslip, 
-    placeBets, 
-    isBetslipOpen, 
+  const {
+    bets,
+    clearBetslip,
+    isBetslipOpen,
+    placeBets,
+    removeBet,
+    selectionSnapshots,
     setIsBetslipOpen,
-    updateBet 
+    updateBet,
   } = usePaperBetslip();
 
   const [placing, setPlacing] = useState(false);
-  const [result, setResult] = useState<{ success: number; failed: number } | null>(null);
+  const [result, setResult] = useState<{ success: number; failed: number } | null>(
+    null,
+  );
   const [confirmClear, setConfirmClear] = useState(false);
+  const [acknowledgeOddsChanges, setAcknowledgeOddsChanges] = useState(false);
+
+  const warnings = useMemo(() => {
+    const counts = bets.reduce<Record<string, number>>((acc, bet) => {
+      const key = buildPaperBetKey({
+        sport: bet.sport,
+        eventId: bet.event_id,
+        selection: bet.selection,
+        betType: bet.bet_type,
+      });
+
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return bets.map((bet) => {
+      const key = buildPaperBetKey({
+        sport: bet.sport,
+        eventId: bet.event_id,
+        selection: bet.selection,
+        betType: bet.bet_type,
+      });
+      const snapshot = selectionSnapshots[key];
+      const issues: BetIssue[] = [];
+
+      if ((counts[key] ?? 0) > 1) {
+        issues.push({
+          tone: "warning",
+          message: "Duplicate selection in slip. Review your stake before logging twice.",
+          blocking: false,
+          requiresReview: false,
+        });
+      }
+
+      if (
+        hasEventStarted({
+          eventStartTime: snapshot?.event_start_time ?? bet.event_start_time,
+          eventDate: snapshot?.event_date ?? bet.event_date,
+          isClosed: snapshot?.is_closed ?? bet.is_closed,
+        })
+      ) {
+        issues.push({
+          tone: "danger",
+          message: "Event already started. Remove this pick before logging the slip.",
+          blocking: true,
+          requiresReview: false,
+        });
+      }
+
+      if (snapshot?.is_unavailable || bet.is_unavailable) {
+        issues.push({
+          tone: "danger",
+          message:
+            snapshot?.unavailable_reason ??
+            bet.unavailable_reason ??
+            "Selection is unavailable in the current frontend snapshot.",
+          blocking: true,
+          requiresReview: false,
+        });
+      }
+
+      if (!bet.odds || bet.odds <= 1) {
+        issues.push({
+          tone: "danger",
+          message: "Missing usable odds. This selection cannot be logged from the slip yet.",
+          blocking: true,
+          requiresReview: false,
+        });
+      }
+
+      const latestOdds = snapshot?.current_odds;
+      const oddsShift = snapshot?.can_compare_odds
+        ? getOddsShiftPercent(bet.odds, latestOdds)
+        : null;
+
+      if (oddsShift !== null && Math.abs(oddsShift) > 10) {
+        issues.push({
+          tone: "warning",
+          message: `Current odds moved ${oddsShift > 0 ? "up" : "down"} ${Math.abs(
+            oddsShift,
+          ).toFixed(0)}% since you added this pick.`,
+          blocking: false,
+          requiresReview: true,
+        });
+      }
+
+      if (snapshot && !snapshot.can_compare_odds && bet.odds_source !== "market") {
+        issues.push({
+          tone: "info",
+          message:
+            "Logged at model fair odds only. Live stale-odds checks are not available on this selection yet.",
+          blocking: false,
+          requiresReview: false,
+        });
+      }
+
+      return { bet, issues };
+    });
+  }, [bets, selectionSnapshots]);
+
+  useEffect(() => {
+    setAcknowledgeOddsChanges(false);
+  }, [bets]);
 
   if (bets.length === 0 && !isBetslipOpen && !result) return null;
 
+  const totalStake = bets.reduce((sum, b) => sum + b.stake, 0);
+  const blockingIssues = warnings.flatMap((entry) =>
+    entry.issues.filter((issue) => issue.blocking),
+  );
+  const reviewIssues = warnings.flatMap((entry) =>
+    entry.issues.filter((issue) => issue.requiresReview),
+  );
+
+  const canSubmit =
+    blockingIssues.length === 0 &&
+    (reviewIssues.length === 0 || acknowledgeOddsChanges);
+
   const handlePlaceBets = async () => {
+    if (!canSubmit) {
+      return;
+    }
+
     setPlacing(true);
     const res = await placeBets();
     setResult(res);
     setPlacing(false);
-    
-    // Clear result after 3 seconds
+
     setTimeout(() => {
       setResult(null);
       if (res.failed === 0) {
@@ -45,11 +189,8 @@ export default function PaperBetslip() {
     }
   };
 
-  const totalStake = bets.reduce((sum, b) => sum + b.stake, 0);
-
   return (
     <div className={`betslip-container ${isBetslipOpen ? "open" : "collapsed"}`}>
-      {/* Header / Toggle */}
       <div className="betslip-header" onClick={() => setIsBetslipOpen(!isBetslipOpen)}>
         <div className="betslip-title">
           <div className="betslip-icon-wrap">
@@ -71,12 +212,6 @@ export default function PaperBetslip() {
               <CheckCircle2 size={48} className={result.failed === 0 ? "text-green" : "text-yellow"} />
               <h3>{result.failed === 0 ? "Bets Logged!" : "Partial Success"}</h3>
               <p>{result.success} bets recorded successfully.</p>
-              {result.failed > 0 ? (
-                <div className="betslip-error-box">
-                  <p className="text-red">{result.failed} bets failed to log.</p>
-                  <span className="small">Please verify your bet history.</span>
-                </div>
-              ) : null}
             </div>
           ) : bets.length === 0 ? (
             <div className="betslip-empty">
@@ -86,38 +221,115 @@ export default function PaperBetslip() {
             </div>
           ) : (
             <>
+              <div className="betslip-status-stack">
+                {blockingIssues.length > 0 ? (
+                  <div className="betslip-banner danger">
+                    <AlertTriangle size={16} />
+                    <span>
+                      {blockingIssues.length} selection
+                      {blockingIssues.length === 1 ? "" : "s"} need fixing before
+                      you can log this slip.
+                    </span>
+                  </div>
+                ) : null}
+
+                {reviewIssues.length > 0 ? (
+                  <label className="betslip-banner warning" htmlFor="ack-odds-changes">
+                    <input
+                      id="ack-odds-changes"
+                      type="checkbox"
+                      checked={acknowledgeOddsChanges}
+                      onChange={(event) => setAcknowledgeOddsChanges(event.target.checked)}
+                    />
+                    <span>
+                      {reviewIssues.length} selection
+                      {reviewIssues.length === 1 ? "" : "s"} moved more than 10%.
+                      Review the current racing prices before you log anyway.
+                    </span>
+                  </label>
+                ) : null}
+
+                <div className="betslip-banner info">
+                  <AlertTriangle size={16} />
+                  <span>
+                    Live stale-odds checks only work where this tab has a fresh frontend
+                    price snapshot. Racing can compare live Betfair prices; AFL and NBA
+                    stay model-led for now.
+                  </span>
+                </div>
+              </div>
+
               <div className="betslip-list">
-                {bets.map((bet) => (
-                  <div key={bet.id} className="betslip-item">
-                    <div className="betslip-item-header">
-                      <div className="betslip-item-info">
-                        <strong className="betslip-selection">{bet.selection}</strong>
-                        <span className="betslip-event">{bet.event_name}</span>
+                {warnings.map(({ bet, issues }) => {
+                  const key = buildPaperBetKey({
+                    sport: bet.sport,
+                    eventId: bet.event_id,
+                    selection: bet.selection,
+                    betType: bet.bet_type,
+                  });
+                  const snapshot = selectionSnapshots[key];
+                  const latestOdds = snapshot?.current_odds;
+
+                  return (
+                    <div key={bet.id} className="betslip-item">
+                      <div className="betslip-item-header">
+                        <div className="betslip-item-info">
+                          <strong className="betslip-selection">{bet.selection}</strong>
+                          <span className="betslip-event">{bet.event_name}</span>
+                        </div>
+                        <button
+                          className="betslip-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeBet(bet.id);
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                      <button className="betslip-remove" onClick={(e) => { e.stopPropagation(); removeBet(bet.id); }}>
-                        <X size={14} />
-                      </button>
-                    </div>
-                    <div className="betslip-item-details">
-                      <div className="betslip-item-meta">
-                        <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
-                        <span className="badge badge-accent">${bet.odds?.toFixed(2) || "Fair"}</span>
-                      </div>
-                      <div className="betslip-item-stake">
-                        <label>Stake</label>
-                        <div className="stake-input-wrap">
-                          <span>$</span>
-                          <input 
-                            type="number" 
-                            min="1" 
-                            value={bet.stake} 
-                            onChange={(e) => updateBet(bet.id, { stake: Number(e.target.value) })}
-                          />
+                      <div className="betslip-item-details">
+                        <div className="betslip-item-meta">
+                          <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
+                          <span className="badge badge-accent">
+                            ${bet.odds?.toFixed(2) || "0.00"}
+                          </span>
+                          {latestOdds && latestOdds > 1 ? (
+                            <span className="badge badge-blue">
+                              Now ${latestOdds.toFixed(2)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="betslip-item-stake">
+                          <label>Stake</label>
+                          <div className="stake-input-wrap">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={bet.stake}
+                              onChange={(e) =>
+                                updateBet(bet.id, { stake: Number(e.target.value) })
+                              }
+                            />
+                          </div>
                         </div>
                       </div>
+                      {issues.length > 0 ? (
+                        <div className="betslip-issues">
+                          {issues.map((issue, index) => (
+                            <div
+                              key={`${bet.id}-${index}`}
+                              className={`betslip-issue ${issue.tone}`}
+                            >
+                              <AlertTriangle size={13} />
+                              <span>{issue.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               <div className="betslip-footer">
                 <div className="betslip-summary">
@@ -131,16 +343,33 @@ export default function PaperBetslip() {
                   </div>
                 </div>
                 <div className="betslip-actions">
-                  <button 
-                    className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`} 
-                    onClick={handleClearBets} 
+                  <button
+                    className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`}
+                    onClick={handleClearBets}
                     disabled={placing}
                   >
                     <Trash2 size={14} /> {confirmClear ? "Confirm" : "Clear"}
                   </button>
-                  <button className="btn btn-primary btn-block" onClick={handlePlaceBets} disabled={placing}>
+                  <button
+                    className="btn btn-primary btn-block"
+                    onClick={handlePlaceBets}
+                    disabled={placing || !canSubmit}
+                    title={
+                      blockingIssues.length > 0
+                        ? "Fix blocked selections first."
+                        : reviewIssues.length > 0 && !acknowledgeOddsChanges
+                          ? "Acknowledge the odds changes before proceeding."
+                          : "Log the current paper betslip."
+                    }
+                  >
                     {placing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    {placing ? "Logging..." : "Log Paper Bets"}
+                    {placing
+                      ? "Logging..."
+                      : blockingIssues.length > 0
+                        ? "Fix Slip Warnings"
+                        : reviewIssues.length > 0 && !acknowledgeOddsChanges
+                          ? "Review Odds Changes"
+                          : "Log Paper Bets"}
                   </button>
                 </div>
               </div>
@@ -154,7 +383,7 @@ export default function PaperBetslip() {
           position: fixed;
           bottom: 1.5rem;
           right: 1.5rem;
-          width: 360px;
+          width: 380px;
           background: var(--bg-secondary);
           border: 1px solid var(--border);
           border-radius: var(--radius-lg);
@@ -233,8 +462,48 @@ export default function PaperBetslip() {
           flex: 1;
           display: flex;
           flex-direction: column;
-          min-height: 200px;
+          min-height: 220px;
           background: var(--bg-primary);
+        }
+
+        .betslip-status-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 0.55rem;
+          padding: 1rem 1rem 0;
+        }
+
+        .betslip-banner {
+          align-items: flex-start;
+          border-radius: 10px;
+          display: flex;
+          gap: 0.6rem;
+          padding: 0.75rem 0.85rem;
+          font-size: 0.78rem;
+          line-height: 1.4;
+        }
+
+        .betslip-banner input {
+          margin-top: 0.2rem;
+        }
+
+        .betslip-banner.danger {
+          background: rgba(239, 68, 68, 0.12);
+          color: #fecaca;
+          border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .betslip-banner.warning {
+          background: rgba(245, 158, 11, 0.12);
+          color: #fde68a;
+          border: 1px solid rgba(245, 158, 11, 0.3);
+          cursor: pointer;
+        }
+
+        .betslip-banner.info {
+          background: rgba(96, 165, 250, 0.12);
+          color: #bfdbfe;
+          border: 1px solid rgba(96, 165, 250, 0.3);
         }
 
         .betslip-list {
@@ -252,11 +521,6 @@ export default function PaperBetslip() {
           border: 1px solid var(--border);
           border-radius: var(--radius);
           padding: 0.85rem;
-          transition: border-color var(--transition-fast);
-        }
-
-        .betslip-item:hover {
-          border-color: var(--accent-glow);
         }
 
         .betslip-item-header {
@@ -288,7 +552,6 @@ export default function PaperBetslip() {
           cursor: pointer;
           padding: 4px;
           border-radius: 4px;
-          transition: all var(--transition-fast);
         }
 
         .betslip-remove:hover {
@@ -306,6 +569,7 @@ export default function PaperBetslip() {
         .betslip-item-meta {
           display: flex;
           gap: 0.4rem;
+          flex-wrap: wrap;
         }
 
         .betslip-item-stake {
@@ -318,167 +582,121 @@ export default function PaperBetslip() {
         .betslip-item-stake label {
           font-size: 0.7rem;
           font-weight: 600;
-          color: var(--text-dim);
-          text-transform: uppercase;
+          color: var(--text-muted);
         }
 
         .stake-input-wrap {
           display: flex;
           align-items: center;
-          background: var(--bg-input);
+          gap: 0.35rem;
+          background: var(--bg-primary);
           border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          padding: 0 0.5rem;
-          width: 70px;
+          border-radius: 8px;
+          padding: 0.35rem 0.5rem;
         }
 
         .stake-input-wrap span {
-          font-size: 0.8rem;
+          font-size: 0.78rem;
           color: var(--text-muted);
         }
 
         .stake-input-wrap input {
-          width: 100%;
-          background: transparent;
+          width: 68px;
           border: none;
+          background: transparent;
           color: var(--text-primary);
-          font-size: 0.85rem;
-          font-weight: 600;
-          padding: 0.4rem 0.25rem;
-          text-align: right;
-        }
-
-        .stake-input-wrap input:focus {
           outline: none;
         }
 
-        .betslip-footer {
-          padding: 1.25rem;
-          background: var(--bg-secondary);
-          border-top: 1px solid var(--border);
+        .betslip-issues {
           display: flex;
           flex-direction: column;
-          gap: 1rem;
+          gap: 0.4rem;
+          margin-top: 0.7rem;
+        }
+
+        .betslip-issue {
+          align-items: flex-start;
+          border-radius: 8px;
+          display: flex;
+          gap: 0.45rem;
+          padding: 0.5rem 0.6rem;
+          font-size: 0.74rem;
+          line-height: 1.35;
+        }
+
+        .betslip-issue.warning {
+          background: rgba(245, 158, 11, 0.12);
+          color: #fde68a;
+        }
+
+        .betslip-issue.danger {
+          background: rgba(239, 68, 68, 0.12);
+          color: #fecaca;
+        }
+
+        .betslip-issue.info {
+          background: rgba(96, 165, 250, 0.1);
+          color: #bfdbfe;
+        }
+
+        .betslip-footer {
+          border-top: 1px solid var(--border);
+          padding: 1rem;
+          background: var(--bg-secondary);
         }
 
         .betslip-summary {
           display: flex;
           flex-direction: column;
-          gap: 0.4rem;
+          gap: 0.5rem;
+          margin-bottom: 0.85rem;
         }
 
         .summary-row {
           display: flex;
           justify-content: space-between;
-          font-size: 0.85rem;
-          color: var(--text-secondary);
+          color: var(--text-muted);
+          font-size: 0.82rem;
         }
 
         .summary-row.total {
-          font-size: 1rem;
           color: var(--text-primary);
-          padding-top: 0.4rem;
-          margin-top: 0.2rem;
-          border-top: 1px dashed var(--border);
+          font-size: 0.92rem;
         }
 
         .betslip-actions {
-          display: grid;
-          grid-template-columns: auto 1fr;
+          display: flex;
           gap: 0.75rem;
         }
 
-        .betslip-empty {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 3rem 1.5rem;
-          text-align: center;
-          color: var(--text-dim);
-        }
-
-        .betslip-empty p {
-          margin-top: 0.75rem;
-          font-weight: 600;
-          font-size: 0.95rem;
-        }
-
-        .betslip-empty .small {
-          font-size: 0.8rem;
-          font-weight: 400;
-          margin-top: 0.25rem;
-        }
-
+        .betslip-empty,
         .betslip-result {
-          flex: 1;
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          padding: 2rem;
+          gap: 0.75rem;
+          padding: 2rem 1.5rem;
           text-align: center;
-        }
-
-        .betslip-result h3 {
-          margin-top: 1rem;
-          font-size: 1.25rem;
-        }
-
-        .betslip-result p {
           color: var(--text-muted);
-          margin-top: 0.5rem;
         }
 
-        .animate-spin {
-          animation: spin 1s linear infinite;
+        .text-green {
+          color: var(--green);
         }
 
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
+        .text-yellow {
+          color: #fbbf24;
         }
 
-        .text-green { color: var(--green); }
-        .text-red { color: var(--red); }
-        .text-yellow { color: var(--yellow); }
-
-        .betslip-error-box {
-          margin-top: 1rem;
-          padding: 0.75rem;
-          background: var(--red-bg);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-          border-radius: var(--radius-sm);
-        }
-
-        .betslip-error-box .small {
-          display: block;
-          margin-top: 0.25rem;
-          font-size: 0.8rem;
-          color: var(--text-dim);
-        }
-
-        .btn-danger {
-          background: var(--red);
-          color: white;
-        }
-        .btn-danger:hover {
-          background: #dc2626;
-        }
-
-        @media (max-width: 640px) {
+        @media (max-width: 768px) {
           .betslip-container {
-            bottom: max(1.5rem, env(safe-area-inset-bottom));
+            left: 1rem;
             right: 1rem;
-            width: calc(100% - 2rem);
-            max-height: 65vh;
-            border-radius: var(--radius-lg);
-          }
-          .betslip-container.collapsed {
+            bottom: 1rem;
             width: auto;
-            right: 1rem;
-            bottom: max(1.5rem, env(safe-area-inset-bottom));
+            max-height: calc(100vh - 80px);
           }
         }
       `}</style>

@@ -8,12 +8,19 @@ export interface PersistedPaperBet {
   sport: string;
   event_id: string;
   event_name: string;
+  selection_id?: string;
   bet_type: string;
   selection: string;
   odds?: number;
   stake: number;
   notes?: string;
   added_at?: string;
+  odds_source?: "market" | "model_fair" | "missing";
+  event_start_time?: string;
+  event_date?: string;
+  is_closed?: boolean;
+  is_unavailable?: boolean;
+  unavailable_reason?: string;
 }
 
 function canUseStorage() {

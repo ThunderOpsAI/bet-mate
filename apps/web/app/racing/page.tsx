@@ -556,10 +556,22 @@ export default function RacingPage() {
                                       sport: "racing",
                                       event_id: race.race_id,
                                       event_name: `${race.venue} R${race.race_number}`,
+                                      selection_id: pick.horse_id,
                                       selection: pick.name,
-                                      odds: pick.fair_odds,
+                                      odds: horse?.betfair_back_price ?? pick.fair_odds,
                                       bet_type: "win",
                                       stake: 10,
+                                      odds_source: horse?.betfair_back_price
+                                        ? "market"
+                                        : "model_fair",
+                                      current_odds:
+                                        horse?.betfair_back_price ?? pick.fair_odds,
+                                      can_compare_odds: Boolean(
+                                        horse?.betfair_back_price &&
+                                          horse.betfair_back_price > 1,
+                                      ),
+                                      event_start_time: race.start_time,
+                                      event_date: race.meeting_date,
                                     }}
                                   />
                                   <button
@@ -620,7 +632,7 @@ export default function RacingPage() {
                                         marginBottom: "8px",
                                       }}
                                     >
-                                      Watch: {pick.name}
+                                      Save watch rule: {pick.name}
                                     </div>
                                     <label
                                       style={{
@@ -628,7 +640,7 @@ export default function RacingPage() {
                                         marginBottom: "6px",
                                       }}
                                     >
-                                      Trigger if above{" "}
+                                      Trigger when model win chance reaches{" "}
                                       <strong>
                                         {watchConfig.probability_threshold}%
                                       </strong>
@@ -658,7 +670,7 @@ export default function RacingPage() {
                                         marginBottom: "6px",
                                       }}
                                     >
-                                      Auto stake $
+                                      Paper bet stake $
                                       <input
                                         type="number"
                                         min={1}
@@ -754,10 +766,10 @@ export default function RacingPage() {
                                       style={{ width: "100%" }}
                                     >
                                       {watchSaved === pick.name
-                                        ? "Watching ✓"
+                                        ? "Saved ✓"
                                         : watchSaving
                                           ? "Saving..."
-                                          : "Watch"}
+                                          : "Save watch rule"}
                                     </button>
                                   </div>
                                 ) : null}
