@@ -2,6 +2,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "./AuthProvider";
+import {
+  clearPersistedBetslip,
+  loadPersistedBetslip,
+  loadPersistedBetslipOpen,
+  savePersistedBetslip,
+  savePersistedBetslipOpen,
+  subscribeToBetslipStorage,
+} from "../lib/betslip/persistSlip";
 
 export interface PaperBet {
   id: string;
@@ -13,6 +21,7 @@ export interface PaperBet {
   odds?: number;
   stake: number;
   notes?: string;
+  added_at?: string;
 }
 
 interface PaperBetslipContextType {
@@ -31,28 +40,44 @@ const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(u
 export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
   const [bets, setBets] = useState<PaperBet[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
+  const [hasHydrated, setHasHydrated] = useState(false);
   const { token } = useAuth();
 
-  // Load from localStorage if available
   useEffect(() => {
-    const saved = localStorage.getItem("paper_betslip");
-    if (saved) {
-      try {
-        setBets(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to load betslip from localStorage", e);
-      }
-    }
+    setBets(loadPersistedBetslip());
+    setIsBetslipOpen(loadPersistedBetslipOpen());
+    setHasHydrated(true);
+
+    return subscribeToBetslipStorage((nextBets, nextOpen) => {
+      setBets(nextBets);
+      setIsBetslipOpen(nextOpen);
+    });
   }, []);
 
-  // Save to localStorage
   useEffect(() => {
-    localStorage.setItem("paper_betslip", JSON.stringify(bets));
-  }, [bets]);
+    if (!hasHydrated) {
+      return;
+    }
+    savePersistedBetslip(bets);
+  }, [bets, hasHydrated]);
+
+  useEffect(() => {
+    if (!hasHydrated) {
+      return;
+    }
+    savePersistedBetslipOpen(isBetslipOpen);
+  }, [isBetslipOpen, hasHydrated]);
 
   const addBet = useCallback((newBet: Omit<PaperBet, "id">) => {
-    const id = Math.random().toString(36).substr(2, 9);
-    setBets((prev) => [...prev, { ...newBet, id }]);
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : Math.random().toString(36).slice(2, 11);
+
+    setBets((prev) => [
+      ...prev,
+      { ...newBet, id, added_at: new Date().toISOString() },
+    ]);
     setIsBetslipOpen(true);
   }, []);
 
@@ -62,6 +87,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
   const clearBetslip = useCallback(() => {
     setBets([]);
+    clearPersistedBetslip();
   }, []);
 
   const updateBet = useCallback((id: string, updates: Partial<PaperBet>) => {

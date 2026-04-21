@@ -1,13 +1,13 @@
 "use client";
 import { useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import PaperBetslip from "./PaperBetslip";
+import OnboardingTour from "./OnboardingTour";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
@@ -17,6 +17,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
+      <OnboardingTour />
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-area">
         <header className="top-header">
@@ -47,6 +48,7 @@ function getPageTitle(path: string) {
   if (path === "/bets") return "My Bets";
   if (path === "/bankroll") return "Bankroll";
   if (path === "/analytics") return "Analytics";
+  if (path === "/how-it-works") return "How BetMate Works";
   if (path === "/settings") return "Settings";
   return "BetMate";
 }

@@ -16,6 +16,10 @@ import {
   BellOff,
 } from "lucide-react";
 import ExplainDrawer from "../components/ExplainDrawer";
+import {
+  ConfidenceBadge,
+  UrgencyBadge,
+} from "../components/PredictionSignalBadges";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
@@ -28,6 +32,10 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
+import {
+  getConfidenceSignal,
+  getUrgencySignal,
+} from "../lib/predictionSignals";
 import { useAuth } from "../providers/AuthProvider";
 import PaperBetAction from "../components/PaperBetAction";
 
@@ -375,6 +383,13 @@ export default function RacingPage() {
           const prediction = predictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
           const isExpanded = expandedRace === race.race_id;
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: race.start_time,
+            eventDate: race.meeting_date,
+          });
 
           return (
             <div
@@ -406,6 +421,8 @@ export default function RacingPage() {
                   {race.meeting_date ? (
                     <span className="badge badge-muted">{race.meeting_date}</span>
                   ) : null}
+                  {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                  {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
                 </div>
                 <div className="race-detail-preview">
                   {top3.map((pick, index) => (

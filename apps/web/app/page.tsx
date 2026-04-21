@@ -17,10 +17,18 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import ExplainDrawer from "./components/ExplainDrawer";
+import {
+  ConfidenceBadge,
+  UrgencyBadge,
+} from "./components/PredictionSignalBadges";
 import RefreshControls from "./components/RefreshControls";
 import PaperBetAction from "./components/PaperBetAction";
 import { buildBobExplanation } from "./lib/bob/explainer";
 import { ML_API } from "./lib/mlApi";
+import {
+  getConfidenceSignal,
+  getUrgencySignal,
+} from "./lib/predictionSignals";
 import {
   getMlCacheDateKey,
   getMlDataCacheKey,
@@ -36,6 +44,7 @@ type RaceSummary = {
   venue: string;
   race_number: number;
   distance: number;
+  start_time?: string;
   meeting_type?: "metro" | "provincial" | "country" | "unknown";
   meeting_region?: string;
   meeting_date?: string;
@@ -100,6 +109,7 @@ type NBAGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  date?: string;
 };
 
 type NBAPrediction = {
@@ -641,6 +651,13 @@ export default function DashboardPage() {
         {races.slice(0, 3).map((race) => {
           const prediction = racePredictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: race.start_time,
+            eventDate: race.meeting_date,
+          });
 
           return (
             <div
@@ -652,6 +669,10 @@ export default function DashboardPage() {
                 <div>
                   <span className="prediction-venue">{race.venue}</span>
                   <span className="prediction-race">Race {race.race_number}</span>
+                  <div className="prediction-card-signals" style={{ marginTop: "0.4rem" }}>
+                    {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                    {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
+                  </div>
                   {race.meeting_region || race.meeting_type ? (
                     <div className="context-chip" style={{ marginTop: "0.4rem" }}>
                       {[race.meeting_region, race.meeting_type]
@@ -731,6 +752,14 @@ export default function DashboardPage() {
           const homePct = prediction?.predictions?.home_win_probability ?? 50;
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
           const homeWins = homePct > awayPct;
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          });
 
           return (
             <div
@@ -789,6 +818,10 @@ export default function DashboardPage() {
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
               </div>
+              <div className="prediction-card-signals" style={{ marginTop: "0.9rem" }}>
+                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
+              </div>
               {prediction ? (
                 <div className="dashboard-card-actions">
                   <button
@@ -833,6 +866,12 @@ export default function DashboardPage() {
           const homePct = prediction?.predictions?.home_win_probability ?? 50;
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
           const homeWins = homePct > awayPct;
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: game.date,
+          });
 
           return (
             <div
@@ -890,6 +929,10 @@ export default function DashboardPage() {
               <div className="game-prob-bar">
                 <div className="prob-fill home" style={{ width: `${homePct}%` }} />
                 <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
+              </div>
+              <div className="prediction-card-signals" style={{ marginTop: "0.9rem" }}>
+                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
               </div>
               {prediction ? (
                 <div className="dashboard-card-actions">

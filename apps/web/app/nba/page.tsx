@@ -8,6 +8,10 @@ import type {
 } from "../lib/bob/explainer";
 import { Brain, Zap, BarChart3 } from "lucide-react";
 import ExplainDrawer from "../components/ExplainDrawer";
+import {
+  ConfidenceBadge,
+  UrgencyBadge,
+} from "../components/PredictionSignalBadges";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
@@ -20,6 +24,10 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
+import {
+  getConfidenceSignal,
+  getUrgencySignal,
+} from "../lib/predictionSignals";
 import PaperBetAction from "../components/PaperBetAction";
 
 type NBAGame = {
@@ -27,6 +35,7 @@ type NBAGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  date?: string;
 };
 
 type NBAPrediction = {
@@ -265,6 +274,12 @@ export default function NBAPage() {
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
           const homeWins = homePct > awayPct;
           const isExpanded = expandedGame === game.game_id;
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: game.date,
+          });
 
           return (
             <div
@@ -326,6 +341,8 @@ export default function NBAPage() {
                 <span className="context-chip">
                   {game.features.away_b2b ? "⚡ Away B2B" : "✅ Away Rested"}
                 </span>
+                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
                 {prediction ? (
                   <>
                     <button

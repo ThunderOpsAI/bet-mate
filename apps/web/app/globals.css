@@ -757,6 +757,229 @@ select.form-input {
   line-height: 1.6;
 }
 
+.signal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: 1px solid transparent;
+}
+
+.signal-badge.strong {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.25);
+  color: #86efac;
+}
+
+.signal-badge.medium,
+.signal-badge.today {
+  background: rgba(59, 130, 246, 0.12);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+
+.signal-badge.caution,
+.signal-badge.soon {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #fcd34d;
+}
+
+.signal-badge.muted {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.22);
+  color: #cbd5e1;
+}
+
+.signal-badge.closed,
+.signal-badge.pending,
+.signal-badge.settled {
+  background: rgba(244, 63, 94, 0.12);
+  border-color: rgba(244, 63, 94, 0.24);
+  color: #fda4af;
+}
+
+.prediction-card-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.tour-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(5, 10, 24, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.tour-card {
+  width: min(100%, 460px);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98));
+  border: 1px solid rgba(99, 102, 241, 0.18);
+  border-radius: 24px;
+  padding: 1.4rem;
+  box-shadow: 0 30px 80px rgba(15, 23, 42, 0.5);
+}
+
+.tour-card h3 {
+  font-size: 1.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.tour-card p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.tour-progress {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 1rem;
+}
+
+.tour-dots {
+  display: flex;
+  gap: 0.4rem;
+  margin: 1rem 0 1.2rem;
+}
+
+.tour-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.tour-dot.active {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+}
+
+.tour-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.how-it-works-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+}
+
+.how-hero {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 1rem;
+}
+
+.how-hero-copy,
+.how-diagram-card,
+.how-card {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(17, 24, 39, 0.96));
+  border: 1px solid rgba(99, 102, 241, 0.14);
+  border-radius: 24px;
+  padding: 1.4rem;
+}
+
+.eyebrow {
+  display: inline-block;
+  margin-bottom: 0.8rem;
+  color: #fbbf24;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.how-hero-copy h1 {
+  font-size: clamp(1.9rem, 3vw, 3rem);
+  line-height: 1.05;
+  margin-bottom: 1rem;
+}
+
+.how-hero-copy p,
+.how-card p,
+.glossary-item p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.how-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+}
+
+.how-diagram-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.8rem;
+}
+
+.diagram-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+}
+
+.how-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1rem;
+}
+
+.how-card h2 {
+  margin-bottom: 0.7rem;
+}
+
+.glossary-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.glossary-item {
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.glossary-item strong {
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.responsible-play-card a {
+  color: #fbbf24;
+  text-decoration: underline;
+}
+
+.responsible-play-head {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
 /* ---- Empty state ---- */
 .empty-state {
   text-align: center;
@@ -1119,6 +1342,10 @@ tr:hover td {
 .prediction-race {
   font-size: 0.82rem;
   color: var(--text-muted);
+}
+
+.prediction-card-signals {
+  margin-top: 0.4rem;
 }
 
 .prediction-picks {
@@ -2021,5 +2248,14 @@ tr:hover td {
 
   .game-context-row {
     justify-content: center;
+  }
+
+  .tour-card {
+    padding: 1.1rem;
+    border-radius: 20px;
+  }
+
+  .how-hero {
+    grid-template-columns: 1fr;
   }
 }

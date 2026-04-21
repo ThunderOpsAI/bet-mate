@@ -2,13 +2,14 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot, BookOpen } from "lucide-react";
+import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot, BookOpen, CircleHelp } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/racing", label: "Racing", icon: Trophy },
   { href: "/afl", label: "AFL", icon: CircleDot },
   { href: "/nba", label: "NBA", icon: Zap },
+  { href: "/how-it-works", label: "How It Works", icon: CircleHelp },
   { href: "/strategy", label: "Strategies", icon: Bot },
   { href: "/blackbook", label: "Blackbook", icon: BookOpen },
   { href: "/bets", label: "Paper Bets", icon: Receipt },

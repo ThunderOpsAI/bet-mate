@@ -8,6 +8,10 @@ import type {
 } from "../lib/bob/explainer";
 import { Brain, CircleDot, BarChart3 } from "lucide-react";
 import ExplainDrawer from "../components/ExplainDrawer";
+import {
+  ConfidenceBadge,
+  UrgencyBadge,
+} from "../components/PredictionSignalBadges";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { ML_API } from "../lib/mlApi";
@@ -20,6 +24,10 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
+import {
+  getConfidenceSignal,
+  getUrgencySignal,
+} from "../lib/predictionSignals";
 import PaperBetAction from "../components/PaperBetAction";
 
 type AFLGame = {
@@ -333,6 +341,14 @@ export default function AFLPage() {
           const awayPct = prediction?.predictions?.away_win_probability ?? 50;
           const homeWins = homePct > awayPct;
           const isExpanded = expandedGame === game.game_id;
+          const confidenceSignal = prediction
+            ? getConfidenceSignal(prediction.ai_insights_context)
+            : null;
+          const urgencySignal = getUrgencySignal({
+            startTime: game.date,
+            isClosed: gameComplete > 0 && gameComplete < 100,
+            isResultPending: gameComplete >= 100,
+          });
 
           return (
             <div
@@ -381,6 +397,8 @@ export default function AFLPage() {
                 <span className="context-chip">
                   {weatherMap[game.features.weather_condition] ?? "☀️ Clear"}
                 </span>
+                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
+                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
                 <span className="context-chip">
                   🏠 {game.features.home_rest_days}d rest
                 </span>
