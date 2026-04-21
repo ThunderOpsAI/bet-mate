@@ -11,7 +11,8 @@ import betsRoutes from "./routes/bets";
 import userRoutes from "./routes/user";
 
 const app = express();
-const apiPort = Number(process.env.API_PORT ?? 3001);
+// Railway requires binding to process.env.PORT
+const apiPort = Number(process.env.PORT) || 3001;
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());

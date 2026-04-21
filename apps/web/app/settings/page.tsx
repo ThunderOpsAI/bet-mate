@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
+import { API_BASE } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
 
 type JamesRuleSet = {
@@ -23,7 +24,7 @@ type JamesRuleSet = {
   notes: string;
 };
 
-export default function SettingsPage() {
+function SettingsContent() {
   const { user, token, refreshUser } = useAuth();
   const [username, setUsername] = useState(user?.username ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
@@ -36,8 +37,6 @@ export default function SettingsPage() {
   const [jamesMessage, setJamesMessage] = useState("");
   const [resettingBankroll, setResettingBankroll] = useState(false);
   const { requireAuthAction } = useActionGuard();
-
-  const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
 
   useEffect(() => {
     const loadJames = async () => {
@@ -61,7 +60,7 @@ export default function SettingsPage() {
       setSuccess("");
       setLoading(true);
       try {
-        const res = await fetch(`${API}/user/profile`, {
+        const res = await fetch(`${API_BASE}/user/profile`, {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ username, email }),
@@ -85,7 +84,7 @@ export default function SettingsPage() {
       if (!confirm("Are you sure you want to reset your bankroll baseline to your current bankroll amount? This doesn't delete prediction histories.")) return;
       setResettingBankroll(true);
       try {
-        const res = await fetch(`${API}/user/bankroll/reset`, {
+        const res = await fetch(`${API_BASE}/user/bankroll/reset`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({}),
@@ -330,5 +329,13 @@ export default function SettingsPage() {
         <strong>18+</strong> | This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Please gamble responsibly.
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 200 }} /></div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }

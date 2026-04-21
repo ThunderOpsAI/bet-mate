@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { QueryProvider } from "./providers/QueryProvider";
 import { AuthProvider } from "./providers/AuthProvider";
+import { PaperBetslipProvider } from "./providers/PaperBetslipProvider";
 import AppShell from "./components/AppShell";
 
 export const metadata: Metadata = {
@@ -16,7 +17,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <QueryProvider>
           <AuthProvider>
-            <AppShell>{children}</AppShell>
+            <PaperBetslipProvider>
+              <AppShell>{children}</AppShell>
+            </PaperBetslipProvider>
           </AuthProvider>
         </QueryProvider>
       </body>

@@ -1,5 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { API_BASE } from "../lib/api";
 
 type User = {
   id: string;
@@ -20,7 +21,19 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001/api";
+const GUEST_USER: User = {
+  id: "guest",
+  email: "guest@betmate.local",
+  username: "Guest",
+  currentBankroll: 250,
+};
+
+const GUEST_TOKEN = "guest";
+
+function persistGuestSession() {
+  localStorage.setItem("betmate_token", GUEST_TOKEN);
+  localStorage.setItem("betmate_user", JSON.stringify(GUEST_USER));
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -28,17 +41,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const saved = localStorage.getItem("betmate_token");
-    const savedUser = localStorage.getItem("betmate_user");
-    if (saved && savedUser) {
-      setToken(saved);
-      try { setUser(JSON.parse(savedUser)); } catch { /* ignore */ }
-    }
+    setToken(GUEST_TOKEN);
+    setUser(GUEST_USER);
+    persistGuestSession();
     setIsLoading(false);
   }, []);
 
   const login = useCallback(async (emailOrUsername: string, password: string) => {
-    const res = await fetch(`${API}/auth/login`, {
+    const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ emailOrUsername, password }),
@@ -55,7 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const register = useCallback(async (email: string, username: string, password: string, startingBankroll: number) => {
-    const res = await fetch(`${API}/auth/register`, {
+    const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, username, password, startingBankroll }),
@@ -72,16 +82,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
-    localStorage.removeItem("betmate_token");
-    localStorage.removeItem("betmate_user");
+    setUser(GUEST_USER);
+    setToken(GUEST_TOKEN);
+    persistGuestSession();
   }, []);
 
   const refreshUser = useCallback(async () => {
-    if (!token) return;
+    if (!token || token === GUEST_TOKEN) return;
     try {
-      const res = await fetch(`${API}/user/profile`, {
+      const res = await fetch(`${API_BASE}/user/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {

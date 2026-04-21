@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon, ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
@@ -55,7 +55,7 @@ const statusBadge: Record<string, string> = {
   VOID: "badge-muted",
 };
 
-export default function BetsPage() {
+function BetsContent() {
   const { token } = useAuth();
   const { requireAuthAction } = useActionGuard();
   const [bets, setBets] = useState<PaperBet[]>([]);
@@ -72,21 +72,13 @@ export default function BetsPage() {
   const fetchBets = async () => {
     try {
       setError("");
-      if (!token) {
-        setBets([]);
-        setSummary(null);
-        throw new Error("Please sign in to view paper bets.");
-      }
-      const authHeaders = { Authorization: `Bearer ${token}` };
+      const authHeaders = { Authorization: `Bearer ${token || "guest"}` };
       const [betsResponse, summaryResponse] = await Promise.all([
         fetch(`${ML_API}/api/paper-bets?limit=200`, { headers: authHeaders }),
         fetch(`${ML_API}/api/paper-bets/summary`, { headers: authHeaders }),
       ]);
 
       if (!betsResponse.ok || !summaryResponse.ok) {
-        if (betsResponse.status === 401 || summaryResponse.status === 401) {
-          throw new Error("Session expired. Please sign in again.");
-        }
         throw new Error("Paper bets unavailable");
       }
 
@@ -110,7 +102,7 @@ export default function BetsPage() {
     requireAuthAction(async () => {
       await fetch(`${ML_API}/api/paper-bets/${betId}/settle`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || "guest"}` },
         body: JSON.stringify({ status }),
       });
       void fetchBets();
@@ -120,7 +112,7 @@ export default function BetsPage() {
   const deleteBet = async (betId: number) => {
     requireAuthAction(async () => {
       if (!confirm("Delete this paper bet?")) return;
-      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token || "guest"}` } });
       void fetchBets();
     });
   };
@@ -375,4 +367,12 @@ function asString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
+}
+
+export default function BetsPage() {
+  return (
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 300 }} /></div>}>
+      <BetsContent />
+    </Suspense>
+  );
 }

@@ -1,14 +1,17 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot } from "lucide-react";
+import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot, BookOpen, CircleHelp } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Home },
   { href: "/racing", label: "Racing", icon: Trophy },
   { href: "/afl", label: "AFL", icon: CircleDot },
   { href: "/nba", label: "NBA", icon: Zap },
+  { href: "/how-it-works", label: "How It Works", icon: CircleHelp },
   { href: "/strategy", label: "Strategies", icon: Bot },
+  { href: "/blackbook", label: "Blackbook", icon: BookOpen },
   { href: "/bets", label: "Paper Bets", icon: Receipt },
   { href: "/bankroll", label: "Bankroll", icon: Wallet },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
@@ -22,7 +25,13 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       {open && <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 35 }} onClick={onClose} className="sidebar-backdrop" />}
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="sidebar-brand">
-          <Trophy size={24} style={{ color: "var(--accent)" }} />
+          <Image
+            src="/brand/betmate-logo.png"
+            alt="BetMate"
+            width={132}
+            height={42}
+            className="sidebar-brand-logo"
+          />
           <h1>BetMate</h1>
         </div>
         <nav>

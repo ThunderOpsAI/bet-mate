@@ -5,7 +5,7 @@ import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 
 const router = Router();
-const prisma = new PrismaClient();
+const prisma: any = new PrismaClient();
 
 router.use(requireAuth);
 
@@ -38,7 +38,7 @@ router.post("/", async (req: AuthRequest, res) => {
   const { eventType, eventId, eventName, eventTime, betType, selection, odds, stake, wasAIRecommended, notes } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       const user = await tx.user.findUnique({ where: { id: userId } });
       if (!user) throw new Error("User not found");
 
@@ -86,6 +86,79 @@ router.post("/", async (req: AuthRequest, res) => {
   }
 });
 
+// POST /api/bets/batch — log multiple bets at once (Betslip support)
+router.post("/batch", async (req: AuthRequest, res) => {
+  const batchSchema = z.array(createBetSchema);
+  const parsed = batchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const userId = req.userId!;
+  const betsData = parsed.data;
+  const totalStake = betsData.reduce((sum, b) => sum + b.stake, 0);
+
+  try {
+    const result = await prisma.$transaction(async (tx: any) => {
+      const user = await tx.user.findUnique({ where: { id: userId } });
+      if (!user) throw new Error("User not found");
+
+      if (Number(user.currentBankroll) < totalStake) {
+        throw new Error("Insufficient bankroll");
+      }
+
+      // Create all bets
+      const bets = await Promise.all(
+        betsData.map((b) =>
+          tx.bet.create({
+            data: {
+              userId,
+              eventType: b.eventType,
+              eventId: b.eventId,
+              eventName: b.eventName,
+              eventTime: b.eventTime ? new Date(b.eventTime) : new Date(),
+              betType: b.betType,
+              selection: b.selection,
+              odds: b.odds,
+              stake: b.stake,
+              wasAIRecommended: b.wasAIRecommended,
+              notes: b.notes,
+            },
+          })
+        )
+      );
+
+      // Deduct total stake
+      await tx.user.update({
+        where: { id: userId },
+        data: { currentBankroll: { decrement: totalStake } },
+      });
+
+      // Log bankroll history
+      await tx.bankrollHistory.create({
+        data: { 
+          userId, 
+          amount: -totalStake, 
+          reason: `Batch bet (Betslip): ${bets.length} bets placed. Total stake: $${totalStake.toFixed(2)}` 
+        },
+      });
+
+      return bets;
+    });
+
+    return res.status(201).json({ success: true, count: result.length, bets: result });
+  } catch (err: any) {
+    if (err.message === "Insufficient bankroll") {
+      return res.status(400).json({ error: "Insufficient bankroll" });
+    }
+    if (err.message === "User not found") {
+      return res.status(404).json({ error: "User not found" });
+    }
+    console.error("Batch creation failed:", err);
+    return res.status(500).json({ error: "Failed to create batch bets" });
+  }
+});
+
 // GET /api/bets — list user bets
 router.get("/", async (req: AuthRequest, res) => {
   const userId = req.userId!;
@@ -110,7 +183,7 @@ router.get("/", async (req: AuthRequest, res) => {
     ]);
 
     return res.json({
-      bets: bets.map((b) => ({ ...b, stake: Number(b.stake), payout: b.payout ? Number(b.payout) : null })),
+      bets: bets.map((b: any) => ({ ...b, stake: Number(b.stake), payout: b.payout ? Number(b.payout) : null })),
       pagination: { total, limit: take, offset: skip },
     });
   } catch {
@@ -130,7 +203,7 @@ router.patch("/:betId/settle", async (req: AuthRequest, res) => {
   const { status, payout } = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       const bet = await tx.bet.findFirst({ where: { id: betId, userId } });
       if (!bet) throw new Error("Bet not found");
       if (bet.status !== "PENDING") throw new Error("Bet already settled");
@@ -180,7 +253,7 @@ router.delete("/:betId", async (req: AuthRequest, res) => {
   const { betId } = req.params;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       const bet = await tx.bet.findFirst({ where: { id: betId, userId } });
       if (!bet) throw new Error("Bet not found");
 
