@@ -16,6 +16,7 @@ import os
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
 from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
+from app.ml.weights import WEIGHTS_VERSION
 from app.bob import (
     bob_request_in_scope,
     build_bob_provider_from_env,
@@ -173,6 +174,15 @@ class Horse(BaseModel):
     betfair_implied_prob: float = 0.0
     jockey_name: Optional[str] = None
     data_source: str = "betfair"
+    
+    # New Phase 0 ML Features
+    speed_rating: float = 0.5
+    horse_win_rate: float = 0.12
+    track_conditions: float = 0.5
+    recent_form: float = 0.5
+    class_factor: float = 0.5
+    horse_jockey_proven: float = 0.0
+    jockey_trainer_proven: float = 0.0
 
 class Race(BaseModel):
     race_id: str
@@ -738,7 +748,12 @@ def predict_race(race: Race):
             "race_id": race.race_id,
             "predictions": predictions,
             "feature_impact": feature_impact,
-            "ai_insights_context": f"Racing ML model heavily weighted {max(feature_impact, key=feature_impact.get)}."
+            "ai_insights_context": f"Racing ML model heavily weighted {max(feature_impact, key=feature_impact.get)}.",
+            "model_metadata": {
+                "feature_importance": feature_impact,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -809,7 +824,12 @@ def predict_afl(game: TeamGame):
                 "fair_odds_away": away_odds
             },
             "feature_impact": importances,
-            "ai_insights_context": f"AFL ML model found {max(importances, key=importances.get)} to be the deciding factor."
+            "ai_insights_context": f"AFL ML model found {max(importances, key=importances.get)} to be the deciding factor.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -866,7 +886,12 @@ def predict_nba(game: TeamGame):
                 "fair_odds_away": away_odds
             },
             "feature_impact": importances,
-            "ai_insights_context": f"NBA ML strongly correlated {max(importances, key=importances.get)} to the outcome."
+            "ai_insights_context": f"NBA ML strongly correlated {max(importances, key=importances.get)} to the outcome.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -8,6 +8,8 @@ import os
 
 from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
 
+from app.ml.weights import AFL_WEIGHTS, AFL_TRAVEL_FACTORS, WEIGHTS_VERSION
+
 MODEL_FILENAME = "afl_model.pkl"
 MODEL_PATH = model_path(MODEL_FILENAME)
 LEGACY_MODEL_PATH = legacy_model_path(MODEL_FILENAME)
@@ -15,31 +17,21 @@ HISTORICAL_TRAINING_SOURCE = 'squiggle_historical'
 SYNTHETIC_TRAINING_SOURCE = 'synthetic'
 
 FEATURE_COLUMNS = [
-    'home_win_streak',
-    'away_win_streak',
-    'home_avg_points_for',
-    'away_avg_points_for',
-    'home_avg_points_against',
-    'away_avg_points_against',
-    'home_rest_days',
-    'away_rest_days',
-    'weather_condition',
-    'travel_distance_away',
-    'squiggle_home_signal',
+    'points_differential',
+    'squiggle_signal',
+    'recent_form_5',
+    'win_streak_differential',
+    'home_interstate_travel',
+    'away_interstate_travel',
 ]
 
 FEATURE_DEFAULTS = {
-    'home_win_streak': 0.0,
-    'away_win_streak': 0.0,
-    'home_avg_points_for': 85.0,
-    'away_avg_points_for': 85.0,
-    'home_avg_points_against': 80.0,
-    'away_avg_points_against': 80.0,
-    'home_rest_days': 7.0,
-    'away_rest_days': 7.0,
-    'weather_condition': 1.0,
-    'travel_distance_away': 500.0,
-    'squiggle_home_signal': 0.5,
+    'points_differential': 0.0,
+    'squiggle_signal': 0.5,
+    'recent_form_5': 0.0,
+    'win_streak_differential': 0.0,
+    'home_interstate_travel': 0.0,
+    'away_interstate_travel': 0.0,
 }
 
 class AFLPredictor:
@@ -132,19 +124,28 @@ class AFLPredictor:
         
     def predict(self, game_features):
         """game_features is a dict of features for a single game"""
-        if self.model is None:
-            if not self._load_existing_artifacts():
-                self.train()
-                
         df = self._prepare_features(game_features)
-        X = self.scaler.transform(df)
-        probas = self.model.predict_proba(X)[0]
+        row = df.iloc[0]
+        
+        travel_factor = AFL_TRAVEL_FACTORS['interstate_long'] if (row['home_interstate_travel'] > 0 or row['away_interstate_travel'] > 0) else AFL_TRAVEL_FACTORS['standard']
+        
+        base_score = (
+            (row['points_differential'] * AFL_WEIGHTS['points_differential']) +
+            (row['squiggle_signal'] * AFL_WEIGHTS['squiggle_signal']) +
+            (row['recent_form_5'] * AFL_WEIGHTS['recent_form_5']) +
+            (row['win_streak_differential'] * AFL_WEIGHTS['win_streak']) +
+            (AFL_WEIGHTS['home_advantage_base'] * travel_factor)
+        )
+        # Use a sigmoid to squash it into a valid probability
+        prob = 1 / (1 + np.exp(-base_score))
+        home_win_prob = np.clip(prob, 0.01, 0.99)
+        away_win_prob = 1.0 - home_win_prob
         
         return {
-            "home_win_prob": float(probas[1]),
-            "away_win_prob": float(probas[0]),
-            "feature_impact": self.model.feature_importances_.tolist(),
-            "feature_names": FEATURE_COLUMNS,
+            "home_win_prob": float(home_win_prob),
+            "away_win_prob": float(away_win_prob),
+            "feature_impact": list(AFL_WEIGHTS.values()),
+            "feature_names": list(AFL_WEIGHTS.keys()),
         }
 
     def _prepare_features(self, game_features):
@@ -153,11 +154,23 @@ class AFLPredictor:
         for column, default in FEATURE_DEFAULTS.items():
             if column not in df.columns:
                 df[column] = default
+                
+        # Remap legacy schema
+        if 'squiggle_home_signal' in df.columns and 'squiggle_signal' not in df.columns:
+            df['squiggle_signal'] = df['squiggle_home_signal'] - 0.5
+            
+        if 'home_avg_points_for' in df.columns and 'away_avg_points_for' in df.columns and df['points_differential'].iloc[0] == 0:
+            home_net = df['home_avg_points_for'] - df.get('home_avg_points_against', 80)
+            away_net = df['away_avg_points_for'] - df.get('away_avg_points_against', 80)
+            df['points_differential'] = (home_net - away_net) / 100.0
+            
+        if 'home_win_streak' in df.columns and 'away_win_streak' in df.columns and df['win_streak_differential'].iloc[0] == 0:
+            df['win_streak_differential'] = (df['home_win_streak'] - df['away_win_streak']) / 10.0
 
         for column in FEATURE_COLUMNS:
             df[column] = pd.to_numeric(df[column], errors='coerce').fillna(FEATURE_DEFAULTS[column])
 
-        df['squiggle_home_signal'] = df['squiggle_home_signal'].clip(lower=0.0, upper=1.0)
+        df['squiggle_signal'] = df['squiggle_signal'].clip(lower=-1.0, upper=1.0)
         return df[FEATURE_COLUMNS]
 
     def _get_training_frame(self, training_rows):

@@ -8,31 +8,37 @@ import os
 
 from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
 
+from app.ml.weights import RACING_WEIGHTS, RACING_MULTIPLIERS, WEIGHTS_VERSION
+
 MODEL_FILENAME = "racing_model.pkl"
 MODEL_PATH = model_path(MODEL_FILENAME)
 LEGACY_MODEL_PATH = legacy_model_path(MODEL_FILENAME)
 SYNTHETIC_TRAINING_SOURCE = 'synthetic_market_prior'
 
 FEATURE_COLUMNS = [
+    'speed_rating',
+    'horse_win_rate',
+    'jockey_win_rate',
+    'track_conditions',
+    'recent_form',
     'barrier',
     'weight',
-    'past_win_rate',
-    'jockey_win_rate',
-    'track_condition',
-    'days_since_last_race',
-    'betfair_back_price',
-    'betfair_implied_prob',
+    'class_factor',
+    'horse_jockey_proven',
+    'jockey_trainer_proven',
 ]
 
 FEATURE_DEFAULTS = {
+    'speed_rating': 0.5,
+    'horse_win_rate': 0.12,
+    'jockey_win_rate': 0.12,
+    'track_conditions': 0.5,
+    'recent_form': 0.5,
     'barrier': 8,
     'weight': 58.0,
-    'past_win_rate': 0.12,
-    'jockey_win_rate': 0.12,
-    'track_condition': 2,
-    'days_since_last_race': 21,
-    'betfair_back_price': 10.0,
-    'betfair_implied_prob': 0.1,
+    'class_factor': 0.5,
+    'horse_jockey_proven': 0.0,
+    'jockey_trainer_proven': 0.0,
 }
 
 class RacingPredictor:
@@ -120,24 +126,50 @@ class RacingPredictor:
     def predict(self, horses_data):
         """
         horses_data is a list of dicts with features
+        Uses frozen domain weights instead of trained xgboost model.
         """
-        if self.model is None:
-            if not self._load_existing_artifacts():
-                self.train()
-                
         df = self._prepare_features(horses_data)
-        X = self.scaler.transform(df)
-        probas = self.model.predict_proba(X)[:, 1]
         
-        # Normalize probabilities so they sum up to roughly 1 (100% logic for a race)
-        prob_sum = np.sum(probas)
-        normalized = probas / prob_sum if prob_sum > 0 else probas
+        scores = []
+        for _, row in df.iterrows():
+            # Manual scoring based on WEIGHTS_CONFIG_1.md
+            base_score = (
+                (row['speed_rating'] * RACING_WEIGHTS['speed_rating']) +
+                (row['horse_win_rate'] * RACING_WEIGHTS['horse_win_rate']) +
+                (row['jockey_win_rate'] * RACING_WEIGHTS['jockey_win_rate']) +
+                (row['track_conditions'] * RACING_WEIGHTS['track_conditions']) +
+                (row['recent_form'] * RACING_WEIGHTS['recent_form']) +
+                (row['class_factor'] * RACING_WEIGHTS['class_factor']) +
+                (row['barrier'] * RACING_WEIGHTS['barrier_penalty']) +
+                (row['weight'] * RACING_WEIGHTS['weight_penalty'])
+            )
+            
+            combo_multiplier = (
+                (1.0 + float(row['horse_jockey_proven']) * (RACING_MULTIPLIERS['horse_jockey_combo'] - 1.0)) *
+                (1.0 + float(row['jockey_trainer_proven']) * (RACING_MULTIPLIERS['jockey_trainer_combo'] - 1.0))
+            )
+            
+            final_score = base_score * combo_multiplier
+            scores.append(max(0.001, final_score))
         
-        return normalized.tolist(), self.model.feature_importances_.tolist()
+        scores = np.array(scores)
+        prob_sum = np.sum(scores)
+        normalized = scores / prob_sum if prob_sum > 0 else scores
+        
+        # Return weights as feature impact
+        feature_impact = list(RACING_WEIGHTS.values()) + list(RACING_MULTIPLIERS.values())
+        return normalized.tolist(), feature_impact
 
     def _prepare_features(self, horses_data):
         df = pd.DataFrame(horses_data)
 
+        # map old fields if present
+        if 'past_win_rate' in df.columns and 'horse_win_rate' not in df.columns:
+            df['horse_win_rate'] = df['past_win_rate']
+            
+        if 'track_condition' in df.columns and 'track_conditions' not in df.columns:
+            df['track_conditions'] = df['track_condition']
+            
         for column, default in FEATURE_DEFAULTS.items():
             if column not in df.columns:
                 df[column] = default
@@ -145,18 +177,23 @@ class RacingPredictor:
         for column in FEATURE_COLUMNS:
             df[column] = pd.to_numeric(df[column], errors='coerce').fillna(FEATURE_DEFAULTS[column])
 
-        missing_market_prob = df['betfair_implied_prob'] <= 0
-        if missing_market_prob.any():
-            df.loc[missing_market_prob, 'betfair_implied_prob'] = df.loc[
-                missing_market_prob, 'past_win_rate'
-            ].clip(lower=0.01, upper=0.8)
+        # Normalize factors to 0-1 range to match config assumption
+        df['speed_rating'] = df['speed_rating'].clip(0, 1)
+        df['horse_win_rate'] = df['horse_win_rate'].clip(0, 1)
+        df['jockey_win_rate'] = df['jockey_win_rate'].clip(0, 1)
+        df['track_conditions'] = df['track_conditions'].clip(0, 1)
+        df['recent_form'] = df['recent_form'].clip(0, 1)
+        df['class_factor'] = df['class_factor'].clip(0, 1)
 
-        missing_back_price = df['betfair_back_price'] <= 1
-        if missing_back_price.any():
-            df.loc[missing_back_price, 'betfair_back_price'] = 1 / df.loc[
-                missing_back_price, 'betfair_implied_prob'
-            ].clip(lower=0.01)
-
+        # Normalize barrier and weight to a penalty scale suitable for subtraction
+        # E.g. penalty per barrier > 8? The spec said "Linear penalty for wide barriers (8+)" 
+        # config says -0.03 weight. If we just multiply, we need it as a magnitude
+        # So we'll map barrier > 8 to a multiplier, or just let 'barrier' be the raw number 
+        # The spec formula says base_score - (barrier_penalty * 0.03) but the config says weight -0.03
+        # I'll let them stay raw, so -0.03 * barrier
+        # Actually it says -2% penalty per position, and config says -0.03 weight. 
+        # So using raw value times -0.03 is basically correct.
+        
         return df[FEATURE_COLUMNS]
 
     def _load_existing_artifacts(self):

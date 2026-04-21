@@ -8,6 +8,8 @@ import os
 
 from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
 
+from app.ml.weights import NBA_WEIGHTS, NBA_MULTIPLIERS, NBA_HOME_FACTORS, WEIGHTS_VERSION
+
 MODEL_FILENAME = "nba_model.pkl"
 MODEL_PATH = model_path(MODEL_FILENAME)
 LEGACY_MODEL_PATH = legacy_model_path(MODEL_FILENAME)
@@ -15,29 +17,29 @@ HISTORICAL_TRAINING_SOURCE = 'balldontlie_historical'
 SYNTHETIC_TRAINING_SOURCE = 'synthetic'
 
 FEATURE_COLUMNS = [
+    'off_rating_diff',
+    'def_rating_diff',
+    'recent_form_10',
+    'head_to_head_factor',
+    'usage_rates',
+    'live_odds_signal',
+    'home_team_toronto',
+    'away_team_toronto',
     'home_b2b',
     'away_b2b',
-    'home_win_pct',
-    'away_win_pct',
-    'home_ortg',
-    'home_drtg',
-    'away_ortg',
-    'away_drtg',
-    'home_injuries_impact',
-    'away_injuries_impact',
 ]
 
 FEATURE_DEFAULTS = {
-    'home_b2b': 0,
-    'away_b2b': 0,
-    'home_win_pct': 0.5,
-    'away_win_pct': 0.5,
-    'home_ortg': 110.0,
-    'home_drtg': 110.0,
-    'away_ortg': 110.0,
-    'away_drtg': 110.0,
-    'home_injuries_impact': 0.0,
-    'away_injuries_impact': 0.0,
+    'off_rating_diff': 0.0,
+    'def_rating_diff': 0.0,
+    'recent_form_10': 0.0,
+    'head_to_head_factor': 0.0,
+    'usage_rates': 0.0,
+    'live_odds_signal': 0.0,
+    'home_team_toronto': 0.0,
+    'away_team_toronto': 0.0,
+    'home_b2b': 0.0,
+    'away_b2b': 0.0,
 }
 
 class NBAPredictor:
@@ -128,19 +130,35 @@ class NBAPredictor:
         self.train()
         
     def predict(self, game_features):
-        if self.model is None:
-            if not self._load_existing_artifacts():
-                self.train()
-                
         df = self._prepare_features(game_features)
-        X = self.scaler.transform(df)
-        probas = self.model.predict_proba(X)[0]
+        row = df.iloc[0]
+        
+        home_factor = NBA_HOME_FACTORS['toronto_international'] if (row['home_team_toronto'] > 0 and row['away_team_toronto'] == 0) or (row['away_team_toronto'] > 0 and row['home_team_toronto'] == 0) else NBA_HOME_FACTORS['standard']
+        
+        base_score = (
+            (row['off_rating_diff'] * NBA_WEIGHTS['off_rating']) +
+            (row['def_rating_diff'] * NBA_WEIGHTS['def_rating']) +
+            (row['recent_form_10'] * NBA_WEIGHTS['recent_form_10']) +
+            (row['head_to_head_factor'] * NBA_WEIGHTS['head_to_head']) +
+            (row['usage_rates'] * NBA_WEIGHTS['usage_rates']) +
+            (row['live_odds_signal'] * NBA_WEIGHTS['live_odds_signal']) +
+            (NBA_WEIGHTS['home_court_base'] * home_factor)
+        )
+        
+        b2b_multiplier = NBA_MULTIPLIERS['back_to_back'] if row['home_b2b'] > 0 else 1.0
+        # Formula applies back-to-back to home base score
+        final_score = base_score * b2b_multiplier
+        
+        # Convert score to prob (e.g. sigmoid since we normalized around 0)
+        prob = 1 / (1 + np.exp(-final_score))
+        home_win_prob = np.clip(prob, 0.01, 0.99)
+        away_win_prob = 1.0 - home_win_prob
         
         return {
-            "home_win_prob": float(probas[1]),
-            "away_win_prob": float(probas[0]),
-            "feature_impact": self.model.feature_importances_.tolist(),
-            "feature_names": FEATURE_COLUMNS,
+            "home_win_prob": float(home_win_prob),
+            "away_win_prob": float(away_win_prob),
+            "feature_impact": list(NBA_WEIGHTS.values()),
+            "feature_names": list(NBA_WEIGHTS.keys()),
         }
 
     def _prepare_features(self, game_features):
@@ -149,12 +167,24 @@ class NBAPredictor:
         for column, default in FEATURE_DEFAULTS.items():
             if column not in df.columns:
                 df[column] = default
+        
+        # Maps old feature schema for legacy data
+        if 'home_ortg' in df.columns and 'away_ortg' in df.columns and df['off_rating_diff'].iloc[0] == 0:
+            df['off_rating_diff'] = (df['home_ortg'] - df['away_ortg']) / 100.0
+            
+        if 'home_drtg' in df.columns and 'away_drtg' in df.columns and df['def_rating_diff'].iloc[0] == 0:
+            # lower defensive rating is better
+            df['def_rating_diff'] = (df['away_drtg'] - df['home_drtg']) / 100.0
+            
+        if 'home_win_pct' in df.columns and 'away_win_pct' in df.columns and df['recent_form_10'].iloc[0] == 0:
+            df['recent_form_10'] = df['home_win_pct'] - df['away_win_pct']
 
         for column in FEATURE_COLUMNS:
             df[column] = pd.to_numeric(df[column], errors='coerce').fillna(FEATURE_DEFAULTS[column])
 
-        df['home_win_pct'] = df['home_win_pct'].clip(lower=0.0, upper=1.0)
-        df['away_win_pct'] = df['away_win_pct'].clip(lower=0.0, upper=1.0)
+        # Normalize differences to roughly -1 to 1 for consistency
+        df['off_rating_diff'] = df['off_rating_diff'].clip(lower=-1.0, upper=1.0)
+        df['def_rating_diff'] = df['def_rating_diff'].clip(lower=-1.0, upper=1.0)
         return df[FEATURE_COLUMNS]
 
     def _get_training_frame(self, training_rows):
