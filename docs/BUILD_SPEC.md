@@ -1,83 +1,126 @@
-# BetMate V2 Cleanup Build Spec
+# BetMate V2 Execution Build Spec
 
 ## Purpose
 
-- This is not a fresh roadmap.
-- This is a V2 cleanup, polish, and usability correction pass only.
-- Use only the approved scope from `V2_VERIFICATION.md` and the owner prompt for this pass.
-- No extra phases, no feature creep, no speculative additions, and no broad backend expansion.
-- Backend changes are allowed only if they are narrowly required to support the approved UX scope.
+- This is a docs-only execution contract for the current V2 cleanup pass.
+- This is not a fresh roadmap, not a broad redesign, and not a place to preserve obsolete phases.
+- The owner brief is `/Users/thunderopsai/Documents/Workspace/01_Projects/bet-mate/docs/V2 Verification.docx`.
+- Use the Word brief above plus this spec as the approved source of truth for implementation.
+- If work is not listed here, treat it as out of scope.
+
+## Source Summary From The Owner Brief
+
+- Analytics must become owner-first, with strategy performance visible and current ML analytics demoted to third priority.
+- The current `Paper Bets` experience should become the primary `Bankroll` destination.
+- The homepage needs the supplied logo direction and a simplified Ask Bob section placed at the bottom of the dashboard with Bob artwork above it.
+- Blackbook, strategy cards, and racing predictions all need to load reliably.
+- Racing predictions should stay focused on main races, while full Australian race listings must still allow paper-bet logging.
+- Logging flows must stop breaking after the first action, must stop wiping prior bets across sports, and must keep logged bets available for analytics.
 
 ## Execution Rules
 
 - Active execution contains only Phase 1 and Phase 2 below.
-- Older roadmap phases are not part of the current implementation plan.
-- Do not preserve old unfinished-phase planning for history inside this spec.
-- If work is not listed here, it is out of scope.
+- Phase 1 is local implementation, build, test, and pre-deploy readiness.
+- Phase 2 is push and live verification only.
+- Do not add extra phases, speculative ideas, or unrelated cleanup.
+- Do not treat old roadmap items as active unless they are restated in this document.
 - Branding references should use the supplied BetMate logo and BetMate Bob assets only.
-- Do not interpret raw image files; describe asset placement only.
+- Older deployment notes are not authoritative for this pass. Live deployment authority is Vercel for the web app and Railway for the prediction engine.
 
-## Phase 1 — V2 UX / Interaction / Layout Fixes
+## Phase 1 — Build / Test / Ready For Deploy
 
-### Scope
+### Product Scope
 
-- Fix the AFL log selection click glitch and flicker issue.
-- Make `Log Selection` and `Cancel` more prominent and readable.
-- Ensure those controls stand out from the background.
-- Hover-state improvement is acceptable if it is clearly defined and improves visibility.
-- When a selection is logged, the paper betslip must remain minimized.
-- The bet must still be added successfully to the slip.
-- Apply this layout pattern consistently across AFL, Racing, and NBA where relevant:
-  - left = `Log Selection Home`
-  - middle = event, game, or race info
-  - right = `Log Selection Away`
+- Analytics and strategy reporting:
+  - Rework analytics into three top tabs in this order: `User`, `Strategy`, `ML`.
+  - Default the analytics landing state to the `User` tab.
+  - Keep current ML analytics available, but position them as third-priority telemetry.
+  - Ensure strategy bets are logged and represented in analytics rather than treated as hidden or secondary-only data.
+- Navigation and page naming:
+  - Rename the current `Paper Bets` experience to `Bankroll`.
+  - Treat `/bets` as the primary bankroll destination for this pass.
+  - Remove the old standalone `/bankroll` experience from active scope and navigation.
+- Homepage and Ask Bob:
+  - Use the supplied BetMate logo asset in the top brand area.
+  - Move the Ask Bob experience to the bottom of the dashboard/main page.
+  - Remove the extra `Open Racing` CTA and surrounding clutter called out in the owner brief.
+  - Place the BetMate Bob image above the Ask Bob UI.
+- Availability regressions:
+  - Blackbook must load and be usable for an authenticated user.
+  - Strategy cards must load.
+  - Racing predictions and refresh behavior must work for the approved main-race scope.
+- Racing coverage behavior:
+  - Keep prediction cards focused on main races only.
+  - Main-race prediction coverage should target Melbourne and Sydney daily, with WA and Brisbane included on the higher-priority days called out in the owner brief.
+  - Keep full Australian race listings below the prediction area so users can still place paper bets on all races.
+- Betslip and logging regressions:
+  - Logging a selection must add it successfully and clear transient selection state correctly.
+  - Logging another AFL selection after the first one must still work.
+  - Switching between AFL, NBA, and Racing must not wipe existing paper bets.
+  - Logged selections must remain available to bankroll/history and analytics flows.
 
-### Acceptance
+### Local Acceptance Criteria
 
-- Logging a selection no longer flickers or misfires in AFL.
-- `Log Selection` and `Cancel` are visually obvious against their background.
-- Logged selections are added successfully without expanding the paper betslip.
-- The left, middle, right interaction pattern is consistent across the applicable AFL, Racing, and NBA views.
+- Analytics shows tabs in this order: `User`, `Strategy`, `ML`.
+- Analytics opens on `User` by default.
+- Strategy bet history is visible in analytics.
+- Sidebar and active navigation show `Bankroll` instead of `Paper Bets`.
+- The old standalone bankroll page is not treated as an active destination for this pass.
+- Homepage branding uses the supplied logo direction.
+- Ask Bob sits at the bottom of the main dashboard with Bob artwork above it.
+- Ask Bob no longer includes the extra `Open Racing` CTA mentioned in the owner brief.
+- Blackbook loads for an authenticated user.
+- Strategy cards load.
+- Racing shows main-race predictions where expected and still exposes full race listings for paper-bet logging.
+- Logging a bet does not flicker, does not stall after the first action, does not wipe prior bets when switching sports, and preserves data for downstream analytics.
 
-## Phase 2 — V2 Brand / Racing Coverage / Homepage Improvements
+### Required Pre-Deploy Checks
 
-### Scope
+- Run the project build and required local tests for the touched surfaces.
+- Smoke test the main user flows locally before handoff:
+  - homepage/dashboard
+  - analytics
+  - racing
+  - strategy
+  - blackbook
+  - bankroll/history flow
+- Record any intentionally deferred item in the handoff. Do not silently drop scope.
 
-- Update logo direction so it aligns with the supplied BetMate logo style.
-- Add the supplied BetMate Bob asset to the Ask Bob section.
-- Add the supplied BetMate Bob asset to the homepage, preferably below the menu or navigation.
-- Users must be able to place paper bets on all Australian races, even where no prediction exists.
-- Prediction cards should focus on main races only:
-  - Melbourne
-  - Sydney
-  - WA and Brisbane where relevant
-- Those predictions should remain visible until next-day refresh so night users can still see what the ML produced.
-- Predicted races must support direct add or copy into the betslip.
-- Below predictions there should be full race listings for all races, with paper-bet placement available.
+## Phase 2 — Push / Verify Live
 
-### Acceptance
+### Deployment Actions
 
-- Brand direction matches the supplied BetMate logo asset closely enough for owner review.
-- Ask Bob includes the supplied BetMate Bob asset.
-- The homepage includes the supplied BetMate Bob asset in the approved placement area.
-- Users can place paper bets across all Australian races regardless of prediction coverage.
-- Prediction cards remain limited to main races while full race listings remain available below.
-- Main-race predictions stay visible until next-day refresh.
-- Predicted races support direct add or copy into the betslip.
+- Push the approved changes to `main`.
+- Verify the frontend deploy on Vercel.
+- Verify the prediction-engine deploy on Railway.
+- Treat any live blocker discovered here as a targeted follow-up, not a reason to broaden product scope.
 
-## Backlog Only
+### Live Verification Checklist
 
-### Phase 7 — Model Learning / Personalization
+- Confirm the Vercel deployment is live and the main dashboard loads.
+- Confirm the Railway prediction engine responds successfully on `/health`.
+- Confirm the live app can load:
+  - homepage/dashboard
+  - analytics
+  - racing
+  - strategy
+  - blackbook
+- Confirm the live analytics tab order is `User`, `Strategy`, `ML`, with `User` selected first.
+- Confirm the live navigation shows `Bankroll`.
+- Confirm Ask Bob is at the bottom of the dashboard with Bob art above it and without the extra `Open Racing` CTA.
+- Confirm racing still shows main-race predictions while keeping full race listings available for paper-bet actions.
+- Confirm a basic paper-bet logging flow still works without losing prior bets across sports.
 
-- Status: Deferred
-- Gate: Requires 4 weeks of data
-- Instruction: Backlog only, not active implementation
+### Signoff Standard
+
+- Do not call the release complete until both of these are true:
+  - the Vercel web deployment is live and usable
+  - the Railway prediction engine health check succeeds
+- Capture any live issue as a specific blocker with affected area, reproduction steps, and whether it is a Phase 2-only fix or a follow-up task.
 
 ## Out Of Scope
 
-- New features beyond the approved V2 cleanup items
-- Extra phases
-- Old roadmap preservation
-- Unrelated refactors
+- New feature ideation beyond the owner brief
+- Extra phases or revived historical roadmap items
 - Broad backend redesign
-- Speculative ML or personalization work before the data gate is met
+- Speculative ML/personalization work unrelated to the approved V2 cleanup pass

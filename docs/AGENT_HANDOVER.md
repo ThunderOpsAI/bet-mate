@@ -1,59 +1,114 @@
-# BetMate Agent Handover
+# BetMate V2 Two-Agent Handover
 
-## Current Status
+## Mission
 
-- Active execution is now a V2 cleanup and polish pass only.
-- Older roadmap phases are complete or obsolete for current handover purposes and should not drive agent work.
-- Phase 7 is deferred backlog only.
-- Phase 7 is blocked by a data gate and requires 4 weeks of data before any implementation work starts.
+- Use this document together with `/Users/thunderopsai/Documents/Workspace/01_Projects/bet-mate/docs/BUILD_SPEC.md`.
+- The owner brief is `/Users/thunderopsai/Documents/Workspace/01_Projects/bet-mate/docs/V2 Verification.docx`.
+- The goal is to run the current V2 cleanup pass through two agents with no ambiguity about ownership, gates, or deployment authority.
 
-## Active Scope
+## Scope Guardrails
 
-### Phase 1 — V2 UX / Interaction / Layout Fixes
+- Stay inside the approved V2 brief only.
+- Do not add fresh roadmap items, speculative improvements, or unrelated cleanup.
+- Do not treat old deployment notes as authoritative for this pass.
+- Production authority for this handoff is:
+  - Vercel for the web app
+  - Railway for the prediction engine
 
-- Fix the AFL log selection click glitch and flicker.
-- Make `Log Selection` and `Cancel` more prominent and readable.
-- Ensure those controls stand out from the background.
-- A hover-state improvement is acceptable if it is deliberate and clearly visible.
-- When a selection is logged, keep the paper betslip minimized.
-- The bet must still be added successfully to the slip.
-- Apply a consistent layout pattern across AFL, Racing, and NBA where relevant:
-  - left = `Log Selection Home`
-  - middle = event, game, or race info
-  - right = `Log Selection Away`
+## Agent Ownership
 
-### Phase 2 — V2 Brand / Racing Coverage / Homepage Improvements
+### Agent 1 — Build / Test / Ready For Deploy
 
-- Align the product logo direction to the supplied BetMate logo asset.
-- Add the supplied BetMate Bob asset to the Ask Bob section.
-- Add the supplied BetMate Bob asset to the homepage, preferably below the main menu or navigation.
-- Allow users to place paper bets on all Australian races, even when no prediction exists.
-- Keep prediction cards focused on main races only:
-  - Melbourne
-  - Sydney
-  - WA and Brisbane where relevant
-- Keep those prediction cards visible until the next-day refresh so night users can still see what the ML produced.
-- Predicted races must support direct add or copy into the betslip.
-- Show full race listings below predictions so paper bets can still be placed across all races.
+- Owns all approved code fixes in the current V2 brief.
+- Owns local validation, build/test readiness, and pre-deploy smoke testing.
+- Must implement only the approved scope captured in the build spec.
+- Must hand off only after the local acceptance criteria are met.
+- Must not broaden scope during debugging. If a new issue is discovered, it should be documented and classified rather than quietly added.
 
-## Deferred Backlog
+### Agent 2 — Push / Verify Live
 
-### Phase 7 — Model Learning / Personalization
+- Owns push-to-live and production verification.
+- Verifies Vercel and Railway only.
+- Uses the live checklist from the build spec as the release gate.
+- May make minimal blocker fixes discovered during live verification, but only when the fix is directly required to complete the approved rollout.
+- Must not reopen the brief into a wider refactor or feature pass.
 
-- Status: Deferred
-- Priority: Backlog only
-- Gate: Blocked pending 4 weeks of data
-- Instruction: Do not start this work in the current cleanup pass
+## Approved Product Targets
 
-## Recommended Next Work Order
+- Analytics becomes owner-first with top tabs in this order: `User`, `Strategy`, `ML`.
+- The `User` tab is the default analytics landing state.
+- Strategy bets must appear in analytics.
+- The current `Paper Bets` experience becomes the primary `Bankroll` destination.
+- The old standalone bankroll experience is not active scope for this pass.
+- Homepage uses the supplied logo direction.
+- Ask Bob moves to the bottom of the main dashboard with the Bob image above it.
+- The extra `Open Racing` CTA and related clutter are removed from that homepage Ask Bob area.
+- Blackbook must load.
+- Strategy cards must load.
+- Racing predictions must work for the approved main-race scope.
+- Full Australian race listings must still support paper-bet placement even when predictions are limited to main races.
+- Paper-bet logging must stop breaking after the first interaction and must stop wiping prior bets across sports.
 
-1. Complete Phase 1 UX, interaction, and layout fixes.
-2. Complete Phase 2 brand, racing coverage, and homepage improvements.
-3. Leave Phase 7 untouched until the 4-week data gate is met.
+## Handoff Gate From Agent 1 To Agent 2
 
-## Scope Discipline
+Agent 1 must provide all of the following before Agent 2 starts the live push:
 
-- Use only the approved V2 cleanup scope from the owner prompt and `V2_VERIFICATION.md`.
-- Do not restore old roadmap phases to active status.
-- Do not add new features, extra phases, or broad backend work.
-- If a task is not listed above, treat it as out of scope for this pass.
+- Local build status:
+  - the app builds successfully
+  - any required local tests for touched areas pass
+- Local smoke test status for:
+  - homepage/dashboard
+  - analytics
+  - racing
+  - strategy
+  - blackbook
+  - bankroll/history flow
+- Acceptance confirmation that:
+  - analytics tab order is `User`, `Strategy`, `ML`
+  - analytics opens on `User`
+  - strategy bets show up in analytics
+  - nav shows `Bankroll`
+  - Ask Bob is at the bottom of the dashboard with Bob art above it
+  - racing still supports paper bets across full race listings
+  - logging no longer wipes prior bets across sports
+- Notes on anything intentionally deferred or any known limitation that does not block deploy
+
+## Agent 2 Live Verification Steps
+
+- Push the approved changes to `main`.
+- Confirm the Vercel deployment completes and the frontend is live.
+- Confirm the Railway prediction engine is live and `/health` succeeds.
+- Verify the live dashboard loads.
+- Verify live analytics:
+  - tab order is `User`, `Strategy`, `ML`
+  - default tab is `User`
+  - strategy-linked reporting is visible
+- Verify live navigation shows `Bankroll`.
+- Verify the homepage Ask Bob section:
+  - sits at the bottom of the dashboard
+  - uses Bob artwork above the Ask Bob UI
+  - no longer includes the extra `Open Racing` CTA
+- Verify Blackbook loads for an authenticated user.
+- Verify strategy cards load.
+- Verify racing shows main-race predictions where expected and still exposes full race listings for paper-bet logging.
+- Verify a basic paper-bet logging flow still works across sport changes without losing prior bets.
+
+## Required Evidence For Signoff
+
+- Confirmation that the Vercel deployment is live
+- Confirmation that the Railway `/health` endpoint succeeds
+- Short notes for each critical live route checked:
+  - homepage/dashboard
+  - analytics
+  - racing
+  - strategy
+  - blackbook
+- A short blocker list if anything failed, including:
+  - affected area
+  - reproduction summary
+  - whether it was fixed in Phase 2 or left as a follow-up
+
+## Completion Rule
+
+- The handoff is complete only when Agent 1 has met the local gate and Agent 2 has passed live verification on both Vercel and Railway.
+- If either live deployment fails, do not mark the pass complete.
