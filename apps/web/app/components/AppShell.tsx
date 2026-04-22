@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import { Menu } from "lucide-react";
 import Sidebar from "./Sidebar";
 import PaperBetslip from "./PaperBetslip";
@@ -21,13 +22,26 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-area">
         <header className="top-header">
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
-              <Menu size={22} />
-            </button>
-            <h2>{getPageTitle(pathname)}</h2>
+          <div className="top-header-primary">
+            <div className="top-header-title-row">
+              <button className="mobile-menu-btn" onClick={() => setSidebarOpen(true)}>
+                <Menu size={22} />
+              </button>
+              <Image
+                src="/brand/betmate-logo.png"
+                alt="BetMate"
+                width={112}
+                height={35}
+                className="top-header-logo"
+                priority
+              />
+              <h2>{getPageTitle(pathname)}</h2>
+            </div>
+            <div className="header-live-badge header-live-badge-inline">
+              <span className="live-dot" /> ML Engine Live
+            </div>
           </div>
-          <div className="header-live-badge">
+          <div className="header-live-badge header-live-badge-desktop">
             <span className="live-dot" /> ML Engine Live
           </div>
         </header>

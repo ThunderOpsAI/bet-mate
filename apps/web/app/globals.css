@@ -166,6 +166,25 @@ body {
   z-index: 30;
 }
 
+.top-header-primary {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.top-header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.top-header-logo {
+  display: none;
+  width: 112px;
+  height: auto;
+  object-fit: contain;
+}
+
 .top-header h2 {
   font-size: 1.1rem;
   font-weight: 600;
@@ -1230,6 +1249,10 @@ tr:hover td {
   color: var(--green);
   font-size: 0.82rem;
   font-weight: 600;
+}
+
+.header-live-badge-inline {
+  display: none;
 }
 
 .live-dot {
