@@ -85,6 +85,8 @@ type AccuracyTrendPoint = {
   log_loss: number;
 };
 
+const ANALYTICS_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 export default function AnalyticsPage() {
   const [models, setModels] = useState<ModelMetadata[]>([]);
   const [predictionSummary, setPredictionSummary] = useState<PredictionSummary[]>([]);
@@ -98,6 +100,7 @@ export default function AnalyticsPage() {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
 
   const loadAnalytics = useCallback(async (showLoading = true, sportFilter = selectedSport) => {
     try {
@@ -136,7 +139,9 @@ export default function AnalyticsPage() {
         setRecentPredictions(data.results || []);
       }
 
-      setLastUpdated(Date.now());
+      const updatedAt = Date.now();
+      setLastUpdated(updatedAt);
+      setNextRefreshAt(updatedAt + ANALYTICS_REFRESH_INTERVAL_MS);
     } catch (err) {
       console.error("Failed to load analytics:", err);
       setError("BetMate could not load the latest model analytics. Check your connection or the ML engine status.");
@@ -241,6 +246,7 @@ export default function AnalyticsPage() {
     <ErrorBoundary sectionName="Analytics Board">
       <RefreshControls
         lastUpdated={lastUpdated}
+        nextRefreshAt={nextRefreshAt}
         isRefreshing={refreshing}
         onRefresh={() => void loadAnalytics(false)}
       />
@@ -497,7 +503,6 @@ export default function AnalyticsPage() {
             </div>
           );
         })}
-      </div>
       </div>
     </ErrorBoundary>
   );

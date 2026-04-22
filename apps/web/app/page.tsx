@@ -94,6 +94,14 @@ type AFLGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  round?: number;
+  venue?: string;
+  date?: string;
+  complete?: number;
+  hscore?: number | null;
+  ascore?: number | null;
+  squiggle_tip?: string;
+  squiggle_confidence?: number | string | null;
 };
 
 type AFLPrediction = {
