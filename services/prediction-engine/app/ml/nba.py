@@ -86,6 +86,30 @@ class NBAPredictor:
         base_score += np.random.normal(0, 12, num_samples)
         
         data['home_win'] = (base_score > 0).astype(int)
+        data['off_rating_diff'] = (data['home_ortg'] - data['away_ortg']) / 100.0
+        data['def_rating_diff'] = (data['away_drtg'] - data['home_drtg']) / 100.0
+        data['recent_form_10'] = data['home_win_pct'] - data['away_win_pct']
+        data['head_to_head_factor'] = np.clip(
+            (data['home_win_pct'] - data['away_win_pct']) * 0.8 + np.random.normal(0, 0.08, num_samples),
+            -1,
+            1,
+        )
+        data['usage_rates'] = np.clip(
+            (data['away_injuries_impact'] - data['home_injuries_impact']) / 10.0,
+            -1,
+            1,
+        )
+        data['live_odds_signal'] = np.clip(
+            base_score / 25.0 + np.random.normal(0, 0.08, num_samples),
+            -1,
+            1,
+        )
+        data['home_team_toronto'] = np.random.binomial(1, 0.03, num_samples).astype(float)
+        data['away_team_toronto'] = np.where(
+            data['home_team_toronto'] > 0,
+            0.0,
+            np.random.binomial(1, 0.03, num_samples).astype(float),
+        )
         return data[FEATURE_COLUMNS + ['home_win']]
 
     def train(self, training_rows=None):

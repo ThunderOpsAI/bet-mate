@@ -488,6 +488,8 @@ def create_paper_bet(
                 system_bet_id,
             ),
         )
+        inserted_row = cursor.fetchone()
+        bet_id = inserted_row["id"] if inserted_row else cursor.lastrowid
         conn.commit()
         row = conn.execute(
             """
@@ -495,7 +497,7 @@ def create_paper_bet(
             FROM paper_bet_log
             WHERE id = ?
             """,
-            (cursor.lastrowid,),
+            (bet_id,),
         ).fetchone()
 
     return _row_to_paper_bet(row)

@@ -159,6 +159,19 @@ def require_user_id(authorization: str = Header(default="", alias="Authorization
 
     return user_id
 
+
+def resolve_optional_user_id(
+    authorization: str = Header(default="", alias="Authorization"),
+    fallback_user_id: Optional[str] = None,
+) -> str:
+    if authorization.startswith("Bearer "):
+        return require_user_id(authorization)
+
+    if fallback_user_id and fallback_user_id.strip():
+        return fallback_user_id.strip()
+
+    raise HTTPException(status_code=401, detail="Missing bearer token")
+
 # --- Schemas ---
 
 class Horse(BaseModel):
@@ -236,6 +249,7 @@ class PaperBetSettleInput(BaseModel):
 
 
 class BlackbookAutoBetInput(BaseModel):
+    user_id: Optional[str] = None
     sport: str
     bet_type: str = "win"
     stake: float
@@ -523,19 +537,29 @@ def delete_paper_bet(bet_id: int, user_id: str = Depends(require_user_id)):
 
 
 @app.get("/blackbook/{runner}/auto-bet")
-def get_blackbook_auto_bet(runner: str, user_id: str = Depends(require_user_id)):
-    config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=user_id)
+def get_blackbook_auto_bet(
+    runner: str,
+    user_id: Optional[str] = None,
+    authorization: str = Header(default="", alias="Authorization"),
+):
+    resolved_user_id = resolve_optional_user_id(authorization, user_id)
+    config = storage.get_blackbook_auto_bet_config(runner=runner, user_id=resolved_user_id)
     if not config:
         raise HTTPException(status_code=404, detail="auto-bet config not found")
     return {"config": config}
 
 
 @app.put("/blackbook/{runner}/auto-bet")
-def upsert_blackbook_auto_bet(runner: str, payload: BlackbookAutoBetInput, user_id: str = Depends(require_user_id)):
+def upsert_blackbook_auto_bet(
+    runner: str,
+    payload: BlackbookAutoBetInput,
+    authorization: str = Header(default="", alias="Authorization"),
+):
+    resolved_user_id = resolve_optional_user_id(authorization, payload.user_id)
     try:
         config = storage.upsert_blackbook_auto_bet_config(
             runner=runner,
-            user_id=user_id,
+            user_id=resolved_user_id,
             sport=payload.sport,
             bet_type=payload.bet_type,
             stake=payload.stake,
@@ -674,7 +698,7 @@ async def bob_chat(request: BobChatRequest):
 def get_today_races(date: Optional[str] = None):
     """Fetch live race data for a Melbourne date (defaults to today)."""
     try:
-        races = racing_scraper.fetch_today_races(run_date=date, allow_mock=False)
+        races = racing_scraper.fetch_today_races(run_date=date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}
@@ -763,7 +787,7 @@ def predict_race(race: Race):
 @app.get("/api/afl/games/upcoming")
 def get_upcoming_afl(date: Optional[str] = None):
     try:
-        games = afl_scraper.fetch_this_week_afl(run_date=date, allow_mock=False)
+        games = afl_scraper.fetch_this_week_afl(run_date=date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}
@@ -839,7 +863,7 @@ def predict_afl(game: TeamGame):
 @app.get("/api/nba/games/today")
 def get_today_nba(date: Optional[str] = None):
     try:
-        games = nba_scraper.fetch_today_nba(run_date=date, allow_mock=False)
+        games = nba_scraper.fetch_today_nba(run_date=date)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"games": games}

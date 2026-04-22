@@ -247,9 +247,9 @@ def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
 
     assert candidates == []
     assert observed == {
-        "racing": {"run_date": "2026-04-10", "allow_mock": False},
-        "afl": {"run_date": "2026-04-10", "allow_mock": False},
-        "nba": {"run_date": "2026-04-10", "allow_mock": False},
+        "racing": {"run_date": "2026-04-10", "allow_mock": None},
+        "afl": {"run_date": "2026-04-10", "allow_mock": None},
+        "nba": {"run_date": "2026-04-10", "allow_mock": None},
     }
 
 

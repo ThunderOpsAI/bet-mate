@@ -25,7 +25,7 @@ export default function HowItWorksPage() {
               View predictions
             </Link>
             <Link href="/bets" className="btn btn-secondary">
-              Open paper bets
+              Open bankroll
             </Link>
           </div>
         </div>

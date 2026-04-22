@@ -78,6 +78,22 @@ class AFLPredictor:
         
         # Home Win binary output
         data['home_win'] = (base_score > 0).astype(int)
+
+        data['points_differential'] = (
+            ((data['home_avg_points_for'] - data['home_avg_points_against']) -
+            (data['away_avg_points_for'] - data['away_avg_points_against'])) / 100.0
+        )
+        data['squiggle_signal'] = data['squiggle_home_signal'] - 0.5
+        data['recent_form_5'] = np.clip(
+            (data['home_win_streak'] - data['away_win_streak']) / 10.0 + np.random.normal(0, 0.05, num_samples),
+            -1,
+            1,
+        )
+        data['win_streak_differential'] = (
+            data['home_win_streak'] - data['away_win_streak']
+        ) / 10.0
+        data['home_interstate_travel'] = np.random.binomial(1, 0.15, num_samples).astype(float)
+        data['away_interstate_travel'] = (data['travel_distance_away'] > 800).astype(float)
         
         return data[FEATURE_COLUMNS + ['home_win']]
 

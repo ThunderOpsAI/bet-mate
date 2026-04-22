@@ -2,7 +2,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Wallet, Bot, BookOpen, CircleHelp } from "lucide-react";
+import { BarChart3, Home, Trophy, Zap, CircleDot, Receipt, Bot, BookOpen, CircleHelp } from "lucide-react";
 
 const NAV = [
   { href: "/", label: "Dashboard", icon: Home },
@@ -12,8 +12,7 @@ const NAV = [
   { href: "/how-it-works", label: "How It Works", icon: CircleHelp },
   { href: "/strategy", label: "Strategies", icon: Bot },
   { href: "/blackbook", label: "Blackbook", icon: BookOpen },
-  { href: "/bets", label: "Paper Bets", icon: Receipt },
-  { href: "/bankroll", label: "Bankroll", icon: Wallet },
+  { href: "/bets", label: "Bankroll", icon: Receipt },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
 ];
 

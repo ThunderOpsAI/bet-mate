@@ -776,37 +776,6 @@ export default function DashboardPage() {
         </div>
       ) : null}
 
-      <section className="bob-home-spotlight">
-        <div className="bob-home-spotlight-copy">
-          <span className="bob-home-kicker">
-            <Brain size={14} /> BetMate Bob
-          </span>
-          <h3>Bob is ready below the main navigation</h3>
-          <p>
-            Ask for the plain-English case behind today&apos;s strategy card, then
-            jump into the racing board to log paper bets across the full Australian
-            schedule.
-          </p>
-          <div className="bob-home-actions">
-            <Link href="/strategy" className="btn btn-primary">
-              Ask Bob
-            </Link>
-            <Link href="/racing" className="btn btn-secondary">
-              Open Racing
-            </Link>
-          </div>
-        </div>
-        <div className="bob-home-spotlight-art" aria-hidden="true">
-          <Image
-            src="/brand/betmate-bob-original.png"
-            alt=""
-            fill
-            sizes="220px"
-            className="bob-home-spotlight-art-image"
-          />
-        </div>
-      </section>
-
       {!hasDashboardData && refreshFailed ? (
         <ErrorState
           title="Today’s predictions are still loading"
@@ -1258,6 +1227,28 @@ export default function DashboardPage() {
       </ErrorBoundary>
         </>
       )}
+
+      <section className="dashboard-ask-bob">
+        <div className="dashboard-ask-bob-art" aria-hidden="true">
+          <Image
+            src="/brand/betmate-bob-original.png"
+            alt=""
+            fill
+            sizes="220px"
+            className="dashboard-ask-bob-art-image"
+          />
+        </div>
+        <div className="dashboard-ask-bob-copy">
+          <span className="bob-home-kicker">
+            <Brain size={14} /> BetMate Bob
+          </span>
+          <h3>Ask Bob</h3>
+          <p>Get the plain-English read behind today&apos;s strategy card.</p>
+          <Link href="/strategy" className="btn btn-primary">
+            Ask Bob
+          </Link>
+        </div>
+      </section>
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking

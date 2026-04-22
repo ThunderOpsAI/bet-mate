@@ -173,7 +173,7 @@ async function fetchRacePredictions(races: Race[]) {
 }
 
 export default function RacingPage() {
-  const { user } = useAuth();
+  const { token, user } = useAuth();
   const [races, setRaces] = useState<Race[]>([]);
   const [predictions, setPredictions] = useState<Record<string, RacePrediction>>(
     {},
@@ -308,14 +308,14 @@ export default function RacingPage() {
   };
 
   const saveWatchConfig = async (horseName: string) => {
-    if (!user) return;
+    if (!user || user.id === "guest" || !token) return;
     setWatchSaving(true);
     try {
       await fetch(`${ML_API}/blackbook/${encodeURIComponent(horseName)}/auto-bet`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${user.id}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           user_id: user.id,

@@ -41,10 +41,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setToken(GUEST_TOKEN);
-    setUser(GUEST_USER);
-    persistGuestSession();
-    setIsLoading(false);
+    try {
+      const storedToken = localStorage.getItem("betmate_token");
+      const storedUser = localStorage.getItem("betmate_user");
+
+      if (storedToken && storedUser) {
+        const parsedUser = JSON.parse(storedUser) as User;
+        setToken(storedToken);
+        setUser(parsedUser);
+      } else {
+        setToken(GUEST_TOKEN);
+        setUser(GUEST_USER);
+        persistGuestSession();
+      }
+    } catch {
+      setToken(GUEST_TOKEN);
+      setUser(GUEST_USER);
+      persistGuestSession();
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   const login = useCallback(async (emailOrUsername: string, password: string) => {

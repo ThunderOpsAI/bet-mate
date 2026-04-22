@@ -51,7 +51,7 @@ const DEFAULT_RULE: DraftRule = {
 };
 
 export default function BlackbookPage() {
-  const { user } = useAuth();
+  const { isLoading, token, user } = useAuth();
   const [configs, setConfigs] = useState<BlackbookConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -61,12 +61,15 @@ export default function BlackbookPage() {
   const [draft, setDraft] = useState<DraftRule>(DEFAULT_RULE);
 
   const fetchConfigs = async () => {
-    if (!user) return;
+    if (!user || user.id === "guest" || !token) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setFetchError(null);
     try {
       const res = await fetch(`${ML_API}/blackbook`, {
-        headers: { Authorization: `Bearer ${user.id}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
@@ -85,21 +88,21 @@ export default function BlackbookPage() {
 
   useEffect(() => {
     void fetchConfigs();
-  }, [user]);
+  }, [token, user]);
 
   const sortedConfigs = useMemo(() => {
     return [...configs].sort((a, b) => a.runner.localeCompare(b.runner));
   }, [configs]);
 
   const removeConfig = async (runner: string) => {
-    if (!user) return;
+    if (!user || user.id === "guest" || !token) return;
 
     setConfigs((current) => current.filter((item) => item.runner !== runner));
 
     try {
       await fetch(`${ML_API}/blackbook/${encodeURIComponent(runner)}/auto-bet`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${user.id}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
     } catch (err) {
       console.error("Failed to remove config", err);
@@ -108,7 +111,7 @@ export default function BlackbookPage() {
 
   const saveRule = async (event: FormEvent) => {
     event.preventDefault();
-    if (!user || !draft.runner.trim()) {
+    if (!user || user.id === "guest" || !token || !draft.runner.trim()) {
       return;
     }
 
@@ -122,7 +125,7 @@ export default function BlackbookPage() {
           method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${user.id}`,
+            Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
             user_id: user.id,
@@ -159,7 +162,18 @@ export default function BlackbookPage() {
     }
   };
 
-  if (!user) {
+  if (isLoading) {
+    return (
+      <div className="dashboard-loading">
+        <div className="loading-pulse">
+          <BookOpen size={48} />
+          <p>Loading Blackbook...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || user.id === "guest") {
     return (
       <div className="status-stack" style={{ padding: "2rem" }}>
         <ErrorState

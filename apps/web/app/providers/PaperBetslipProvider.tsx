@@ -201,7 +201,6 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     if (bets.length === 0) return { success: 0, failed: 0 };
 
     try {
-      // Mapping for Prediction Engine (ML_API)
       const payload = bets.map((bet) => ({
         sport: bet.sport,
         event_id: bet.event_id,
@@ -225,15 +224,38 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       if (res.ok) {
         const data = await res.json().catch(() => ({}));
         const count = bets.length;
-        const successCount = data?.count ?? count;
+        const createdBets = Array.isArray(data?.bets) ? data.bets : [];
+        const successCount = data?.count ?? createdBets.length ?? count;
         const failedCount = count - successCount;
-        
-        if (failedCount === 0) {
+
+        if (failedCount <= 0) {
+          betsRef.current = [];
           setBets([]);
+          clearPersistedBetslip();
         } else {
-          // If partial, maybe leave the failed bets? But we don't know which ones. 
-          // At least we report it accurately.
-          setBets([]);
+          const createdKeys = new Set(
+            createdBets.map((bet: { sport: string; event_id: string; selection: string; bet_type?: string }) =>
+              buildPaperBetKey({
+                sport: bet.sport,
+                eventId: bet.event_id,
+                selection: bet.selection,
+                betType: bet.bet_type,
+              }),
+            ),
+          );
+
+          const remainingBets = betsRef.current.filter((bet) => {
+            const key = buildPaperBetKey({
+              sport: bet.sport,
+              eventId: bet.event_id,
+              selection: bet.selection,
+              betType: bet.bet_type,
+            });
+            return !createdKeys.has(key);
+          });
+
+          betsRef.current = remainingBets;
+          setBets(remainingBets);
         }
         return { success: successCount, failed: failedCount };
       } else {

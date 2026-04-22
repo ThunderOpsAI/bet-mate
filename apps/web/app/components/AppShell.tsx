@@ -45,7 +45,7 @@ function getPageTitle(path: string) {
   if (path === "/nba") return "🏀 NBA Predictions";
   if (path.startsWith("/races")) return "Race Detail";
   if (path === "/bets/new") return "Log a Bet";
-  if (path === "/bets") return "My Bets";
+  if (path === "/bets") return "Bankroll";
   if (path === "/bankroll") return "Bankroll";
   if (path === "/analytics") return "Analytics";
   if (path === "/how-it-works") return "How BetMate Works";

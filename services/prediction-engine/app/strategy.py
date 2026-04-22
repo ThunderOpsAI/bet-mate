@@ -69,7 +69,7 @@ class StrategyService:
         return candidates
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        races = racing_scraper.fetch_today_races(run_date=run_date, allow_mock=False)
+        races = racing_scraper.fetch_today_races(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for race in races:
             horses = race.get("horses", [])
@@ -134,7 +134,7 @@ class StrategyService:
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = afl_scraper.fetch_this_week_afl(run_date=run_date, allow_mock=False)
+        games = afl_scraper.fetch_this_week_afl(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.afl_predictor.predict(game["features"])
@@ -159,7 +159,7 @@ class StrategyService:
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = nba_scraper.fetch_today_nba(run_date=run_date, allow_mock=False)
+        games = nba_scraper.fetch_today_nba(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.nba_predictor.predict(game["features"])

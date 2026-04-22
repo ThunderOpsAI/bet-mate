@@ -81,6 +81,41 @@ class RacingPredictor:
         # Turn into classification (top 15% scores win)
         threshold = np.percentile(base_score, 85)
         data['won'] = (base_score >= threshold).astype(int)
+
+        data['horse_win_rate'] = data['past_win_rate']
+        data['speed_rating'] = np.clip(
+            (data['past_win_rate'] * 0.55) +
+            (data['jockey_win_rate'] * 0.25) +
+            (data['betfair_implied_prob'] * 0.20) +
+            np.random.normal(0, 0.04, num_samples),
+            0,
+            1,
+        )
+        data['track_conditions'] = np.clip(
+            1 - ((data['track_condition'] - 1) / 4) + np.random.normal(0, 0.05, num_samples),
+            0,
+            1,
+        )
+        data['recent_form'] = np.clip(
+            (data['past_win_rate'] * 0.7) + np.random.uniform(0, 0.25, num_samples),
+            0,
+            1,
+        )
+        data['class_factor'] = np.clip(
+            (data['betfair_implied_prob'] * 0.7) + np.random.uniform(0, 0.25, num_samples),
+            0,
+            1,
+        )
+        data['horse_jockey_proven'] = np.clip(
+            (data['past_win_rate'] * data['jockey_win_rate'] * 4) + np.random.uniform(0, 0.08, num_samples),
+            0,
+            1,
+        )
+        data['jockey_trainer_proven'] = np.clip(
+            (data['jockey_win_rate'] * 0.6) + np.random.uniform(0, 0.12, num_samples),
+            0,
+            1,
+        )
         
         return data[FEATURE_COLUMNS + ['won']]
 

@@ -1563,6 +1563,50 @@ tr:hover td {
   object-position: center;
 }
 
+.dashboard-ask-bob {
+  align-items: center;
+  background:
+    radial-gradient(circle at top center, rgba(59, 130, 246, 0.18), transparent 40%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(17, 24, 39, 0.86));
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  border-radius: 22px;
+  display: grid;
+  gap: 1rem;
+  justify-items: center;
+  margin: 2rem 0;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.dashboard-ask-bob-art {
+  aspect-ratio: 1 / 1;
+  min-height: 180px;
+  position: relative;
+  width: min(220px, 100%);
+}
+
+.dashboard-ask-bob-art-image {
+  filter: drop-shadow(0 20px 36px rgba(15, 23, 42, 0.38));
+  object-fit: contain;
+  object-position: center;
+}
+
+.dashboard-ask-bob-copy {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+}
+
+.dashboard-ask-bob-copy h3 {
+  font-size: 1.35rem;
+  line-height: 1.15;
+}
+
+.dashboard-ask-bob-copy p {
+  color: var(--text-secondary);
+  max-width: 42ch;
+}
+
 .opportunity-section {
   margin: 1.5rem 0 1.75rem;
   padding: 1.2rem;

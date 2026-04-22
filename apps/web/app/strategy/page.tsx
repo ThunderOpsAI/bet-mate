@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import { Bot, Brain, TrendingUp, Wallet } from "lucide-react";
+import PaperBetAction from "../components/PaperBetAction";
 import { ML_API } from "../lib/mlApi";
 
 type SystemBet = {
@@ -17,6 +18,16 @@ type SystemBet = {
   edge: number;
   stake: number;
   status?: string;
+  model_probability?: number;
+  legs?: Array<{
+    sport: string;
+    event_id: string;
+    event_name: string;
+    market_type: string;
+    selection: string;
+    odds_used: number;
+    odds_source: string;
+  }>;
 };
 
 type StrategyCard = {
@@ -44,6 +55,7 @@ type StrategyCard = {
 export default function StrategyPage() {
   const [cards, setCards] = useState<StrategyCard[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatReply, setChatReply] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -52,10 +64,14 @@ export default function StrategyPage() {
     const load = async () => {
       try {
         const response = await fetch(`${ML_API}/api/strategy-cards`);
+        if (!response.ok) {
+          throw new Error("Strategy cards unavailable");
+        }
         const data = await response.json();
         setCards(data?.cards ?? []);
       } catch (error) {
         console.error("Failed to load strategy cards", error);
+        setLoadError("BetMate could not load the latest strategy cards.");
       } finally {
         setLoading(false);
       }
@@ -95,6 +111,10 @@ export default function StrategyPage() {
 
       {loading ? (
         <div className="card">Loading strategy cards...</div>
+      ) : loadError ? (
+        <div className="card">{loadError}</div>
+      ) : cards.length === 0 ? (
+        <div className="card">No strategy cards are available yet for today.</div>
       ) : (
         <div className="predictions-grid">
           {cards.map((card) => (
@@ -117,19 +137,51 @@ export default function StrategyPage() {
 
                 <div className="prediction-picks">
                   {card.selected_bets.map((bet) => (
-                    <div key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} className="prediction-pick-row">
-                      <div className="prediction-pick-left">
-                        <span className="pick-rank rank-1">{bet.sport.slice(0, 1).toUpperCase()}</span>
-                        <div>
-                          <div className="prediction-horse-name">{bet.selection}</div>
-                          <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{bet.event_name} · {bet.market_type}</div>
+                    <div key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} style={{ display: "grid", gap: "0.55rem" }}>
+                      <div className="prediction-pick-row">
+                        <div className="prediction-pick-left">
+                          <span className="pick-rank rank-1">{bet.sport.slice(0, 1).toUpperCase()}</span>
+                          <div>
+                            <div className="prediction-horse-name">{bet.selection}</div>
+                            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>{bet.event_name} · {bet.market_type}</div>
+                          </div>
+                        </div>
+                        <div className="prediction-pick-right">
+                          <span className="prediction-prob">{bet.odds_used.toFixed(2)}</span>
+                          <span className="prediction-odds">${bet.stake.toFixed(2)}</span>
+                          <span className="badge badge-muted">{bet.odds_source}</span>
                         </div>
                       </div>
-                      <div className="prediction-pick-right">
-                        <span className="prediction-prob">{bet.odds_used.toFixed(2)}</span>
-                        <span className="prediction-odds">${bet.stake.toFixed(2)}</span>
-                        <span className="badge badge-muted">{bet.odds_source}</span>
-                      </div>
+                      {supportsStrategyCopy(bet) ? (
+                        <PaperBetAction
+                          variant="phase1"
+                          label="Copy To Bankroll"
+                          loggedLabel="Copied To Bankroll"
+                          cancelLabel="Remove"
+                          fullWidth
+                          bet={{
+                            sport: bet.sport,
+                            event_id: bet.event_id,
+                            event_name: bet.event_name,
+                            selection: bet.selection,
+                            odds: bet.odds_used,
+                            bet_type: bet.market_type,
+                            stake: bet.stake,
+                            notes: JSON.stringify({
+                              strategy_name: card.display_name,
+                              confidence: deriveStrategyConfidence(bet.edge),
+                              snapshot: {
+                                edge: `${Math.round(bet.edge * 1000) / 10}%`,
+                                odds_source: bet.odds_source,
+                                profile: card.profile_key,
+                              },
+                            }),
+                            odds_source: bet.odds_source === "live_market" ? "market" : "model_fair",
+                          }}
+                        />
+                      ) : (
+                        <div className="badge badge-muted">Multi bets stay visible here and in analytics, but they are not copyable to bankroll yet.</div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -188,4 +240,14 @@ export default function StrategyPage() {
       </div>
     </div>
   );
+}
+
+function supportsStrategyCopy(bet: SystemBet) {
+  return bet.sport !== "multi" && bet.market_type !== "multi" && !bet.legs?.length;
+}
+
+function deriveStrategyConfidence(edge: number) {
+  if (edge >= 0.12) return "High";
+  if (edge >= 0.06) return "Medium";
+  return "Measured";
 }
