@@ -11,7 +11,8 @@ import tempfile
 import unicodedata
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
@@ -26,6 +27,7 @@ BETFAIR_PASSWORD = os.getenv("BETFAIR_PASSWORD", "")
 
 ALLOWLIST_PATH = Path(__file__).with_name("metro_allowlist.json")
 RA_BASE_URL = "https://racingaustralia.horse/ozracing/Acceptances.aspx"
+RA_RESULTS_BASE_URL = "https://racingaustralia.horse/FreeFields/Results.aspx"
 DEFAULT_TIMEOUT_SECONDS = 10
 BETFAIR_INTERACTIVE_LOGIN_URL = "https://identitysso.betfair.com.au/api/login"
 BETFAIR_CERT_LOGIN_URL = "https://identitysso-cert.betfair.com.au/api/certlogin"
@@ -523,6 +525,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     meeting_region = allowlist_entry.get("region", "") if allowlist_entry else ""
     meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
     state = allowlist_entry.get("state", "") if allowlist_entry else ""
+    canonical_venue = allowlist_entry.get("venue", race.get("venue", "")) if allowlist_entry else race.get("venue", "")
     data_source = "mock" if race.get("source") == "mock" else "betfair"
 
     prepared_horses = []
@@ -540,6 +543,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
         "meeting_type": meeting_type,
         "meeting_region": meeting_region,
         "state": state,
+        "canonical_venue": canonical_venue,
         "meeting_date": meeting_date,
         "data_source": data_source,
         "horses": prepared_horses,
@@ -614,6 +618,7 @@ def _enrich_with_racing_australia(race: dict) -> dict:
         "meeting_type": allowlist_entry.get("meeting_type", "unknown"),
         "meeting_region": allowlist_entry.get("region", ""),
         "state": allowlist_entry.get("state", race.get("state", "")),
+        "canonical_venue": allowlist_entry.get("venue", race.get("canonical_venue", race.get("venue", ""))),
         "meeting_date": race["meeting_date"],
         "data_source": "racing_australia" if matched_any else race.get("data_source", "betfair"),
         "horses": enriched_horses,
@@ -624,6 +629,64 @@ def _fetch_racing_australia_acceptances(meeting_date: str, state: str, venue: st
     date_key = datetime.fromisoformat(meeting_date).strftime("%Y%b%d").upper()
     url = f"{RA_BASE_URL}?key={date_key}%2C{state.upper()}%2C{venue.upper().replace(' ', '+')}"
     return _parse_racing_australia_html(_fetch_racing_australia_html(url))
+
+
+def fetch_completed_racing_results(targets: Iterable[Dict[str, Any]], max_results: int = 50) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    page_cache: Dict[tuple[str, str, str], Dict[int, Dict[str, Any]]] = {}
+
+    for target in list(targets)[: max(1, min(int(max_results), 200))]:
+        meeting_date = str(target.get("meeting_date") or "").strip()
+        state = str(target.get("state") or "").strip().upper()
+        venue = str(target.get("venue") or "").strip()
+        event_id = str(target.get("event_id") or "").strip()
+        event_name = str(target.get("event_name") or "").strip()
+        try:
+            race_number = int(target.get("race_number") or 0)
+        except (TypeError, ValueError):
+            race_number = 0
+
+        if not meeting_date or not state or not venue or not event_id or race_number <= 0:
+            continue
+
+        cache_key = (meeting_date, state, venue)
+        meeting_results = page_cache.get(cache_key)
+        if meeting_results is None:
+            try:
+                meeting_results = _fetch_racing_australia_results(meeting_date=meeting_date, state=state, venue=venue)
+            except Exception as exc:
+                print(f"[RacingAustralia] Results fetch skipped for {venue} {meeting_date}: {exc}")
+                meeting_results = {}
+            page_cache[cache_key] = meeting_results
+
+        race_result = meeting_results.get(race_number)
+        winner_selection = race_result.get("winner_selection") if race_result else None
+        if not race_result or not winner_selection:
+            continue
+
+        results.append(
+            {
+                "sport": "racing",
+                "event_id": event_id,
+                "event_name": event_name or f"{venue} R{race_number}",
+                "winner_selection": winner_selection,
+                "result_payload": {
+                    "meeting_date": meeting_date,
+                    "state": state,
+                    "venue": venue,
+                    **race_result,
+                },
+            }
+        )
+
+    return results
+
+
+def _fetch_racing_australia_results(meeting_date: str, state: str, venue: str) -> Dict[int, Dict[str, Any]]:
+    date_key = datetime.fromisoformat(meeting_date).strftime("%Y%b%d").upper()
+    encoded_key = quote(f"{date_key},{state.upper()},{venue.upper()}")
+    url = f"{RA_RESULTS_BASE_URL}?Key={encoded_key}"
+    return _parse_racing_australia_results_html(_fetch_racing_australia_html(url))
 
 
 def _fetch_racing_australia_html(url: str) -> str:
@@ -676,6 +739,126 @@ def _parse_racing_australia_html(html_text: str) -> list[dict]:
         })
 
     return rows
+
+
+def _parse_racing_australia_results_html(html_text: str) -> Dict[int, Dict[str, Any]]:
+    tokens = re.finditer(
+        r"(?P<heading><h[1-6][^>]*>.*?</h[1-6]>)|(?P<row><tr[^>]*>.*?</tr>)",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    current_race_number = None
+    headers: list[str] = []
+    races: Dict[int, Dict[str, Any]] = {}
+
+    for match in tokens:
+        heading_html = match.group("heading")
+        row_html = match.group("row")
+
+        if heading_html:
+            heading_text = _clean_html_text(heading_html)
+            current_race_number = _extract_race_number(heading_text) or current_race_number
+            headers = []
+            continue
+
+        cells = [
+            _clean_html_text(cell)
+            for cell in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html or "", flags=re.IGNORECASE | re.DOTALL)
+        ]
+        cells = [cell for cell in cells if cell]
+        if not cells or current_race_number is None:
+            continue
+
+        lowered = [_normalize_header(cell) for cell in cells]
+        if "finish" in lowered and any(header in {"horse", "runner", "horse_name", "runner_name"} for header in lowered):
+            headers = lowered
+            continue
+
+        row = _extract_racing_result_row(cells, headers)
+        if not row:
+            continue
+
+        race_bucket = races.setdefault(
+            current_race_number,
+            {"finishers": [], "starter_count": 0},
+        )
+        if row["is_starter"]:
+            race_bucket["starter_count"] += 1
+        if row["finish_position"] is not None:
+            race_bucket["finishers"].append((row["finish_position"], row["runner_name"]))
+
+    parsed: Dict[int, Dict[str, Any]] = {}
+    for race_number, bucket in races.items():
+        ordered = [
+            runner_name
+            for _, runner_name in sorted(bucket["finishers"], key=lambda item: item[0])
+            if runner_name
+        ]
+        if not ordered:
+            continue
+
+        starter_count = max(int(bucket["starter_count"]), len(ordered))
+        place_depth = 3 if starter_count >= 8 else 2 if starter_count >= 5 else 1
+        parsed[race_number] = {
+            "winner_selection": ordered[0],
+            "finish_order": ordered,
+            "place_getters": ordered[:place_depth],
+            "top_4_finishers": ordered[:4],
+            "starter_count": starter_count,
+            "exotic_outcomes": _build_exotic_outcomes(ordered),
+        }
+
+    return parsed
+
+
+def _extract_racing_result_row(cells: list[str], headers: list[str]) -> Optional[Dict[str, Any]]:
+    mapping: Dict[str, str]
+    if headers and len(headers) == len(cells):
+        mapping = dict(zip(headers, cells))
+    else:
+        mapping = {}
+        if len(cells) >= 4:
+            mapping = {
+                "finish": cells[1],
+                "horse": cells[3],
+            }
+
+    runner_name = _clean_results_runner_name(
+        mapping.get("horse") or mapping.get("runner") or mapping.get("horse_name") or mapping.get("runner_name")
+    )
+    if not runner_name:
+        return None
+
+    finish_value = str(mapping.get("finish") or "").strip().upper()
+    finish_position = int(finish_value) if finish_value.isdigit() else None
+    non_starter_codes = {"", "SB", "SCR", "SCRATCHED", "NS"}
+    is_starter = finish_value not in non_starter_codes
+
+    return {
+        "runner_name": runner_name,
+        "finish_position": finish_position,
+        "is_starter": is_starter,
+    }
+
+
+def _clean_results_runner_name(value: Optional[str]) -> Optional[str]:
+    cleaned = _clean_runner_name(value)
+    if not cleaned:
+        return None
+    cleaned = re.sub(r"\s+Image:.*$", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip() or None
+
+
+def _build_exotic_outcomes(finish_order: List[str]) -> Dict[str, List[str]]:
+    outcomes: Dict[str, List[str]] = {}
+    if len(finish_order) >= 2:
+        outcomes["quinella"] = finish_order[:2]
+        outcomes["exacta"] = finish_order[:2]
+    if len(finish_order) >= 3:
+        outcomes["trifecta"] = finish_order[:3]
+    if len(finish_order) >= 4:
+        outcomes["first4"] = finish_order[:4]
+    return outcomes
 
 
 def _extract_runner_and_jockey(cells: list[str], headers: list[str]) -> tuple[Optional[str], Optional[str]]:

@@ -123,6 +123,19 @@ class StrategyService:
                         "selection": item["selection"],
                         "probability": round(item["model_probability"] * 100, 2),
                         "fair_odds": item["derived_odds"] or item["market_odds"],
+                        "payload": {
+                            "selection": item["selection"],
+                            "venue": race["venue"],
+                            "canonical_venue": race.get("canonical_venue") or race["venue"],
+                            "race_number": race["race_number"],
+                            "meeting_date": race.get("meeting_date"),
+                            "state": race.get("state"),
+                            "meeting_region": race.get("meeting_region"),
+                            "market_name": race.get("market_name"),
+                            "start_time": race.get("start_time"),
+                            "distance": race.get("distance"),
+                            "data_source": race.get("data_source"),
+                        },
                     }
                     for item in ranked
                 ],
@@ -130,7 +143,6 @@ class StrategyService:
             )
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
-            candidates.extend(build_quinella_candidates(race, ranked))
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:

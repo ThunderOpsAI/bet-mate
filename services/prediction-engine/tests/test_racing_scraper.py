@@ -332,3 +332,73 @@ def test_login_certificate_mode_requires_certificate_material(monkeypatch):
 
     assert scraper._login() is None
     assert scraper._session_token is None
+
+
+def test_parse_racing_australia_results_html_extracts_places_and_exotic_scaffold():
+    html = """
+        <h3>Race 6 - 3:40PM Example Stakes</h3>
+        <table>
+          <tr><th>Colour</th><th>Finish</th><th>No.</th><th>Horse</th><th>Trainer</th><th>Jockey</th></tr>
+          <tr><td>Image</td><td>1</td><td>4</td><td>Late Charger</td><td>T A</td><td>J Rider</td></tr>
+          <tr><td>Image</td><td>2</td><td>2</td><td>Swift Star</td><td>T B</td><td>K Rider</td></tr>
+          <tr><td>Image</td><td>3</td><td>6</td><td>Harbour Light</td><td>T C</td><td>L Rider</td></tr>
+          <tr><td>Image</td><td>4</td><td>1</td><td>Coastal Theory</td><td>T D</td><td>M Rider</td></tr>
+          <tr><td>Image</td><td>5</td><td>3</td><td>Royal Ledger</td><td>T E</td><td>N Rider</td></tr>
+          <tr><td>Image</td><td>6</td><td>5</td><td>Golden Static</td><td>T F</td><td>O Rider</td></tr>
+          <tr><td>Image</td><td>7</td><td>7</td><td>Midnight Signal</td><td>T G</td><td>P Rider</td></tr>
+          <tr><td>Image</td><td>8</td><td>8</td><td>Orbit Parade</td><td>T H</td><td>Q Rider</td></tr>
+          <tr><td>Image</td><td>SB</td><td>9</td><td>Scratched Runner</td><td>T I</td><td>R Rider</td></tr>
+        </table>
+    """
+
+    parsed = scraper._parse_racing_australia_results_html(html)
+
+    assert parsed[6]["winner_selection"] == "Late Charger"
+    assert parsed[6]["finish_order"][:4] == ["Late Charger", "Swift Star", "Harbour Light", "Coastal Theory"]
+    assert parsed[6]["place_getters"] == ["Late Charger", "Swift Star", "Harbour Light"]
+    assert parsed[6]["starter_count"] == 8
+    assert parsed[6]["exotic_outcomes"]["quinella"] == ["Late Charger", "Swift Star"]
+    assert parsed[6]["exotic_outcomes"]["first4"] == [
+        "Late Charger",
+        "Swift Star",
+        "Harbour Light",
+        "Coastal Theory",
+    ]
+
+
+def test_fetch_completed_racing_results_uses_target_metadata(monkeypatch):
+    monkeypatch.setattr(
+        scraper,
+        "_fetch_racing_australia_results",
+        lambda meeting_date, state, venue: {
+            6: {
+                "winner_selection": "Late Charger",
+                "finish_order": ["Late Charger", "Swift Star", "Harbour Light"],
+                "place_getters": ["Late Charger", "Swift Star", "Harbour Light"],
+                "starter_count": 9,
+                "exotic_outcomes": {
+                    "quinella": ["Late Charger", "Swift Star"],
+                    "exacta": ["Late Charger", "Swift Star"],
+                    "trifecta": ["Late Charger", "Swift Star", "Harbour Light"],
+                },
+            }
+        },
+    )
+
+    results = scraper.fetch_completed_racing_results(
+        [
+            {
+                "event_id": "race_ingest_1",
+                "event_name": "Randwick R6",
+                "venue": "Randwick",
+                "meeting_date": "2026-04-09",
+                "state": "NSW",
+                "race_number": 6,
+            }
+        ]
+    )
+
+    assert len(results) == 1
+    assert results[0]["sport"] == "racing"
+    assert results[0]["winner_selection"] == "Late Charger"
+    assert results[0]["result_payload"]["place_getters"] == ["Late Charger", "Swift Star", "Harbour Light"]

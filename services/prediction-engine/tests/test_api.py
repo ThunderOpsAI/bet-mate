@@ -300,16 +300,16 @@ class TestPaperBetEndpoints:
                 "sport": "racing",
                 "event_id": "race_bet_type_1",
                 "event_name": "Flemington R5",
-                "selection": "Runner A / Runner B",
+                "selection": "Runner A",
                 "stake": 15,
-                "odds": 6.0,
-                "bet_type": "quinella",
+                "odds": 2.1,
+                "bet_type": "place",
             },
             headers=_auth_headers("user_a"),
         )
 
         assert response.status_code == 200
-        assert response.json()["bet"]["bet_type"] == "quinella"
+        assert response.json()["bet"]["bet_type"] == "place"
 
     def test_create_and_settle_paper_bet(self, client):
         # First log a prediction so the bet can link to it
@@ -541,8 +541,30 @@ class TestResultIngestionSettlement:
             event_id="race_ingest_1",
             event_name="Randwick R6",
             predictions=[
-                {"selection": "Swift Star", "probability": 35, "fair_odds": 2.85},
-                {"selection": "Late Charger", "probability": 65, "fair_odds": 1.54},
+                {
+                    "selection": "Swift Star",
+                    "probability": 35,
+                    "fair_odds": 2.85,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
+                {
+                    "selection": "Late Charger",
+                    "probability": 65,
+                    "fair_odds": 1.54,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
             ],
         )
 
@@ -566,7 +588,8 @@ class TestResultIngestionSettlement:
                 "event_name": "Randwick R6",
                 "selection": "Swift Star",
                 "stake": 10,
-                "odds": 2.85,
+                "odds": 1.85,
+                "bet_type": "place",
             },
             headers=_auth_headers("user_a"),
         ).json()["bet"]
@@ -581,25 +604,55 @@ class TestResultIngestionSettlement:
                     "event_id": "nba_ingest_1",
                     "event_name": "Lakers vs Celtics",
                     "winner_selection": "Lakers",
-                },
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            main_mod.storage,
+            "list_pending_racing_result_targets",
+            lambda limit=50: [
+                {
+                    "event_id": "race_ingest_1",
+                    "event_name": "Randwick R6",
+                    "venue": "Randwick",
+                    "meeting_date": "2026-04-09",
+                    "state": "NSW",
+                    "race_number": 6,
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            main_mod.racing_scraper,
+            "fetch_completed_racing_results",
+            lambda targets, max_results=50: [
                 {
                     "sport": "racing",
                     "event_id": "race_ingest_1",
                     "event_name": "Randwick R6",
                     "winner_selection": "Late Charger",
-                },
+                    "result_payload": {
+                        "finish_order": ["Late Charger", "Swift Star", "Harbour Light"],
+                        "place_getters": ["Late Charger", "Swift Star", "Harbour Light"],
+                        "starter_count": 9,
+                        "exotic_outcomes": {
+                            "quinella": ["Late Charger", "Swift Star"],
+                            "exacta": ["Late Charger", "Swift Star"],
+                            "trifecta": ["Late Charger", "Swift Star", "Harbour Light"],
+                        },
+                    },
+                }
             ],
         )
 
-        ingest_response = client.post("/api/predictions/results/ingest", json={"sports": ["nba"], "max_results": 10})
+        ingest_response = client.post("/api/predictions/results/ingest", json={"sports": ["nba", "racing"], "max_results": 10})
         assert ingest_response.status_code == 200
         assert ingest_response.json()["ingestion"]["settled"] == 2
 
         bets = {bet["id"]: bet for bet in client.get("/api/paper-bets", headers=_auth_headers("user_a")).json()["bets"]}
         assert bets[nba_bet["id"]]["status"] == "WON"
         assert bets[nba_bet["id"]]["profit"] == 15.0
-        assert bets[racing_bet["id"]]["status"] == "LOST"
-        assert bets[racing_bet["id"]]["profit"] == -10.0
+        assert bets[racing_bet["id"]]["status"] == "WON"
+        assert bets[racing_bet["id"]]["profit"] == 8.5
 
 
 class TestBlackbookAutoBetEndpoints:

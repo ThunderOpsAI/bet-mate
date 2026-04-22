@@ -200,6 +200,7 @@ class Horse(BaseModel):
 class Race(BaseModel):
     race_id: str
     venue: str
+    canonical_venue: str = ""
     race_number: int
     distance: int
     horses: List[Horse]
@@ -227,7 +228,7 @@ class PredictionResultInput(BaseModel):
     result_payload: Optional[Dict[str, Any]] = None
 
 class PredictionResultIngestionInput(BaseModel):
-    sports: List[str] = Field(default_factory=lambda: ["afl", "nba"])
+    sports: List[str] = Field(default_factory=lambda: ["afl", "nba", "racing"])
     max_results: int = 50
     afl_year: Optional[int] = None
     nba_days_back: int = 7
@@ -377,9 +378,9 @@ def ingest_prediction_results(request: Optional[PredictionResultIngestionInput] 
     request = request or PredictionResultIngestionInput()
     sports = {sport.strip().lower() for sport in request.sports if sport.strip()}
     if "all" in sports:
-        sports = {"afl", "nba"}
+        sports = {"afl", "nba", "racing"}
 
-    unsupported = sorted(sports - {"afl", "nba"})
+    unsupported = sorted(sports - {"afl", "nba", "racing"})
     if unsupported:
         raise HTTPException(status_code=400, detail=f"Result ingestion is not available for: {', '.join(unsupported)}")
 
@@ -404,6 +405,14 @@ def ingest_prediction_results(request: Optional[PredictionResultIngestionInput] 
             max_results=request.max_results,
         )
         ingestion["sports"]["nba"] = _settle_ingested_results(nba_results)
+
+    if "racing" in sports:
+        racing_targets = storage.list_pending_racing_result_targets(limit=request.max_results)
+        racing_results = racing_scraper.fetch_completed_racing_results(
+            racing_targets,
+            max_results=request.max_results,
+        )
+        ingestion["sports"]["racing"] = _settle_ingested_results(racing_results)
 
     for sport_result in ingestion["sports"].values():
         ingestion["fetched"] += sport_result["fetched"]
@@ -734,7 +743,19 @@ def predict_race(race: Race):
                     "selection": prediction["name"],
                     "probability": prediction["win_probability"],
                     "fair_odds": prediction["fair_odds"],
-                    "payload": prediction,
+                    "payload": {
+                        **prediction,
+                        "venue": race.venue,
+                        "canonical_venue": race.canonical_venue or race.venue,
+                        "race_number": race.race_number,
+                        "meeting_date": race.meeting_date,
+                        "state": race.state,
+                        "meeting_region": race.meeting_region,
+                        "market_name": race.market_name,
+                        "start_time": race.start_time,
+                        "distance": race.distance,
+                        "data_source": race.data_source,
+                    },
                 }
                 for prediction in predictions
             ],

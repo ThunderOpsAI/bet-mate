@@ -43,7 +43,15 @@ function SettingsContent() {
       try {
         const response = await fetch(`${ML_API}/api/strategy-profiles/james`);
         const data = await response.json();
-        setJamesConfig(data?.rule_set ?? null);
+        const ruleSet = data?.rule_set ?? null;
+        if (!ruleSet) {
+          setJamesConfig(null);
+          return;
+        }
+        setJamesConfig({
+          ...ruleSet,
+          allowed_markets: (ruleSet.allowed_markets ?? []).filter((market: string) => market !== "quinella"),
+        });
       } catch (err) {
         console.error("Failed to load James config", err);
       } finally {
@@ -248,7 +256,7 @@ function SettingsContent() {
             <div className="form-group">
               <label className="form-label">Allowed Markets</label>
               <div className="filter-bar" style={{ marginTop: "0.5rem" }}>
-                {["win", "place", "quinella", "head_to_head"].map((market) => (
+                {["win", "place", "head_to_head"].map((market) => (
                   <button
                     key={market}
                     type="button"

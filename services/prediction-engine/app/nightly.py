@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.scraper as racing_scraper
 import app.database as database
 import app.storage as storage
 from app.ml.afl import AFLPredictor
@@ -56,11 +57,11 @@ def ingest_completed_results(
     afl_year: Optional[int] = None,
     nba_days_back: int = 7,
 ) -> Dict[str, Any]:
-    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba")) if str(sport).strip()}
+    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba", "racing")) if str(sport).strip()}
     if "all" in requested:
-        requested = {"afl", "nba"}
+        requested = {"afl", "nba", "racing"}
 
-    unsupported = sorted(requested - {"afl", "nba"})
+    unsupported = sorted(requested - {"afl", "nba", "racing"})
     if unsupported:
         raise ValueError(f"Result ingestion is not available for: {', '.join(unsupported)}")
 
@@ -85,6 +86,11 @@ def ingest_completed_results(
             max_results=max_results,
         )
         summary["sports"]["nba"] = _settle_ingested_results(nba_results)
+
+    if "racing" in requested:
+        racing_targets = storage.list_pending_racing_result_targets(limit=max_results)
+        racing_results = racing_scraper.fetch_completed_racing_results(racing_targets, max_results=max_results)
+        summary["sports"]["racing"] = _settle_ingested_results(racing_results)
 
     for sport_result in summary["sports"].values():
         summary["fetched"] += sport_result["fetched"]
@@ -162,11 +168,11 @@ def run_nightly_cycle(
     ingestion = {
         "skipped": True,
         "reason": "ingestion disabled",
-        "sports": list(ingest_sports or ("afl", "nba")),
+        "sports": list(ingest_sports or ("afl", "nba", "racing")),
     }
     if ingest_results_enabled:
         ingestion = ingest_completed_results(
-            sports=ingest_sports or ("afl", "nba"),
+            sports=ingest_sports or ("afl", "nba", "racing"),
             max_results=max_results,
             afl_year=afl_year,
             nba_days_back=nba_days_back,

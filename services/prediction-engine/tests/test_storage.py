@@ -154,7 +154,18 @@ class TestPaperBets:
             event_id="race_1",
             event_name="Flemington R3",
             predictions=[
-                {"selection": "Thunder", "probability": 45.0, "fair_odds": 2.22},
+                {
+                    "selection": "Thunder",
+                    "probability": 45.0,
+                    "fair_odds": 2.22,
+                    "payload": {
+                        "venue": "Flemington",
+                        "canonical_venue": "Flemington",
+                        "race_number": 3,
+                        "meeting_date": "2026-04-09",
+                        "state": "VIC",
+                    },
+                },
             ],
         )
 
@@ -272,6 +283,71 @@ class TestPaperBets:
         auto_bet = [b for b in bets if b["id"] == bet["id"]]
         assert len(auto_bet) == 1
         assert auto_bet[0]["status"] == "WON"
+
+    def test_racing_place_bet_auto_settles_from_result_payload(self):
+        storage.log_prediction_batch(
+            sport="racing",
+            event_id="race_place_1",
+            event_name="Randwick R6",
+            predictions=[
+                {
+                    "selection": "Swift Star",
+                    "probability": 35,
+                    "fair_odds": 2.85,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
+                {
+                    "selection": "Late Charger",
+                    "probability": 65,
+                    "fair_odds": 1.54,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
+            ],
+        )
+
+        bet = storage.create_paper_bet(
+            sport="racing",
+            event_id="race_place_1",
+            event_name="Randwick R6",
+            selection="Swift Star",
+            stake=10.0,
+            odds=1.9,
+            bet_type="place",
+        )
+
+        storage.settle_prediction_result(
+            sport="racing",
+            event_id="race_place_1",
+            winner_selection="Late Charger",
+            result_payload={
+                "finish_order": ["Late Charger", "Swift Star", "Harbour Light"],
+                "place_getters": ["Late Charger", "Swift Star", "Harbour Light"],
+                "starter_count": 9,
+                "exotic_outcomes": {
+                    "quinella": ["Late Charger", "Swift Star"],
+                    "exacta": ["Late Charger", "Swift Star"],
+                    "trifecta": ["Late Charger", "Swift Star", "Harbour Light"],
+                },
+            },
+        )
+
+        bets = storage.get_paper_bets()
+        place_bet = [item for item in bets if item["id"] == bet["id"]]
+        assert len(place_bet) == 1
+        assert place_bet[0]["status"] == "WON"
+        assert place_bet[0]["profit"] == 9.0
 
 
 class TestPaperBetSummary:
@@ -676,6 +752,92 @@ class TestStrategyStorage:
         bets = storage.list_system_bets(profile_key="bob")
         assert bets[0]["status"] == "won"
         assert bets[0]["profit"] > 0
+
+    def test_racing_place_system_bet_uses_place_getters(self):
+        storage.log_prediction_batch(
+            sport="racing",
+            event_id="race-system-place",
+            event_name="Randwick R6",
+            predictions=[
+                {
+                    "selection": "Swift Star",
+                    "probability": 35,
+                    "fair_odds": 2.85,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
+                {
+                    "selection": "Late Charger",
+                    "probability": 65,
+                    "fair_odds": 1.54,
+                    "payload": {
+                        "venue": "Randwick",
+                        "canonical_venue": "Randwick",
+                        "race_number": 6,
+                        "meeting_date": "2026-04-09",
+                        "state": "NSW",
+                    },
+                },
+            ],
+        )
+        storage.save_strategy_card(
+            {
+                "profile_key": "bob",
+                "display_name": "Betmate Bob",
+                "card_date": "2026-04-09",
+                "bankroll_available": 250.0,
+                "bankroll_standard": 250.0,
+                "bankroll_premium": 500.0,
+                "total_allocated": 20.0,
+                "candidate_count": 1,
+                "selected_bets": [
+                    {
+                        "sport": "racing",
+                        "event_id": "race-system-place",
+                        "event_name": "Randwick R6",
+                        "market_type": "place",
+                        "selection": "Swift Star",
+                        "model_probability": 0.58,
+                        "odds_used": 1.8,
+                        "odds_source": "harville_derived",
+                        "edge": 0.05,
+                        "stake": 20.0,
+                        "status": "pending",
+                        "payout": None,
+                        "profit": None,
+                        "settled_at": None,
+                    }
+                ],
+                "skipped_opportunities": [],
+                "sport_mix": {"racing": 1.0},
+                "expected_edge": 0.05,
+            }
+        )
+
+        storage.settle_prediction_result(
+            sport="racing",
+            event_id="race-system-place",
+            winner_selection="Late Charger",
+            result_payload={
+                "finish_order": ["Late Charger", "Swift Star", "Harbour Light"],
+                "place_getters": ["Late Charger", "Swift Star", "Harbour Light"],
+                "starter_count": 9,
+                "exotic_outcomes": {
+                    "quinella": ["Late Charger", "Swift Star"],
+                    "exacta": ["Late Charger", "Swift Star"],
+                    "trifecta": ["Late Charger", "Swift Star", "Harbour Light"],
+                },
+            },
+        )
+
+        bets = storage.list_system_bets(profile_key="bob")
+        assert bets[0]["status"] == "won"
+        assert bets[0]["profit"] == 16.0
 
     def test_system_multi_bets_round_trip_legs_and_settle_after_all_legs_win(self):
         storage.log_prediction_batch(

@@ -21,18 +21,45 @@ function NewBetContent() {
   const [odds, setOdds] = useState("");
   const [stake, setStake] = useState("10");
   const [notes, setNotes] = useState("");
+  const isRacing = sport === "racing";
+  const betTypeOptions = isRacing
+    ? [
+        { value: "win", label: "Win" },
+        { value: "place", label: "Place" },
+      ]
+    : [
+        { value: "win", label: "Win" },
+        { value: "head_to_head", label: "Head to Head" },
+        { value: "line", label: "Line/Spread" },
+        { value: "over_under", label: "Over/Under" },
+        { value: "other", label: "Other" },
+      ];
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setSport(params.get("sport") || "racing");
+    const nextSport = params.get("sport") || "racing";
+    setSport(nextSport);
     setEventId(params.get("event_id") || "");
     setEventName(params.get("event_name") || "");
-    setBetType(params.get("bet_type") || "win");
+    const requestedBetType = params.get("bet_type") || "win";
+    const validRacingBetTypes = new Set(["win", "place"]);
+    setBetType(nextSport === "racing" && !validRacingBetTypes.has(requestedBetType) ? "win" : requestedBetType);
     setSelection(params.get("selection") || "");
     setOdds(params.get("odds") || "");
     setStake(params.get("stake") || "10");
     setNotes(params.get("notes") || "");
   }, []);
+
+  useEffect(() => {
+    const validBetTypes = new Set(
+      sport === "racing"
+        ? ["win", "place"]
+        : ["win", "head_to_head", "line", "over_under", "other"],
+    );
+    if (!validBetTypes.has(betType)) {
+      setBetType("win");
+    }
+  }, [betType, sport]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -100,12 +127,11 @@ function NewBetContent() {
           <div className="form-group">
             <label className="form-label">Bet Type</label>
             <select className="form-input" value={betType} onChange={(e) => setBetType(e.target.value)}>
-              <option value="win">Win</option>
-              <option value="head_to_head">Head to Head</option>
-              <option value="line">Line/Spread</option>
-              <option value="over_under">Over/Under</option>
-              <option value="place">Place</option>
-              <option value="other">Other</option>
+              {betTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
           <div className="form-group">

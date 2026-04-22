@@ -336,7 +336,7 @@ export default function AnalyticsPage() {
       const response = await fetch(`${ML_API}/api/predictions/results/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sports: ["afl", "nba"] }),
+        body: JSON.stringify({ sports: ["afl", "nba", "racing"] }),
       });
 
       if (!response.ok) {
