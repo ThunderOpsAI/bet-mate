@@ -3,10 +3,9 @@ import hashlib
 import hmac
 import json
 import binascii
-import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -26,10 +25,9 @@ from app.bob import (
     build_local_bob_fallback,
     sanitize_bob_messages,
 )
-import app.nightly as nightly_runner
 from app.notifications import notify_blackbook_trigger
 from app.strategy import StrategyService
-from app.time_utils import now_melbourne, today_melbourne
+from app.time_utils import today_melbourne
 from app import database as database_mod
 from app.ml import artifacts as artifact_store
 
@@ -42,12 +40,6 @@ import app.storage as storage
 # CORS — configurable for deployment; defaults to localhost dev
 _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 CORS_ORIGINS = [origin.strip().rstrip("/") for origin in _cors_env.split(",") if origin.strip()]
-NIGHTLY_SCHEDULER_ENABLED = os.getenv("BETMATE_NIGHTLY_SCHEDULER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
-NIGHTLY_SCHEDULER_TIME = os.getenv("BETMATE_NIGHTLY_SCHEDULER_TIME", nightly_runner.DEFAULT_SCHEDULER_TIME)
-WEEKLY_RETRAIN_ENABLED = os.getenv("BETMATE_WEEKLY_RETRAIN_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
-WEEKLY_RETRAIN_DAY = os.getenv("BETMATE_WEEKLY_RETRAIN_DAY", nightly_runner.DEFAULT_WEEKLY_RETRAIN_DAY)
-SQLITE_BACKUP_DIR = os.getenv("BETMATE_SQLITE_BACKUP_DIR", "").strip() or None
-_nightly_scheduler_task: Optional[asyncio.Task] = None
 LOGGER = logging.getLogger("betmate.prediction_engine")
 
 
@@ -74,34 +66,8 @@ def _log_model_initialization(name: str, predictor, model_path: str) -> None:
     )
 
 
-async def _nightly_scheduler_loop():
-    try:
-        scheduled_time = nightly_runner.parse_scheduler_time(NIGHTLY_SCHEDULER_TIME)
-    except ValueError as exc:
-        LOGGER.warning("Nightly scheduler disabled: %s", exc)
-        return
-
-    while True:
-        next_run = nightly_runner.next_scheduler_run(scheduled_time=scheduled_time)
-        sleep_seconds = max(1.0, (next_run - now_melbourne()).total_seconds())
-        LOGGER.info("Nightly scheduler sleeping until %s", next_run.isoformat())
-        await asyncio.sleep(sleep_seconds)
-        try:
-            summary = nightly_runner.run_nightly_cycle(
-                strategy_service=strategy_service,
-                run_date=next_run.date().isoformat(),
-                weekly_retrain_enabled=WEEKLY_RETRAIN_ENABLED,
-                weekly_retrain_day=WEEKLY_RETRAIN_DAY,
-                backup_dir=SQLITE_BACKUP_DIR,
-            )
-            LOGGER.info("Nightly strategy cycle completed for %s", summary["run_date"])
-        except Exception as exc:
-            LOGGER.exception("Nightly strategy cycle failed: %s", exc)
-
-
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    global _nightly_scheduler_task
     _configure_logging()
     database_mod.require_database_url()
     storage.init_db()
@@ -114,14 +80,7 @@ async def lifespan(application: FastAPI):
     _log_model_initialization("AFL", afl_predictor, AFL_MODEL_PATH)
     _log_model_initialization("NBA", nba_predictor, NBA_MODEL_PATH)
     LOGGER.info("Prediction engine cold start completed.")
-    if NIGHTLY_SCHEDULER_ENABLED:
-        _nightly_scheduler_task = asyncio.create_task(_nightly_scheduler_loop())
     yield
-    if _nightly_scheduler_task is not None:
-        _nightly_scheduler_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await _nightly_scheduler_task
-        _nightly_scheduler_task = None
 
 
 app = FastAPI(title="BetMate Advanced ML Engine", version="2.0.0", lifespan=lifespan)
