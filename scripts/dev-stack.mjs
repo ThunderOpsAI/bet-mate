@@ -64,7 +64,8 @@ start(
   ["--filter", "@bet-mate/web", "exec", "next", "dev", "-p", "3000", "-H", "127.0.0.1"],
   {
     env: {
-      NEXT_PUBLIC_ML_API: "http://127.0.0.1:8000",
+      NEXT_PUBLIC_ML_API: "/api/ml-proxy",
+      ML_API_PROXY_TARGET: "http://127.0.0.1:8000",
     },
   },
 );
