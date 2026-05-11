@@ -10,3 +10,4 @@ requests
 psycopg2-binary
 pytest
 httpx
+modal

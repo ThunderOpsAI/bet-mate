@@ -15,6 +15,7 @@ from app.time_utils import today_melbourne
 # Force SQLite for tests before importing the app
 os.environ["DATABASE_URL"] = ""
 os.environ["BETMATE_DB_PATH"] = ":memory:"
+os.environ["BETMATE_ALLOW_SQLITE"] = "1"
 
 from fastapi.testclient import TestClient
 
@@ -46,11 +47,13 @@ def client(tmp_path):
     import app.database as db_mod
 
     test_db_path = str(tmp_path / "api_test.sqlite3")
+    test_model_dir = str(tmp_path / "models")
     db_mod._initialized = False
     db_mod._pg_pool = None
     db_mod.DATABASE_URL = ""
     db_mod.DB_BACKEND = "sqlite"
     db_mod.BETMATE_DB_PATH = test_db_path
+    os.environ["MODEL_ARTIFACT_DIR"] = test_model_dir
     db_mod.init_database()
 
     from app.main import app

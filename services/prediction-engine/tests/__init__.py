@@ -9,6 +9,7 @@ import pytest
 # Force SQLite backend for tests (in-memory)
 os.environ["DATABASE_URL"] = ""
 os.environ["BETMATE_DB_PATH"] = ":memory:"
+os.environ["BETMATE_ALLOW_SQLITE"] = "1"
 
 
 @pytest.fixture(autouse=True)

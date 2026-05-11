@@ -10,6 +10,7 @@ import pytest
 # Force SQLite backend for tests
 os.environ["DATABASE_URL"] = ""
 os.environ["BETMATE_DB_PATH"] = ":memory:"
+os.environ["BETMATE_ALLOW_SQLITE"] = "1"
 
 
 @pytest.fixture(autouse=True)
@@ -21,6 +22,7 @@ def fresh_db(tmp_path):
     import app.database as db_mod
 
     test_db_path = str(tmp_path / "test_betmate.sqlite3")
+    os.environ["MODEL_ARTIFACT_DIR"] = str(tmp_path / "models")
 
     db_mod._initialized = False
     db_mod._pg_pool = None

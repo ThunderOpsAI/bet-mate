@@ -1,9 +1,11 @@
-import asyncio
 import base64
 import hashlib
 import hmac
 import json
 import binascii
+import asyncio
+import logging
+import time
 from contextlib import asynccontextmanager, suppress
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +31,7 @@ from app.notifications import notify_blackbook_trigger
 from app.strategy import StrategyService
 from app.time_utils import now_melbourne, today_melbourne
 from app import database as database_mod
+from app.ml import artifacts as artifact_store
 
 # Local Data Scraper Imports
 import app.data.scraper as racing_scraper
@@ -45,19 +48,43 @@ WEEKLY_RETRAIN_ENABLED = os.getenv("BETMATE_WEEKLY_RETRAIN_ENABLED", "").strip()
 WEEKLY_RETRAIN_DAY = os.getenv("BETMATE_WEEKLY_RETRAIN_DAY", nightly_runner.DEFAULT_WEEKLY_RETRAIN_DAY)
 SQLITE_BACKUP_DIR = os.getenv("BETMATE_SQLITE_BACKUP_DIR", "").strip() or None
 _nightly_scheduler_task: Optional[asyncio.Task] = None
+LOGGER = logging.getLogger("betmate.prediction_engine")
+
+
+def _configure_logging() -> None:
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=os.getenv("LOG_LEVEL", "INFO").upper(),
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
+
+def _log_model_initialization(name: str, predictor, model_path: str) -> None:
+    artifact_exists = os.path.exists(model_path)
+    LOGGER.info("%s artifact %s at %s", name, "present" if artifact_exists else "missing", model_path)
+    started_at = time.perf_counter()
+    predictor.load_or_train()
+    LOGGER.info(
+        "%s model ready in %.2fs training_source=%s training_rows=%s",
+        name,
+        time.perf_counter() - started_at,
+        getattr(predictor, "training_source", None),
+        getattr(predictor, "training_rows", 0),
+    )
 
 
 async def _nightly_scheduler_loop():
     try:
         scheduled_time = nightly_runner.parse_scheduler_time(NIGHTLY_SCHEDULER_TIME)
     except ValueError as exc:
-        print(f"Nightly scheduler disabled: {exc}")
+        LOGGER.warning("Nightly scheduler disabled: %s", exc)
         return
 
     while True:
         next_run = nightly_runner.next_scheduler_run(scheduled_time=scheduled_time)
         sleep_seconds = max(1.0, (next_run - now_melbourne()).total_seconds())
-        print(f"Nightly scheduler sleeping until {next_run.isoformat()}")
+        LOGGER.info("Nightly scheduler sleeping until %s", next_run.isoformat())
         await asyncio.sleep(sleep_seconds)
         try:
             summary = nightly_runner.run_nightly_cycle(
@@ -67,31 +94,29 @@ async def _nightly_scheduler_loop():
                 weekly_retrain_day=WEEKLY_RETRAIN_DAY,
                 backup_dir=SQLITE_BACKUP_DIR,
             )
-            print(f"Nightly strategy cycle completed for {summary['run_date']}")
+            LOGGER.info("Nightly strategy cycle completed for %s", summary["run_date"])
         except Exception as exc:
-            print(f"Nightly strategy cycle failed: {exc}")
+            LOGGER.exception("Nightly strategy cycle failed: %s", exc)
 
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     global _nightly_scheduler_task
-    # Startup
+    _configure_logging()
+    database_mod.require_database_url()
     storage.init_db()
     database_mod.validate_persistence_configuration()
-    try:
-        print("Initializing Racing ML Model...")
-        racing_predictor.load_or_train()
-        print("Initializing AFL ML Model...")
-        afl_predictor.load_or_train()
-        print("Initializing NBA ML Model...")
-        nba_predictor.load_or_train()
-        print("All ML Models Initialized successfully.")
-    except Exception as e:
-        print(f"Startup ML init error: {e}")
+    database_mod.verify_database_connection()
+    LOGGER.info("Database connection verified successfully.")
+    volume_path = artifact_store.ensure_volume_mount()
+    LOGGER.info("Model artifact volume mount ready at %s", volume_path)
+    _log_model_initialization("Racing", racing_predictor, RACING_MODEL_PATH)
+    _log_model_initialization("AFL", afl_predictor, AFL_MODEL_PATH)
+    _log_model_initialization("NBA", nba_predictor, NBA_MODEL_PATH)
+    LOGGER.info("Prediction engine cold start completed.")
     if NIGHTLY_SCHEDULER_ENABLED:
         _nightly_scheduler_task = asyncio.create_task(_nightly_scheduler_loop())
     yield
-    # Shutdown (nothing to clean up yet)
     if _nightly_scheduler_task is not None:
         _nightly_scheduler_task.cancel()
         with suppress(asyncio.CancelledError):
