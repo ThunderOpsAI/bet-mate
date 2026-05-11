@@ -1,223 +1,116 @@
-# Lightsail Owner Instructions
+# Prediction Engine Owner Instructions
 
-This is the exact deploy flow for the BetMate Prediction Engine on the current AWS Lightsail instance.
+This file keeps its historical path, but the active production flow is no longer AWS Lightsail.
 
-Important:
+The current deploy authority for the prediction engine is Modal. Use this document for owner-operated deploys, smoke checks, and cron verification after the Vercel/Modal migration.
 
-- This server does **not** use `git pull` inside `/app/bet-mate-engine`.
-- `/app/bet-mate-engine` is a deployed app folder, **not** a git repository.
-- The working deploy method is:
-  1. Clone the latest GitHub code into `/tmp`
-  2. Copy the updated app files into `/app/bet-mate-engine/app/`
-  3. Restart the FastAPI systemd service
-  4. Verify health and route behavior
+## Current Production Shape
 
----
+- Frontend: Vercel
+- API gateway: Vercel serverless handler
+- Prediction engine: Modal ASGI app from `services/prediction-engine/modal_app.py`
+- Persistence: managed Postgres via `DATABASE_URL`
+- Model artifacts: Modal Volume mounted at `/vol/betmate-models`
 
-## Lightsail browser SSH steps
+## Preconditions
 
-1. Open **AWS Lightsail**
-2. Open the BetMate instance
-3. Click **Connect using SSH**
-4. Wait for the browser terminal to open
+- Modal CLI is authenticated.
+- The Modal Secret `betmate-prediction-engine-secrets` exists with the production env vars.
+- The Modal Volume `betmate-prediction-engine-models` exists or can be created by deploy.
+- `DATABASE_URL` is present in Modal secrets.
+- `JWT_SECRET` matches the value used by `apps/api`.
 
-You should see a prompt similar to:
-
-```bash
-ubuntu@ip-172-26-13-149:~$
-```
-
----
-
-## Full deploy commands
-
-Run these commands exactly:
+## Deploy Commands
 
 ```bash
-cd /tmp
-rm -rf /tmp/bet-mate-latest
-git clone https://github.com/ThunderOpsAI/bet-mate.git bet-mate-latest
-grep -n "paper-bets/batch" /tmp/bet-mate-latest/services/prediction-engine/app/main.py
-sudo cp -a /tmp/bet-mate-latest/services/prediction-engine/app/. /app/bet-mate-engine/app/
-grep -n "paper-bets/batch" /app/bet-mate-engine/app/main.py
-sudo systemctl restart bet-mate-engine
-sleep 5
-sudo systemctl status bet-mate-engine --no-pager
-curl http://54.79.12.88/health
-curl -i -X POST http://54.79.12.88/api/paper-bets/batch
+cd services/prediction-engine
+modal deploy modal_app.py
 ```
 
----
+## Manual Smoke Commands
 
-## What success looks like
-
-### 1. Route exists in cloned code
-
-This command:
+Use these commands after deploy to verify the service and each scheduled function entrypoint:
 
 ```bash
-grep -n "paper-bets/batch" /tmp/bet-mate-latest/services/prediction-engine/app/main.py
+cd services/prediction-engine
+modal run modal_app.py::nightly_strategy_refresh
+modal run modal_app.py::race_data_refresh
+modal run modal_app.py::afl_model_refresh
+modal run modal_app.py::nba_model_refresh
 ```
 
-should return something like:
+## What Success Looks Like
+
+### 1. Deploy succeeds
+
+`modal deploy modal_app.py` completes without missing-secret or import errors.
+
+### 2. Health check succeeds through the web origin
+
+The frontend keeps the same-origin ML contract:
+
+```bash
+curl -i https://<your-web-origin>/api/ml-proxy/health
+```
+
+Expected result:
 
 ```text
-462:@app.post("/api/paper-bets/batch")
+HTTP/2 200
 ```
 
-### 2. Route exists in deployed code
-
-This command:
-
-```bash
-grep -n "paper-bets/batch" /app/bet-mate-engine/app/main.py
-```
-
-should also return the route.
-
-### 3. Service restarted correctly
-
-This command:
-
-```bash
-sudo systemctl status bet-mate-engine --no-pager
-```
-
-should show:
-
-```text
-Active: active (running)
-```
-
-### 4. Health check passes
-
-This command:
-
-```bash
-curl http://54.79.12.88/health
-```
-
-should return:
+And the JSON body should include:
 
 ```json
 {"status":"ok","service":"advanced-ml-engine"}
 ```
 
-### 5. Batch route is live
+### 3. Production startup rejects missing `DATABASE_URL`
 
-This command:
+If the Modal Secret is missing `DATABASE_URL`, deploys or runs should fail fast unless `BETMATE_ALLOW_SQLITE=1` is intentionally set for test-only execution.
 
-```bash
-curl -i -X POST http://54.79.12.88/api/paper-bets/batch
-```
+### 4. Manual job runs complete
 
-should return:
+Each `modal run modal_app.py::<job>` command should log a start line and a completed summary.
 
-```text
-HTTP/1.1 401 Unauthorized
-{"detail":"Missing bearer token"}
-```
+## Failure Guidance
 
-That `401` is the **good** result for a raw curl. It means:
+### Missing secret or env var
 
-- nginx is reaching FastAPI
-- FastAPI is running
-- the route exists
-- the old `405 Method Not Allowed` problem is gone
-
----
-
-## Bad results and what they mean
-
-### If you get this:
-
-```text
-HTTP/1.1 405 Method Not Allowed
-allow: DELETE
-```
-
-It means the deployed code does **not** have the `POST /api/paper-bets/batch` route active.
-
-Usually this means:
-
-- the new code was not copied over correctly, or
-- the service did not restart onto the new code
-
-Run the full deploy commands again.
-
-### If you get this:
-
-```text
-502 Bad Gateway
-```
-
-It means nginx is up, but FastAPI is down or crash-looping.
-
-Run:
+Update the Modal Secret:
 
 ```bash
-sudo systemctl status bet-mate-engine --no-pager
-sudo journalctl -u bet-mate-engine -n 80 --no-pager
+modal secret create betmate-prediction-engine-secrets \
+  DATABASE_URL=... \
+  JWT_SECRET=...
 ```
 
-Look at the bottom of the journal output for the real Python error.
+Re-run the deploy after updating the full secret payload required by `modal_app.py`.
 
-### If the service fails after copying only one file
+### Health check fails from `/api/ml-proxy/health`
 
-If the app crashes because `main.py` expects newer support files, copy the full app directory again:
+Check both layers:
 
-```bash
-sudo cp -a /tmp/bet-mate-latest/services/prediction-engine/app/. /app/bet-mate-engine/app/
-sudo systemctl restart bet-mate-engine
-sleep 5
-sudo systemctl status bet-mate-engine --no-pager
-```
+1. `apps/web` rewrite target:
+   - `ML_API_PROXY_TARGET` must point at the deployed Modal web endpoint.
+2. Modal app status:
+   - redeploy `modal_app.py`
+   - confirm the web function starts cleanly
 
-### If logs mention a missing Python package
+### Job run fails during model load
 
-Run:
+Check:
 
-```bash
-/app/bet-mate-engine/venv/bin/pip install -r /tmp/bet-mate-latest/services/prediction-engine/requirements.txt
-sudo systemctl restart bet-mate-engine
-sleep 5
-sudo systemctl status bet-mate-engine --no-pager
-```
+- the Modal Volume mount at `/vol/betmate-models`
+- database connectivity from `DATABASE_URL`
+- upstream provider secrets such as Betfair, BDL, and Gemini
 
----
+## Final Verification Checklist
 
-## Quick deploy version
+Do not consider the deploy healthy until all of these are true:
 
-Use this when you just want the short repeatable workflow:
-
-```bash
-cd /tmp
-rm -rf /tmp/bet-mate-latest
-git clone https://github.com/ThunderOpsAI/bet-mate.git bet-mate-latest
-sudo cp -a /tmp/bet-mate-latest/services/prediction-engine/app/. /app/bet-mate-engine/app/
-sudo systemctl restart bet-mate-engine
-sleep 5
-sudo systemctl status bet-mate-engine --no-pager
-curl http://54.79.12.88/health
-curl -i -X POST http://54.79.12.88/api/paper-bets/batch
-```
-
----
-
-## Useful terminal notes
-
-- Press `q` to exit `systemctl status` if it opens in a pager
-- Press `Ctrl + C` to exit live logs
-- Run `exit` to leave the Lightsail SSH session
-
----
-
-## Final check before leaving
-
-Do not consider the deploy successful until all of these are true:
-
-- `bet-mate-engine` is `active (running)`
-- `/health` returns `{"status":"ok","service":"advanced-ml-engine"}`
-- `POST /api/paper-bets/batch` returns `401 Missing bearer token`
-
-That means the deploy is live and the route is active.
+- `modal deploy modal_app.py` succeeds
+- `GET /api/ml-proxy/health` returns `200`
+- the response body includes `{"status":"ok","service":"advanced-ml-engine"}`
+- each Modal cron entrypoint can run manually without startup errors
+- production secrets include `DATABASE_URL`
