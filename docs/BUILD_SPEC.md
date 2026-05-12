@@ -25,7 +25,7 @@
 - Do not add extra phases, speculative ideas, or unrelated cleanup.
 - Do not treat old roadmap items as active unless they are restated in this document.
 - Branding references should use the supplied BetMate logo and BetMate Bob assets only.
-- Older deployment notes are not authoritative for this pass. Live deployment authority is Vercel for the web app and Railway for the prediction engine.
+- Older deployment notes are not authoritative for this pass. Live deployment authority is Vercel for the web app and Modal for the prediction engine.
 
 ## Phase 1 — Build / Test / Ready For Deploy
 
@@ -92,13 +92,13 @@
 
 - Push the approved changes to `main`.
 - Verify the frontend deploy on Vercel.
-- Verify the prediction-engine deploy on Railway.
+- Verify the prediction-engine deploy on Modal.
 - Treat any live blocker discovered here as a targeted follow-up, not a reason to broaden product scope.
 
 ### Live Verification Checklist
 
 - Confirm the Vercel deployment is live and the main dashboard loads.
-- Confirm the Railway prediction engine responds successfully on `/health`.
+- Confirm the frontend same-origin ML proxy responds successfully on `/api/ml-proxy/health`.
 - Confirm the live app can load:
   - homepage/dashboard
   - analytics
@@ -115,7 +115,7 @@
 
 - Do not call the release complete until both of these are true:
   - the Vercel web deployment is live and usable
-  - the Railway prediction engine health check succeeds
+  - the same-origin `/api/ml-proxy/health` check succeeds against the deployed Modal backend
 - Capture any live issue as a specific blocker with affected area, reproduction steps, and whether it is a Phase 2-only fix or a follow-up task.
 
 ## Out Of Scope

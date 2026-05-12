@@ -13,7 +13,7 @@
 - Do not treat old deployment notes as authoritative for this pass.
 - Production authority for this handoff is:
   - Vercel for the web app
-  - Railway for the prediction engine
+  - Modal for the prediction engine
 
 ## Agent Ownership
 
@@ -28,7 +28,7 @@
 ### Agent 2 — Push / Verify Live
 
 - Owns push-to-live and production verification.
-- Verifies Vercel and Railway only.
+- Verifies Vercel and Modal only.
 - Uses the live checklist from the build spec as the release gate.
 - May make minimal blocker fixes discovered during live verification, but only when the fix is directly required to complete the approved rollout.
 - Must not reopen the brief into a wider refactor or feature pass.
@@ -77,7 +77,7 @@ Agent 1 must provide all of the following before Agent 2 starts the live push:
 
 - Push the approved changes to `main`.
 - Confirm the Vercel deployment completes and the frontend is live.
-- Confirm the Railway prediction engine is live and `/health` succeeds.
+- Confirm the Modal prediction engine is live and the frontend `/api/ml-proxy/health` check succeeds.
 - Verify the live dashboard loads.
 - Verify live analytics:
   - tab order is `User`, `Strategy`, `ML`
@@ -96,7 +96,7 @@ Agent 1 must provide all of the following before Agent 2 starts the live push:
 ## Required Evidence For Signoff
 
 - Confirmation that the Vercel deployment is live
-- Confirmation that the Railway `/health` endpoint succeeds
+- Confirmation that `/api/ml-proxy/health` succeeds against the deployed Modal backend
 - Short notes for each critical live route checked:
   - homepage/dashboard
   - analytics
@@ -110,5 +110,5 @@ Agent 1 must provide all of the following before Agent 2 starts the live push:
 
 ## Completion Rule
 
-- The handoff is complete only when Agent 1 has met the local gate and Agent 2 has passed live verification on both Vercel and Railway.
+- The handoff is complete only when Agent 1 has met the local gate and Agent 2 has passed live verification on both Vercel and Modal.
 - If either live deployment fails, do not mark the pass complete.
