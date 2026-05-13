@@ -11,6 +11,10 @@ WEB_API_PATH = REPO_ROOT / "apps/web/app/lib/api.ts"
 ENV_EXAMPLE_PATH = REPO_ROOT / ".env.example"
 BUILD_SPEC_PATH = REPO_ROOT / "docs/BUILD_SPEC.md"
 AGENT_HANDOVER_PATH = REPO_ROOT / "docs/AGENT_HANDOVER.md"
+REMOVED_RAILWAY_FILES = (
+    REPO_ROOT / "services/prediction-engine/railway.json",
+    REPO_ROOT / "docs/migration/railway-inventory.md",
+)
 
 
 def _read(path: Path) -> str:
@@ -22,8 +26,8 @@ class VercelModalContractTests(unittest.TestCase):
         source = _read(WEB_ML_API_PATH)
 
         self.assertIn('const DEFAULT_ML_API_PROXY_PATH = "/api/ml-proxy";', source)
-        self.assertIn("if (!candidate.startsWith(\"/\")) {", source)
-        self.assertNotIn("railway.app", source)
+        self.assertIn("ML_API_PROXY_PREFIX", source)
+        self.assertIn("return DEFAULT_ML_API_PROXY_PATH;", source)
         self.assertNotIn("modal.run", source)
         self.assertNotIn("http://", source)
         self.assertNotIn("https://", source)
@@ -44,7 +48,7 @@ class VercelModalContractTests(unittest.TestCase):
         self.assertIn('destination: `${mlProxyRaw.replace(/\\/+$/, "")}/:path*`', source)
         self.assertIn('source: "/api/:path*"', source)
         self.assertIn('destination: `${apiProxyTarget.replace(/\\/+$/, "")}/api/:path*`', source)
-        self.assertNotIn("railway.app", source)
+        self.assertNotIn("modal.run", source)
 
     def test_env_example_documents_same_origin_proxy_contract(self) -> None:
         source = _read(ENV_EXAMPLE_PATH)
@@ -55,6 +59,7 @@ class VercelModalContractTests(unittest.TestCase):
         self.assertIn("NEXT_PUBLIC_API_URL=/api", source)
         self.assertIn("API_PROXY_TARGET=http://127.0.0.1:3001", source)
         self.assertIn("# API_PROXY_TARGET=https://your-api-project.vercel.app", source)
+        self.assertIn("JWT_SECRET=replace-with-one-shared-secret-for-api-and-ml", source)
 
     def test_active_rollout_docs_use_modal_authority(self) -> None:
         for path in (BUILD_SPEC_PATH, AGENT_HANDOVER_PATH):
@@ -62,6 +67,10 @@ class VercelModalContractTests(unittest.TestCase):
             self.assertIn("Modal", source, msg=f"{path} should mention Modal")
             self.assertNotIn("Railway for the prediction engine", source)
             self.assertIn("/api/ml-proxy/health", source)
+
+    def test_railway_files_are_removed(self) -> None:
+        for path in REMOVED_RAILWAY_FILES:
+            self.assertFalse(path.exists(), msg=f"{path} should be removed in the final cutover")
 
 
 if __name__ == "__main__":

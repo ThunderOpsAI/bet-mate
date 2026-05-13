@@ -120,6 +120,8 @@ class ModalMigrationTests(unittest.TestCase):
         self.assertIn('"BETMATE_BOB_MODEL"', source)
         self.assertIn('"BETMATE_BOB_TIMEOUT_SECONDS"', source)
         self.assertIn('"LOG_LEVEL"', source)
+        self.assertIn('"BETMATE_SQLITE_BACKUP_DIR"', source)
+        self.assertIn('"BETFAIR_AUTH_MODE"', source)
 
     def test_modal_image_packages_required_allowlist_file(self) -> None:
         source = MODAL_APP_PATH.read_text(encoding="utf-8")
