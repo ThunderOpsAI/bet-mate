@@ -115,6 +115,23 @@ class ModalMigrationTests(unittest.TestCase):
 
         self.assertIn('"DATABASE_URL"', source)
         self.assertIn('"JWT_SECRET"', source)
+        self.assertIn('"BETMATE_CORS_ORIGINS"', source)
+        self.assertIn('"BETMATE_WEEKLY_RETRAIN_DAY"', source)
+        self.assertIn('"BETMATE_BOB_MODEL"', source)
+        self.assertIn('"BETMATE_BOB_TIMEOUT_SECONDS"', source)
+        self.assertIn('"LOG_LEVEL"', source)
+
+    def test_modal_image_packages_required_allowlist_file(self) -> None:
+        source = MODAL_APP_PATH.read_text(encoding="utf-8")
+
+        self.assertIn("metro_allowlist.json", source)
+        self.assertIn("ALLOWLIST_REMOTE_PATH", source)
+
+    def test_nightly_job_reads_runtime_schedule_from_env(self) -> None:
+        source = MODAL_APP_PATH.read_text(encoding="utf-8")
+
+        self.assertIn('"BETMATE_WEEKLY_RETRAIN_DAY"', source)
+        self.assertIn("nightly.DEFAULT_WEEKLY_RETRAIN_DAY", source)
 
     def test_require_database_url_rejects_missing_value(self) -> None:
         with (

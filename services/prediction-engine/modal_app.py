@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Callable, Dict, List
 
@@ -22,9 +23,15 @@ APP_NAME = "betmate-prediction-engine"
 MODEL_VOLUME_NAME = "betmate-prediction-engine-models"
 MODEL_VOLUME_PATH = "/vol/betmate-models"
 MODAL_SECRET_NAME = "betmate-prediction-engine-secrets"
+ALLOWLIST_REMOTE_PATH = "/root/app/data/metro_allowlist.json"
 MODAL_SECRET_KEYS = [
     "DATABASE_URL",
     "JWT_SECRET",
+    "BETMATE_CORS_ORIGINS",
+    "BETMATE_WEEKLY_RETRAIN_DAY",
+    "BETMATE_BOB_MODEL",
+    "BETMATE_BOB_TIMEOUT_SECONDS",
+    "LOG_LEVEL",
     "BETFAIR_APP_KEY",
     "BETFAIR_USERNAME",
     "BETFAIR_PASSWORD",
@@ -62,6 +69,10 @@ image = (
     modal.Image.debian_slim(python_version="3.11")
     .pip_install(*_requirements())
     .add_local_python_source("app")
+    .add_local_file(
+        Path(__file__).with_name("app").joinpath("data", "metro_allowlist.json"),
+        remote_path=ALLOWLIST_REMOTE_PATH,
+    )
 )
 volume = modal.Volume.from_name(MODEL_VOLUME_NAME, create_if_missing=True)
 secrets = [modal.Secret.from_name(MODAL_SECRET_NAME)]
@@ -132,8 +143,11 @@ def nightly_strategy_refresh():
             ingest_results_enabled=True,
             tune_enabled=True,
             weekly_retrain_enabled=True,
-            weekly_retrain_day=nightly.DEFAULT_WEEKLY_RETRAIN_DAY,
-            backup_dir=None,
+            weekly_retrain_day=os.getenv(
+                "BETMATE_WEEKLY_RETRAIN_DAY",
+                nightly.DEFAULT_WEEKLY_RETRAIN_DAY,
+            ),
+            backup_dir=os.getenv("BETMATE_SQLITE_BACKUP_DIR") or None,
         )
 
     return _run_logged_job("nightly_strategy_refresh", _job)
