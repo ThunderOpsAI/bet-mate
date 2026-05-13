@@ -9,13 +9,13 @@
 
 ## Railway URLs And Deployment Hosts Found
 
-- `https://bet-mateprediction-engine-production.up.railway.app`
-  - Found in `apps/web/app/lib/mlApi.ts` before Phase 1 cleanup.
 - `https://railway.com/railway.schema.json`
   - Found in `services/prediction-engine/railway.json`.
 
 ## Deployment-Related Env Var Names Found In Repo
 
+- `DATABASE_URL`
+  - Shared Neon/Postgres connection string used by Prisma and the API layer.
 - `NEXT_PUBLIC_ML_API`
   - Browser-visible ML base path. Now expected to stay `/api/ml-proxy`.
 - `ML_API_PROXY_TARGET`
@@ -26,39 +26,36 @@
   - Browser-visible API base path. Current expected value is `/api`.
 - `BETMATE_CORS_ORIGINS`
   - Prediction-engine allowed origins list.
+- `JWT_SECRET`
+  - Used by the API auth route and auth middleware.
 - `PORT`
-  - Used by the current Node API local server entrypoint and by the prediction-engine Dockerfile.
+  - Used by the local Node API server entrypoint.
 
 ## Raw `grep -Rni "railway" .` Findings
 
+The command is self-referential once this inventory file exists, so the normalized authored-repo findings below exclude `node_modules`, `.next`, and this inventory document itself:
+
 ```text
-./docs/AGENT_HANDOVER.md:16:  - Railway for the prediction engine
-./docs/AGENT_HANDOVER.md:31:- Verifies Vercel and Railway only.
-./docs/AGENT_HANDOVER.md:80:- Confirm the Railway prediction engine is live and `/health` succeeds.
-./docs/AGENT_HANDOVER.md:99:- Confirmation that the Railway `/health` endpoint succeeds
-./docs/AGENT_HANDOVER.md:113:- The handoff is complete only when Agent 1 has met the local gate and Agent 2 has passed live verification on both Vercel and Railway.
-./docs/BUILD_SPEC.md:28:- Older deployment notes are not authoritative for this pass. Live deployment authority is Vercel for the web app and Railway for the prediction engine.
-./docs/BUILD_SPEC.md:95:- Verify the prediction-engine deploy on Railway.
-./docs/BUILD_SPEC.md:101:- Confirm the Railway prediction engine responds successfully on `/health`.
-./docs/BUILD_SPEC.md:118:  - the Railway prediction engine health check succeeds
-./apps/web/app/lib/mlApi.ts:3:const LEGACY_RAILWAY_ML_API =
-./apps/web/app/lib/mlApi.ts:4:  "https://bet-mateprediction-engine-production.up.railway.app";
-./apps/web/app/lib/mlApi.ts:23:    candidate.startsWith(LEGACY_RAILWAY_ML_API)
-./apps/api/src/index.ts:14:// Railway requires binding to process.env.PORT
+./services/prediction-engine/tests/test_vercel_modal_contract.py:26:        self.assertNotIn("railway.app", source)
+./services/prediction-engine/tests/test_vercel_modal_contract.py:47:        self.assertNotIn("railway.app", source)
+./services/prediction-engine/tests/test_vercel_modal_contract.py:63:            self.assertNotIn("Railway for the prediction engine", source)
 ./services/prediction-engine/railway.json:2:  "$schema": "https://railway.com/railway.schema.json",
 ```
 
 ## Additional Deployment Host Findings
 
-- `http://54.79.12.88`
-  - Found in `.env.example`, `apps/web/next.config.mjs`, and `docs/LIGHTSAIL_OWNER_INSTRUCTIONS.md` before Phase 1 cleanup.
-  - This is not Railway, but it is part of the current ML deployment inventory and should be replaced by env-driven Modal targets.
+- No authored Railway deployment host remains in `apps/web` or `apps/api`.
+- The remaining direct ML/API hosts in app code are local-development defaults only:
+  - `http://127.0.0.1:8000` in `apps/web/next.config.mjs`
+  - `http://127.0.0.1:3001` in `apps/web/next.config.mjs`
+  - `http://127.0.0.1:3001` in `.env.example` as a commented local example
 
 ## Frontend ML Contract Freeze
 
 All frontend ML traffic is expected to remain same-origin and flow through `apps/web` rewrites:
 
 - Browser/request base: `/api/ml-proxy`
+- Browser/request descendants: `/api/ml-proxy/*`
 - Rewrite source: `/api/ml-proxy/:path*`
 - Rewrite destination: `${ML_API_PROXY_TARGET}/:path*`
 
