@@ -25,7 +25,8 @@ APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DEFAULT_SQLITE_PATH = os.path.join(APP_ROOT, "runtime", "betmate.sqlite3")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-BETMATE_DB_PATH = os.path.abspath(os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH))
+db_path = os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH)
+BETMATE_DB_PATH = db_path if db_path == ":memory:" else os.path.abspath(db_path)
 
 # Determine backend
 DB_BACKEND = "postgresql" if DATABASE_URL.startswith("postgres") else "sqlite"
@@ -38,7 +39,8 @@ TRUE_VALUES = {"1", "true", "yes", "on"}
 def refresh_runtime_configuration() -> None:
     global DATABASE_URL, BETMATE_DB_PATH, DB_BACKEND
     DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-    BETMATE_DB_PATH = os.path.abspath(os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH))
+    db_path = os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH)
+    BETMATE_DB_PATH = db_path if db_path == ":memory:" else os.path.abspath(db_path)
     DB_BACKEND = "postgresql" if DATABASE_URL.startswith("postgres") else "sqlite"
 
 
@@ -193,7 +195,9 @@ def get_connection():
         finally:
             pool.putconn(conn)
     else:
-        os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
+        dir_name = os.path.dirname(BETMATE_DB_PATH)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         conn = sqlite3.connect(BETMATE_DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
@@ -276,7 +280,9 @@ def restore_sqlite_backup(backup_path: str) -> None:
 def _init_sqlite():
     """Run SQLite schema creation."""
     refresh_runtime_configuration()
-    os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
+    dir_name = os.path.dirname(BETMATE_DB_PATH)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     conn = sqlite3.connect(BETMATE_DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
