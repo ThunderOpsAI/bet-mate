@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/server.local.ts",
     "build": "tsc -p tsconfig.json",
+    "api:build:prod": "pnpm --dir ../.. api:build:prod",
     "start": "node dist/server.local.js",
     "lint": "echo \"No lint configured for api\"",
     "test": "echo \"No tests configured for api\""
