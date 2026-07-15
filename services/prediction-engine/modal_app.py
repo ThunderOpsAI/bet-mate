@@ -47,6 +47,8 @@ MODAL_SECRET_KEYS = [
 
 def _requirements() -> List[str]:
     requirements_path = Path(__file__).with_name("requirements.txt")
+    if not requirements_path.exists():
+        return []
     packages: List[str] = []
     for line in requirements_path.read_text(encoding="utf-8").splitlines():
         requirement = line.strip()
@@ -58,11 +60,11 @@ def _requirements() -> List[str]:
     return packages
 
 
-image = (
-    modal.Image.debian_slim(python_version="3.11")
-    .pip_install(*_requirements())
-    .add_local_python_source("app")
-)
+_reqs = _requirements()
+image = modal.Image.debian_slim(python_version="3.11")
+if _reqs:
+    image = image.pip_install(*_reqs)
+image = image.add_local_python_source("app")
 volume = modal.Volume.from_name(MODEL_VOLUME_NAME, create_if_missing=True)
 secrets = [modal.Secret.from_name(MODAL_SECRET_NAME)]
 app = modal.App(APP_NAME)
