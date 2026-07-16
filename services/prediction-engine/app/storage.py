@@ -10,6 +10,14 @@ from app.database import get_connection, init_database
 from app.time_utils import is_melbourne_premium_day, today_melbourne
 
 
+def _to_date_string(val) -> str:
+    if not val:
+        return ""
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    return str(val)
+
+
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
 ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head"}
 DEFAULT_STANDARD_BANKROLL = 250.0
@@ -704,8 +712,7 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Op
 
     buckets = {}
     for bet in [_row_to_paper_bet(row) for row in rows]:
-        settled_at = bet["settled_at"] or ""
-        day = settled_at[:10]
+        day = _to_date_string(bet["settled_at"])[:10]
         if len(day) != 10:
             continue
 
@@ -1096,8 +1103,7 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
 
     buckets = {}
     for row in rows:
-        settled_at = row["settled_at"] or ""
-        day = settled_at[:10]
+        day = _to_date_string(row["settled_at"])[:10]
         if len(day) != 10:
             continue
 
@@ -1507,9 +1513,9 @@ def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] =
     bets = [
         bet
         for bet in [_row_to_system_bet(row) for row in rows]
-        if (bet["settled_at"] or "")[:10] <= effective_reference_date
+        if _to_date_string(bet["settled_at"])[:10] <= effective_reference_date
     ]
-    settled_days = sorted({(bet["settled_at"] or "")[:10] for bet in bets if bet.get("settled_at")})
+    settled_days = sorted({_to_date_string(bet["settled_at"])[:10] for bet in bets if bet.get("settled_at")})
     if len(settled_days) < 30:
         return {
             "ran": False,
@@ -1520,7 +1526,7 @@ def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] =
 
     window_end = effective_reference_date
     window_start = settled_days[-30]
-    window_bets = [bet for bet in bets if window_start <= (bet["settled_at"] or "")[:10] <= window_end]
+    window_bets = [bet for bet in bets if window_start <= _to_date_string(bet["settled_at"])[:10] <= window_end]
     if not window_bets:
         return {
             "ran": False,

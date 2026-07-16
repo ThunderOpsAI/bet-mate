@@ -64,7 +64,7 @@ _reqs = _requirements()
 image = modal.Image.debian_slim(python_version="3.11")
 if _reqs:
     image = image.pip_install(*_reqs)
-image = image.add_local_python_source("app")
+image = image.add_local_python_source("app", ignore=["*.pyc", "__pycache__"])
 volume = modal.Volume.from_name(MODEL_VOLUME_NAME, create_if_missing=True)
 secrets = [modal.Secret.from_name(MODAL_SECRET_NAME)]
 app = modal.App(APP_NAME)
