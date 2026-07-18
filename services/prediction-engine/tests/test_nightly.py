@@ -327,3 +327,112 @@ def test_run_nightly_cycle_automated_betting(monkeypatch):
     assert bets[0]["status"] == "PENDING"
 
 
+def test_sunday_betfair_import(monkeypatch):
+    import app.storage as storage
+    import requests
+
+    # 1. Log a prediction first so we can create a paper bet for it
+    storage.log_prediction_batch(
+        sport="racing",
+        event_id="race_sun_test_1",
+        event_name="Caulfield R1",
+        predictions=[
+            {"selection": "Super Fast", "probability": 40.0, "fair_odds": 2.5},
+            {"selection": "Slow Coach", "probability": 10.0, "fair_odds": 10.0},
+        ]
+    )
+
+    # 2. Create a pending paper bet for Super Fast
+    storage.create_paper_bet(
+        sport="racing",
+        event_id="race_sun_test_1",
+        event_name="Caulfield R1",
+        selection="Super Fast",
+        stake=25.0,
+        odds=4.5,
+        bet_type="win",
+        origin="user",
+        user_id="test_user",
+    )
+
+    # Verify bet is pending
+    bets_before = storage.get_paper_bets(user_id="test_user")
+    assert len(bets_before) == 1
+    assert bets_before[0]["status"] == "PENDING"
+
+    # 3. Mock requests.get to return Saturday's markets and results payload
+    mock_payload = {
+        "markets": [
+            {
+                "race_id": "race_sun_test_1",
+                "venue": "Caulfield",
+                "race_number": 1,
+                "distance": 1200,
+                "horses": [
+                    {
+                        "name": "Super Fast",
+                        "barrier": 3,
+                        "weight": 58.5,
+                        "past_win_rate": 0.25,
+                        "jockey_win_rate": 0.20,
+                        "track_condition": 3,
+                        "days_since_last_race": 14,
+                        "betfair_back_price": 4.5
+                    },
+                    {
+                        "name": "Slow Coach",
+                        "barrier": 7,
+                        "weight": 54.0,
+                        "past_win_rate": 0.05,
+                        "jockey_win_rate": 0.05,
+                        "track_condition": 3,
+                        "days_since_last_race": 28,
+                        "betfair_back_price": 20.0
+                    }
+                ]
+            }
+        ],
+        "results": [
+            {
+                "sport": "racing",
+                "event_id": "race_sun_test_1",
+                "winner_selection": "Super Fast",
+                "event_name": "Caulfield R1",
+                "completed_at": "2026-07-18T06:05:00Z",
+                "result_payload": {
+                    "winner": "Super Fast"
+                }
+            }
+        ]
+    }
+
+    class MockResponse:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return mock_payload
+
+    monkeypatch.setattr(requests, "get", lambda url, **kwargs: MockResponse())
+
+    # 4. Call sunday_betfair_import
+    summary = nightly.sunday_betfair_import(run_date="2026-07-19")
+
+    # Assertions on summary
+    assert summary["run_date"] == "2026-07-19"
+    assert summary["target_date"] == "2026-07-18"
+    assert summary["status"] == "success"
+    assert summary["markets_fetched"] == 1
+    assert summary["results_fetched"] == 1
+    assert summary["predictions_logged"] == 1
+    assert summary["results_settled"] == 1
+    assert len(summary["errors"]) == 0
+
+    # Assert that the paper bet got settled as WON
+    bets_after = storage.get_paper_bets(user_id="test_user")
+    assert len(bets_after) == 1
+    assert bets_after[0]["status"] == "WON"
+    assert bets_after[0]["payout"] == 25.0 * 4.5
+
+
+

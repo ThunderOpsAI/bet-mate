@@ -42,6 +42,7 @@ MODAL_SECRET_KEYS = [
     "RESEND_API_KEY",
     "NOTIFY_EMAIL_FROM",
     "PUSHOVER_APP_TOKEN",
+    "BETFAIR_SUNDAY_INGEST_URL",
 ]
 
 
@@ -211,3 +212,19 @@ def nba_model_refresh():
         }
 
     return _run_logged_job("nba_model_refresh", _job)
+
+
+@app.function(
+    image=image,
+    secrets=secrets,
+    volumes={MODEL_VOLUME_PATH: volume},
+    env=_common_env(),
+    schedule=modal.Cron("0 6 * * 0", timezone="Australia/Melbourne"),
+    timeout=60 * 15,
+)
+def sunday_betfair_import():
+    def _job() -> Dict[str, object]:
+        run_date = today_melbourne().isoformat()
+        return nightly.sunday_betfair_import(run_date=run_date)
+
+    return _run_logged_job("sunday_betfair_import", _job)
