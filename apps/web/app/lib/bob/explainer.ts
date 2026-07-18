@@ -1,6 +1,6 @@
 "use client";
 
-export type SupportedSport = "racing" | "afl" | "nba";
+export type SupportedSport = "racing" | "afl" | "nba" | "nrl" | "soccer" | "golf" | "mma";
 
 export type FeatureImpactItem = {
   feature: string;

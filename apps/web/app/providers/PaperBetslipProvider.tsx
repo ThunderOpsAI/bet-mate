@@ -53,7 +53,7 @@ interface PaperBetslipContextType {
   addBet: (
     bet: Omit<PaperBet, "id">,
     options?: { openBetslip?: boolean },
-  ) => { status: "added" | "duplicate"; id?: string };
+  ) => { status: "added" | "duplicate" | "limit_reached"; id?: string };
   removeBet: (id: string) => void;
   clearBetslip: () => void;
   placeBets: () => Promise<{ success: number; failed: number }>;
@@ -62,6 +62,11 @@ interface PaperBetslipContextType {
   updateBet: (id: string, updates: Partial<PaperBet>) => void;
   registerSelectionSnapshot: (snapshot: PaperBetSelectionSnapshot) => void;
   selectionSnapshots: Record<string, PaperBetSelectionSnapshot>;
+  toasts: Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>;
+  addToast: (message: string, type?: "warning" | "success" | "error" | "info") => void;
+  removeToast: (id: string) => void;
+  defaultStake: number;
+  setDefaultStake: (stake: number) => void;
 }
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
@@ -76,11 +81,49 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   const betsRef = useRef<PaperBet[]>([]);
   const { token } = useAuth();
 
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>
+  >([]);
+
+  const [defaultStake, setDefaultStakeState] = useState<number>(10);
+  const defaultStakeRef = useRef<number>(10);
+
+  const addToast = useCallback((message: string, type: "warning" | "success" | "error" | "info" = "info") => {
+    const id = Math.random().toString(36).slice(2, 9);
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const setDefaultStake = useCallback((val: number) => {
+    if (val <= 0 || isNaN(val)) return;
+    setDefaultStakeState(val);
+    defaultStakeRef.current = val;
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem("paper_betslip_default_stake", String(val));
+    }
+  }, []);
+
   useEffect(() => {
     const persistedBets = loadPersistedBetslip();
     betsRef.current = persistedBets;
     setBets(persistedBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
+
+    const persistedStake = window.localStorage.getItem("paper_betslip_default_stake");
+    if (persistedStake) {
+      const val = Number(persistedStake);
+      if (!isNaN(val) && val > 0) {
+        setDefaultStakeState(val);
+        defaultStakeRef.current = val;
+      }
+    }
+
     setHasHydrated(true);
 
     return subscribeToBetslipStorage((nextBets, nextOpen) => {
@@ -116,7 +159,13 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         betType: newBet.bet_type,
       });
 
-      const shouldOpenBetslip = options?.openBetslip ?? true;
+      let shouldOpenBetslip = options?.openBetslip ?? true;
+      const sportLower = newBet.sport.trim().toLowerCase();
+      if (sportLower === "afl" || sportLower === "nba") {
+        shouldOpenBetslip = false;
+      } else if (sportLower === "racing") {
+        shouldOpenBetslip = true;
+      }
 
       const existingBet = betsRef.current.find((bet) => {
         return (
@@ -136,6 +185,11 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         return { status: "duplicate" as const, id: existingBet.id };
       }
 
+      if (betsRef.current.length >= 50) {
+        addToast("Betslip limit reached. Maximum capacity is 50 bets.", "warning");
+        return { status: "limit_reached" as const };
+      }
+
       const id =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
@@ -143,7 +197,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
       const nextBets = [
         ...betsRef.current,
-        { ...newBet, id, added_at: new Date().toISOString() },
+        { ...newBet, stake: defaultStakeRef.current, id, added_at: new Date().toISOString() },
       ];
       betsRef.current = nextBets;
       setBets(nextBets);
@@ -282,6 +336,11 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         updateBet,
         registerSelectionSnapshot,
         selectionSnapshots,
+        toasts,
+        addToast,
+        removeToast,
+        defaultStake,
+        setDefaultStake,
       }}
     >
       {children}

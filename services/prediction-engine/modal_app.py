@@ -9,12 +9,20 @@ import modal
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
 import app.data.scraper as racing_scraper
+import app.data.nrl_scraper as nrl_scraper
+import app.data.soccer_scraper as soccer_scraper
+import app.data.golf_scraper as golf_scraper
+import app.data.mma_scraper as mma_scraper
 import app.database as database
 import app.nightly as nightly
 from app.main import app as fastapi_app
 from app.ml.afl import AFLPredictor
 from app.ml.nba import NBAPredictor
 from app.ml.racing import RacingPredictor
+from app.ml.nrl import NRLPredictor
+from app.ml.soccer import SoccerPredictor
+from app.ml.golf import GolfPredictor
+from app.ml.mma import MMAPredictor
 from app.time_utils import today_melbourne
 
 LOGGER = logging.getLogger("betmate.modal")
@@ -161,9 +169,80 @@ def race_data_refresh():
         predictor = RacingPredictor()
         predictor.load_or_train()
         races = racing_scraper.fetch_today_races(run_date=run_date)
+        
+        import app.storage as storage
+        database.user_id_ctx.set("automated_agent")
+        storage.init_db()
+        
+        predictions_logged = 0
+        errors = []
+        for race in races:
+            try:
+                horses = race.get("horses", [])
+                if not horses:
+                    continue
+                feature_rows = [
+                    {
+                        "barrier": horse["barrier"],
+                        "weight": horse["weight"],
+                        "past_win_rate": horse["past_win_rate"],
+                        "jockey_win_rate": horse["jockey_win_rate"],
+                        "track_condition": horse["track_condition"],
+                        "days_since_since_last_race": horse.get("days_since_last_race", 14), # fallback
+                        "days_since_last_race": horse.get("days_since_last_race", 14)
+                    }
+                    for horse in horses
+                ]
+                probabilities, importances = predictor.predict(feature_rows)
+                feature_impact = {
+                    name: round(float(value), 4)
+                    for name, value in zip(getattr(predictor, "feature_columns", []), importances)
+                }
+                predictions = []
+                for idx, horse in enumerate(horses):
+                    probability = float(probabilities[idx])
+                    live_odds = float(horse.get("betfair_back_price") or 0.0) or None
+                    fair_odds = round(1 / probability, 2) if probability > 0 else None
+                    predictions.append({
+                        "selection": horse["name"],
+                        "probability": round(probability * 100, 2),
+                        "fair_odds": live_odds or fair_odds,
+                        "payload": {
+                            "selection": horse["name"],
+                            "venue": race["venue"],
+                            "canonical_venue": race.get("canonical_venue") or race["venue"],
+                            "race_number": race["race_number"],
+                            "meeting_date": race.get("meeting_date") or run_date,
+                            "state": race.get("state", ""),
+                            "meeting_region": race.get("meeting_region", ""),
+                            "market_name": race.get("market_name", ""),
+                            "start_time": race.get("start_time"),
+                            "distance": race.get("distance", 1200),
+                            "data_source": race.get("data_source", "betfair"),
+                            "barrier": horse["barrier"],
+                            "weight": horse["weight"],
+                            "past_win_rate": horse["past_win_rate"],
+                            "jockey_win_rate": horse["jockey_win_rate"],
+                            "track_condition": horse["track_condition"],
+                            "days_since_last_race": horse["days_since_last_race"],
+                        }
+                    })
+                storage.log_prediction_batch(
+                    sport="racing",
+                    event_id=race["race_id"],
+                    event_name=f"{race.get('venue')} R{race.get('race_number')}",
+                    predictions=predictions,
+                    feature_impact=feature_impact,
+                )
+                predictions_logged += 1
+            except Exception as e:
+                errors.append(f"Failed to run predictions for race {race.get('race_id')}: {e}")
+                
         return {
             "run_date": run_date,
             "races": len(races),
+            "predictions_logged": predictions_logged,
+            "errors": errors,
             "training_source": predictor.training_source,
             "training_rows": predictor.training_rows,
         }

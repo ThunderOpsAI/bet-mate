@@ -17,6 +17,10 @@ import os
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
 from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
+from app.ml.nrl import NRLPredictor, MODEL_PATH as NRL_MODEL_PATH
+from app.ml.soccer import SoccerPredictor, MODEL_PATH as SOCCER_MODEL_PATH
+from app.ml.golf import GolfPredictor, MODEL_PATH as GOLF_MODEL_PATH
+from app.ml.mma import MMAPredictor, MODEL_PATH as MMA_MODEL_PATH
 from app.ml.weights import WEIGHTS_VERSION
 from app.bob import (
     bob_request_in_scope,
@@ -35,6 +39,10 @@ from app.ml import artifacts as artifact_store
 import app.data.scraper as racing_scraper
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.nrl_scraper as nrl_scraper
+import app.data.soccer_scraper as soccer_scraper
+import app.data.golf_scraper as golf_scraper
+import app.data.mma_scraper as mma_scraper
 import app.storage as storage
 
 # CORS — configurable for deployment; defaults to localhost dev
@@ -79,6 +87,10 @@ async def lifespan(application: FastAPI):
     _log_model_initialization("Racing", racing_predictor, RACING_MODEL_PATH)
     _log_model_initialization("AFL", afl_predictor, AFL_MODEL_PATH)
     _log_model_initialization("NBA", nba_predictor, NBA_MODEL_PATH)
+    _log_model_initialization("NRL", nrl_predictor, NRL_MODEL_PATH)
+    _log_model_initialization("Soccer", soccer_predictor, SOCCER_MODEL_PATH)
+    _log_model_initialization("Golf", golf_predictor, GOLF_MODEL_PATH)
+    _log_model_initialization("MMA", mma_predictor, MMA_MODEL_PATH)
     LOGGER.info("Prediction engine cold start completed.")
     yield
 
@@ -97,6 +109,10 @@ app.add_middleware(
 racing_predictor = RacingPredictor()
 afl_predictor = AFLPredictor()
 nba_predictor = NBAPredictor()
+nrl_predictor = NRLPredictor()
+soccer_predictor = SoccerPredictor()
+golf_predictor = GolfPredictor()
+mma_predictor = MMAPredictor()
 strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor)
 bob_provider = build_bob_provider_from_env()
 
@@ -130,6 +146,7 @@ def require_user_id(authorization: str = Header(default="", alias="Authorization
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     if token == "guest":
+        database_mod.user_id_ctx.set("guest")
         return "guest"
 
     try:
@@ -141,6 +158,7 @@ def require_user_id(authorization: str = Header(default="", alias="Authorization
     if not isinstance(user_id, str) or not user_id.strip():
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
+    database_mod.user_id_ctx.set(user_id)
     return user_id
 
 
@@ -152,7 +170,9 @@ def resolve_optional_user_id(
         return require_user_id(authorization)
 
     if fallback_user_id and fallback_user_id.strip():
-        return fallback_user_id.strip()
+        user_id = fallback_user_id.strip()
+        database_mod.user_id_ctx.set(user_id)
+        return user_id
 
     raise HTTPException(status_code=401, detail="Missing bearer token")
 
@@ -496,10 +516,10 @@ def create_paper_bets_batch(bets: List[PaperBetInput], user_id: str = Depends(re
                 prediction_log_id=bet.prediction_log_id,
             )
             created_bets.append(created)
-        except ValueError as exc:
+        except Exception as exc:
             # Continue to next if one fails? Or return which ones failed?
             # For simplicity, we just log and continue.
-            print(f"[Batch] Failed to create bet: {exc}")
+            LOGGER.error("[Batch] Failed to create bet: %s", exc, exc_info=True)
 
     return {
         "success": True,
@@ -924,3 +944,231 @@ def predict_nba(game: TeamGame):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- GOLF INPUT MODELS ---
+class GolfPlayerInput(BaseModel):
+    player_id: str
+    name: str
+    betfair_back_price: Optional[float] = None
+
+class GolfTournamentInput(BaseModel):
+    tournament_id: str
+    name: str
+    players: List[GolfPlayerInput]
+    venue: Optional[str] = None
+    start_time: Optional[str] = None
+    meeting_date: Optional[str] = None
+
+
+# --- NRL ENDPOINTS ---
+@app.get("/api/nrl/games/upcoming")
+def get_upcoming_nrl(date: Optional[str] = None):
+    try:
+        games = nrl_scraper.fetch_upcoming_nrl(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"games": games}
+
+@app.post("/api/predict/nrl")
+def predict_nrl(game: TeamGame):
+    try:
+        result = nrl_predictor.predict(game.features)
+        feature_keys = result.get('feature_names', list(game.features.keys()))
+        importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
+        
+        home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
+        away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+        
+        storage.log_prediction_batch(
+            sport="nrl",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {"selection": game.home_team, "probability": home_probability, "fair_odds": home_odds},
+                {"selection": game.away_team, "probability": away_probability, "fair_odds": away_odds},
+            ],
+            feature_impact=importances,
+        )
+        
+        return {
+            "game_id": game.game_id,
+            "predictions": {
+                "home_team": game.home_team,
+                "away_team": game.away_team,
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
+                "fair_odds_home": home_odds,
+                "fair_odds_away": away_odds
+            },
+            "feature_impact": importances,
+            "ai_insights_context": f"NRL ML model analyzed recent points diff and team form to determine decisions.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- SOCCER ENDPOINTS ---
+@app.get("/api/soccer/games/today")
+def get_today_soccer(date: Optional[str] = None):
+    try:
+        games = soccer_scraper.fetch_today_soccer(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"games": games}
+
+@app.post("/api/predict/soccer")
+def predict_soccer(game: TeamGame):
+    try:
+        result = soccer_predictor.predict(game.features)
+        feature_keys = result.get('feature_names', list(game.features.keys()))
+        importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
+        
+        home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
+        away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+        
+        storage.log_prediction_batch(
+            sport="soccer",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {"selection": game.home_team, "probability": home_probability, "fair_odds": home_odds},
+                {"selection": game.away_team, "probability": away_probability, "fair_odds": away_odds},
+            ],
+            feature_impact=importances,
+        )
+        
+        return {
+            "game_id": game.game_id,
+            "predictions": {
+                "home_team": game.home_team,
+                "away_team": game.away_team,
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
+                "fair_odds_home": home_odds,
+                "fair_odds_away": away_odds
+            },
+            "feature_impact": importances,
+            "ai_insights_context": f"Soccer ML model evaluated expected goals difference and historical matchup factors.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- GOLF ENDPOINTS ---
+@app.get("/api/golf/games/today")
+def get_today_golf(date: Optional[str] = None):
+    try:
+        games = golf_scraper.fetch_today_golf(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"games": games}
+
+@app.post("/api/predict/golf")
+def predict_golf(tournament: GolfTournamentInput):
+    try:
+        t_dict = tournament.dict()
+        result = golf_predictor.predict(t_dict)
+        
+        feature_keys = result.get('feature_names', ['recent_finishes', 'course_history', 'driving_accuracy', 'putting_average', 'live_odds_signal'])
+        importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
+        
+        # Log all player predictions in a single batch
+        log_predictions = []
+        for pick in result["predictions"]:
+            log_predictions.append({
+                "selection": pick["name"],
+                "probability": pick["win_probability"],
+                "fair_odds": pick["fair_odds"],
+            })
+            
+        storage.log_prediction_batch(
+            sport="golf",
+            event_id=tournament.tournament_id,
+            event_name=tournament.name,
+            predictions=log_predictions,
+            feature_impact=importances,
+        )
+        
+        return {
+            "tournament_id": tournament.tournament_id,
+            "predictions": result["predictions"],
+            "feature_impact": importances,
+            "ai_insights_context": f"Golf model weighted course history and recent stroke averages to determine favorites.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- MMA ENDPOINTS ---
+@app.get("/api/mma/games/today")
+def get_today_mma(date: Optional[str] = None):
+    try:
+        games = mma_scraper.fetch_today_mma(run_date=date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"games": games}
+
+@app.post("/api/predict/mma")
+def predict_mma(game: TeamGame):
+    try:
+        result = mma_predictor.predict(game.features)
+        feature_keys = result.get('feature_names', list(game.features.keys()))
+        importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
+        
+        home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
+        away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+        
+        storage.log_prediction_batch(
+            sport="mma",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {"selection": game.home_team, "probability": home_probability, "fair_odds": home_odds},
+                {"selection": game.away_team, "probability": away_probability, "fair_odds": away_odds},
+            ],
+            feature_impact=importances,
+        )
+        
+        return {
+            "game_id": game.game_id,
+            "predictions": {
+                "home_team": game.home_team,
+                "away_team": game.away_team,
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
+                "fair_odds_home": home_odds,
+                "fair_odds_away": away_odds
+            },
+            "feature_impact": importances,
+            "ai_insights_context": f"MMA model analyzed striking accuracy and reach advantage differentials.",
+            "model_metadata": {
+                "feature_importance": importances,
+                "last_trained": "auto-tune pending",
+                "version": WEIGHTS_VERSION
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+

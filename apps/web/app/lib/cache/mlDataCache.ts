@@ -99,7 +99,7 @@ export function getMlCacheDateKey(date = new Date()) {
 
 export function getMlDataCacheKey(
   kind: "fixtures" | "predictions",
-  sport: "racing" | "afl" | "nba",
+  sport: "racing" | "afl" | "nba" | "nrl" | "soccer" | "golf" | "mma",
   dateKey: string,
 ) {
   return `${kind}:${sport}:${dateKey}`;

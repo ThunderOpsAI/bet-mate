@@ -114,6 +114,10 @@ function NewBetContent() {
               <option value="racing">Racing</option>
               <option value="nba">Basketball (NBA)</option>
               <option value="afl">AFL</option>
+              <option value="nrl">NRL</option>
+              <option value="soccer">Soccer</option>
+              <option value="golf">Golf</option>
+              <option value="mma">MMA</option>
             </select>
           </div>
           <div className="form-group">

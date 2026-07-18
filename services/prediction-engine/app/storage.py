@@ -485,6 +485,10 @@ def create_paper_bet(
         "racing": {"win", "place"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
         "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nrl": {"win", "head_to_head"},
+        "soccer": {"win", "head_to_head"},
+        "golf": {"win"},
+        "mma": {"win", "head_to_head"},
     }
     allowed_types = supported_bet_types.get(sport)
     if allowed_types is not None and bet_type not in allowed_types:

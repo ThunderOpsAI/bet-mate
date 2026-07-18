@@ -5,6 +5,7 @@ import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
+import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
 type JamesRuleSet = {
   display_name: string;
@@ -37,6 +38,7 @@ function SettingsContent() {
   const [jamesMessage, setJamesMessage] = useState("");
   const [resettingBankroll, setResettingBankroll] = useState(false);
   const { requireAuthAction } = useActionGuard();
+  const { defaultStake, setDefaultStake } = usePaperBetslip();
 
   useEffect(() => {
     const loadJames = async () => {
@@ -184,6 +186,25 @@ function SettingsContent() {
         <button type="button" className="btn btn-secondary btn-sm" onClick={handleResetBankroll} disabled={resettingBankroll}>
           <RefreshCw size={14} /> {resettingBankroll ? "Resetting…" : "Reset Bankroll Baseline"}
         </button>
+      </div>
+
+      <div className="card" style={{ marginTop: "1rem" }}>
+        <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem", fontWeight: 700 }}>
+          <SlidersHorizontal size={20} /> Betslip Settings
+        </h3>
+        <div className="form-group">
+          <label className="form-label">Default Paper Bet Stake ($)</label>
+          <input
+            type="number"
+            className="form-input"
+            min="1"
+            value={defaultStake}
+            onChange={(e) => setDefaultStake(Number(e.target.value))}
+          />
+          <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.4rem", display: "block" }}>
+            This stake will be automatically applied to any new selections added to the paper betslip.
+          </span>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>

@@ -30,7 +30,7 @@ type BlackbookConfig = {
 
 type DraftRule = {
   runner: string;
-  sport: "racing" | "afl" | "nba";
+  sport: "racing" | "afl" | "nba" | "nrl" | "soccer" | "golf" | "mma";
   bet_type: string;
   stake: number;
   probability_threshold: number;
@@ -286,13 +286,17 @@ export default function BlackbookPage() {
                     setDraft({
                       ...draft,
                       sport: event.target.value as DraftRule["sport"],
-                      bet_type: event.target.value === "racing" ? "win" : "head_to_head",
+                      bet_type: (event.target.value === "racing" || event.target.value === "golf") ? "win" : "head_to_head",
                     })
                   }
                 >
                   <option value="racing">Racing</option>
                   <option value="afl">AFL</option>
                   <option value="nba">NBA</option>
+                  <option value="nrl">NRL</option>
+                  <option value="soccer">Soccer</option>
+                  <option value="golf">Golf</option>
+                  <option value="mma">MMA</option>
                 </select>
               </div>
               <div className="form-group">
@@ -302,10 +306,10 @@ export default function BlackbookPage() {
                   value={draft.bet_type}
                   onChange={(event) => setDraft({ ...draft, bet_type: event.target.value })}
                 >
-                  {draft.sport === "racing" ? (
+                  {draft.sport === "racing" || draft.sport === "golf" ? (
                     <>
                       <option value="win">Win</option>
-                      <option value="place">Place</option>
+                      {draft.sport === "racing" && <option value="place">Place</option>}
                     </>
                   ) : (
                     <option value="head_to_head">Head to Head</option>
@@ -417,6 +421,18 @@ export default function BlackbookPage() {
             </Link>
             <Link href="/nba" className="btn btn-secondary">
               Browse NBA Games
+            </Link>
+            <Link href="/nrl" className="btn btn-secondary">
+              Browse NRL Games
+            </Link>
+            <Link href="/soccer" className="btn btn-secondary">
+              Browse Soccer Matches
+            </Link>
+            <Link href="/golf" className="btn btn-secondary">
+              Browse Golf Tournaments
+            </Link>
+            <Link href="/mma" className="btn btn-secondary">
+              Browse MMA Fights
             </Link>
           </div>
         </div>

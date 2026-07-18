@@ -7,7 +7,7 @@ export type OpportunityCandidate = {
   id: string;
   selectionName: string;
   eventLabel: string;
-  sport: "racing" | "afl" | "nba";
+  sport: "racing" | "afl" | "nba" | "nrl" | "soccer" | "golf" | "mma";
   probability: number;
   fairOdds: number;
   marketOdds?: number | null;

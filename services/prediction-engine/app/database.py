@@ -18,6 +18,7 @@ import os
 import sqlite3
 import shutil
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -30,6 +31,8 @@ BETMATE_DB_PATH = db_path if db_path == ":memory:" else os.path.abspath(db_path)
 
 # Determine backend
 DB_BACKEND = "postgresql" if DATABASE_URL.startswith("postgres") else "sqlite"
+
+user_id_ctx: ContextVar[Optional[str]] = ContextVar("user_id_ctx", default=None)
 
 _pg_pool = None
 _initialized = False
@@ -186,6 +189,10 @@ def get_connection():
         pool = _get_pg_pool()
         conn = pool.getconn()
         try:
+            user_id = user_id_ctx.get()
+            if user_id is not None:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL request.jwt.claim.sub = %s", (user_id,))
             wrapper = _PgCursorWrapper(conn)
             yield wrapper
             conn.commit()

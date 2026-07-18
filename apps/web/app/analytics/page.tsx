@@ -336,7 +336,7 @@ export default function AnalyticsPage() {
       const response = await fetch(`${ML_API}/api/predictions/results/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sports: ["afl", "nba", "racing"] }),
+        body: JSON.stringify({ sports: ["afl", "nba", "racing", "nrl", "soccer", "golf", "mma"] }),
       });
 
       if (!response.ok) {
@@ -619,7 +619,7 @@ export default function AnalyticsPage() {
             </div>
           ) : (
             <div className="card">
-              <p className="muted-copy">No bankroll history yet. Log bets from Racing, AFL, NBA, or Strategy to build your user analytics.</p>
+              <p className="muted-copy">No bankroll history yet. Log bets from Racing, AFL, NBA, NRL, Soccer, Golf, MMA, or Strategy to build your user analytics.</p>
             </div>
           )}
         </>
@@ -744,7 +744,7 @@ export default function AnalyticsPage() {
       {activeTab === "ml" ? (
         <>
           <div className="filter-bar">
-            {["all", "afl", "nba", "racing"].map((sport) => (
+            {["all", "afl", "nba", "racing", "nrl", "soccer", "golf", "mma"].map((sport) => (
               <button
                 key={sport}
                 className={`filter-chip ${mlSportFilter === sport ? "active" : ""}`}

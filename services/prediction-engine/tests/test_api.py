@@ -556,6 +556,77 @@ class TestPaperBetEndpoints:
         assert data["bets"][0]["selection"] == "A"
         assert data["summary"]["total_bets"] == 1
 
+    def test_create_paper_bets_batch_resilient_to_errors(self, client, monkeypatch):
+        import app.storage as storage
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="batch_g1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 2.0},
+                {"selection": "B", "probability": 40, "fair_odds": 2.5},
+            ],
+        )
+
+        call_count = 0
+        original_create_paper_bet = storage.create_paper_bet
+
+        def mock_create_paper_bet(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                import sqlite3
+                raise sqlite3.OperationalError("Simulated database error")
+            return original_create_paper_bet(*args, **kwargs)
+
+        monkeypatch.setattr(storage, "create_paper_bet", mock_create_paper_bet)
+
+        response = client.post(
+            "/api/paper-bets/batch",
+            json=[
+                {
+                    "sport": "afl",
+                    "event_id": "batch_g1",
+                    "event_name": "A vs B",
+                    "selection": "A",
+                    "stake": 10.0,
+                    "odds": 2.0,
+                },
+                {
+                    "sport": "afl",
+                    "event_id": "batch_g1",
+                    "event_name": "A vs B",
+                    "selection": "B",
+                    "stake": 15.0,
+                    "odds": 2.5,
+                }
+            ],
+            headers=_auth_headers("user_a"),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["count"] == 1
+        assert len(data["bets"]) == 1
+        assert data["bets"][0]["selection"] == "B"
+
+    def test_user_id_ctx_propagation(self):
+        from app.main import require_user_id
+        import app.database as database
+
+        database.user_id_ctx.set(None)
+
+        # Test "guest" token
+        user_id = require_user_id(authorization="Bearer guest")
+        assert user_id == "guest"
+        assert database.user_id_ctx.get() == "guest"
+
+        # Test normal user token
+        token = f"Bearer {_jwt_for_user('user_test_123')}"
+        user_id = require_user_id(authorization=token)
+        assert user_id == "user_test_123"
+        assert database.user_id_ctx.get() == "user_test_123"
+
 
 class TestResultIngestionSettlement:
     def test_ingested_racing_and_nba_results_settle_pending_bets(self, client, monkeypatch):

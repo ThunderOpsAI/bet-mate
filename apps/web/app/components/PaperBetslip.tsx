@@ -36,6 +36,9 @@ export default function PaperBetslip() {
     selectionSnapshots,
     setIsBetslipOpen,
     updateBet,
+    defaultStake,
+    setDefaultStake,
+    addToast,
   } = usePaperBetslip();
 
   const [placing, setPlacing] = useState(false);
@@ -205,178 +208,203 @@ export default function PaperBetslip() {
         </div>
       </div>
 
-      {isBetslipOpen && (
-        <div className="betslip-content">
-          {result ? (
-            <div className="betslip-result">
-              <CheckCircle2 size={48} className={result.failed === 0 ? "text-green" : "text-yellow"} />
-              <h3>{result.failed === 0 ? "Bets Logged!" : "Partial Success"}</h3>
-              <p>{result.success} bets recorded successfully.</p>
-            </div>
-          ) : bets.length === 0 ? (
-            <div className="betslip-empty">
-              <ShoppingCart size={32} />
-              <p>Your betslip is empty</p>
-              <p className="small">Add predictions to track multiple bets at once.</p>
-            </div>
-          ) : (
-            <>
-              <div className="betslip-status-stack">
-                {blockingIssues.length > 0 ? (
-                  <div className="betslip-banner danger">
-                    <AlertTriangle size={16} />
-                    <span>
-                      {blockingIssues.length} selection
-                      {blockingIssues.length === 1 ? "" : "s"} need fixing before
-                      you can log this slip.
-                    </span>
-                  </div>
-                ) : null}
-
-                {reviewIssues.length > 0 ? (
-                  <label className="betslip-banner warning" htmlFor="ack-odds-changes">
-                    <input
-                      id="ack-odds-changes"
-                      type="checkbox"
-                      checked={acknowledgeOddsChanges}
-                      onChange={(event) => setAcknowledgeOddsChanges(event.target.checked)}
-                    />
-                    <span>
-                      {reviewIssues.length} selection
-                      {reviewIssues.length === 1 ? "" : "s"} moved more than 10%.
-                      Review the current racing prices before you log anyway.
-                    </span>
-                  </label>
-                ) : null}
-
-                <div className="betslip-banner info">
+      <div className="betslip-content">
+        {result ? (
+          <div className="betslip-result">
+            <CheckCircle2 size={48} className={result.failed === 0 ? "text-green" : "text-yellow"} />
+            <h3>{result.failed === 0 ? "Bets Logged!" : "Partial Success"}</h3>
+            <p>{result.success} bets recorded successfully.</p>
+          </div>
+        ) : bets.length === 0 ? (
+          <div className="betslip-empty">
+            <ShoppingCart size={32} />
+            <p>Your betslip is empty</p>
+            <p className="small">Add predictions to track multiple bets at once.</p>
+          </div>
+        ) : (
+          <>
+            <div className="betslip-status-stack">
+              {blockingIssues.length > 0 ? (
+                <div className="betslip-banner danger">
                   <AlertTriangle size={16} />
                   <span>
-                    Live stale-odds checks only work where this tab has a fresh frontend
-                    price snapshot. Racing can compare live Betfair prices; AFL and NBA
-                    stay model-led for now.
+                    {blockingIssues.length} selection
+                    {blockingIssues.length === 1 ? "" : "s"} need fixing before
+                    you can log this slip.
                   </span>
                 </div>
+              ) : null}
+
+              {reviewIssues.length > 0 ? (
+                <label className="betslip-banner warning" htmlFor="ack-odds-changes">
+                  <input
+                    id="ack-odds-changes"
+                    type="checkbox"
+                    checked={acknowledgeOddsChanges}
+                    onChange={(event) => setAcknowledgeOddsChanges(event.target.checked)}
+                  />
+                  <span>
+                    {reviewIssues.length} selection
+                    {reviewIssues.length === 1 ? "" : "s"} moved more than 10%.
+                    Review the current racing prices before you log anyway.
+                  </span>
+                </label>
+              ) : null}
+
+              <div className="betslip-banner info">
+                <AlertTriangle size={16} />
+                <span>
+                  Live stale-odds checks only work where this tab has a fresh frontend
+                  price snapshot. Racing can compare live Betfair prices; AFL and NBA
+                  stay model-led for now.
+                </span>
               </div>
+            </div>
 
-              <div className="betslip-list">
-                {warnings.map(({ bet, issues }) => {
-                  const key = buildPaperBetKey({
-                    sport: bet.sport,
-                    eventId: bet.event_id,
-                    selection: bet.selection,
-                    betType: bet.bet_type,
-                  });
-                  const snapshot = selectionSnapshots[key];
-                  const latestOdds = snapshot?.current_odds;
+            <div className="betslip-list">
+              {warnings.map(({ bet, issues }) => {
+                const key = buildPaperBetKey({
+                  sport: bet.sport,
+                  eventId: bet.event_id,
+                  selection: bet.selection,
+                  betType: bet.bet_type,
+                });
+                const snapshot = selectionSnapshots[key];
+                const latestOdds = snapshot?.current_odds;
 
-                  return (
-                    <div key={bet.id} className="betslip-item">
-                      <div className="betslip-item-header">
-                        <div className="betslip-item-info">
-                          <strong className="betslip-selection">{bet.selection}</strong>
-                          <span className="betslip-event">{bet.event_name}</span>
-                        </div>
-                        <button
-                          className="betslip-remove"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeBet(bet.id);
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
+                return (
+                  <div key={bet.id} className="betslip-item">
+                    <div className="betslip-item-header">
+                      <div className="betslip-item-info">
+                        <strong className="betslip-selection">{bet.selection}</strong>
+                        <span className="betslip-event">{bet.event_name}</span>
                       </div>
-                      <div className="betslip-item-details">
-                        <div className="betslip-item-meta">
-                          <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
-                          <span className="badge badge-accent">
-                            ${bet.odds?.toFixed(2) || "0.00"}
-                          </span>
-                          {latestOdds && latestOdds > 1 ? (
-                            <span className="badge badge-blue">
-                              Now ${latestOdds.toFixed(2)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="betslip-item-stake">
-                          <label>Stake</label>
-                          <div className="stake-input-wrap">
-                            <span>$</span>
-                            <input
-                              type="number"
-                              min="1"
-                              value={bet.stake}
-                              onChange={(e) =>
-                                updateBet(bet.id, { stake: Number(e.target.value) })
-                              }
-                            />
-                          </div>
-                        </div>
-                      </div>
-                      {issues.length > 0 ? (
-                        <div className="betslip-issues">
-                          {issues.map((issue, index) => (
-                            <div
-                              key={`${bet.id}-${index}`}
-                              className={`betslip-issue ${issue.tone}`}
-                            >
-                              <AlertTriangle size={13} />
-                              <span>{issue.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
+                      <button
+                        className="betslip-remove"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeBet(bet.id);
+                        }}
+                      >
+                        <X size={14} />
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
-              <div className="betslip-footer">
-                <div className="betslip-summary">
-                  <div className="summary-row">
-                    <span>Total Bets</span>
-                    <span>{bets.length}</span>
+                    <div className="betslip-item-details">
+                      <div className="betslip-item-meta">
+                        <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
+                        <span className="badge badge-accent">
+                          ${bet.odds?.toFixed(2) || "0.00"}
+                        </span>
+                        {latestOdds && latestOdds > 1 ? (
+                          <span className="badge badge-blue">
+                            Now ${latestOdds.toFixed(2)}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="betslip-item-stake">
+                        <label>Stake</label>
+                        <div className="stake-input-wrap">
+                          <span>$</span>
+                          <input
+                            type="number"
+                            min="1"
+                            value={bet.stake}
+                            onChange={(e) =>
+                              updateBet(bet.id, { stake: Number(e.target.value) })
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    {issues.length > 0 ? (
+                      <div className="betslip-issues">
+                        {issues.map((issue, index) => (
+                          <div
+                            key={`${bet.id}-${index}`}
+                            className={`betslip-issue ${issue.tone}`}
+                          >
+                            <AlertTriangle size={13} />
+                            <span>{issue.message}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                  <div className="summary-row total">
-                    <span>Total Stake</span>
-                    <strong>${totalStake.toFixed(2)}</strong>
+                );
+              })}
+            </div>
+            <div className="betslip-footer">
+              <div className="betslip-summary">
+                <div className="summary-row">
+                  <span>Total Bets</span>
+                  <span>{bets.length}</span>
+                </div>
+                <div className="summary-row total">
+                  <span>Total Stake</span>
+                  <strong>${totalStake.toFixed(2)}</strong>
+                </div>
+                <div className="summary-row default-stake-row">
+                  <span style={{ fontSize: "0.8rem" }}>Default Stake</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                    <div className="footer-stake-input-wrap">
+                      <span>$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={defaultStake}
+                        onChange={(e) => setDefaultStake(Number(e.target.value))}
+                        className="footer-stake-input"
+                        title="Default stake applied to new picks"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        bets.forEach((b) => updateBet(b.id, { stake: defaultStake }));
+                        addToast(`Applied stake of $${defaultStake} to all bets`, "success");
+                      }}
+                      className="btn btn-secondary btn-xs apply-all-btn"
+                      title="Apply default stake to all current picks"
+                    >
+                      Apply All
+                    </button>
                   </div>
                 </div>
-                <div className="betslip-actions">
-                  <button
-                    className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`}
-                    onClick={handleClearBets}
-                    disabled={placing}
-                  >
-                    <Trash2 size={14} /> {confirmClear ? "Confirm" : "Clear"}
-                  </button>
-                  <button
-                    className="btn btn-primary btn-block"
-                    onClick={handlePlaceBets}
-                    disabled={placing || !canSubmit}
-                    title={
-                      blockingIssues.length > 0
-                        ? "Fix blocked selections first."
-                        : reviewIssues.length > 0 && !acknowledgeOddsChanges
-                          ? "Acknowledge the odds changes before proceeding."
-                          : "Log the current paper betslip."
-                    }
-                  >
-                    {placing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-                    {placing
-                      ? "Logging..."
-                      : blockingIssues.length > 0
-                        ? "Fix Slip Warnings"
-                        : reviewIssues.length > 0 && !acknowledgeOddsChanges
-                          ? "Review Odds Changes"
-                          : "Log Paper Bets"}
-                  </button>
-                </div>
               </div>
-            </>
-          )}
-        </div>
-      )}
+              <div className="betslip-actions">
+                <button
+                  className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`}
+                  onClick={handleClearBets}
+                  disabled={placing}
+                >
+                  <Trash2 size={14} /> {confirmClear ? "Confirm" : "Clear"}
+                </button>
+                <button
+                  className="btn btn-primary btn-block"
+                  onClick={handlePlaceBets}
+                  disabled={placing || !canSubmit}
+                  title={
+                    blockingIssues.length > 0
+                      ? "Fix blocked selections first."
+                      : reviewIssues.length > 0 && !acknowledgeOddsChanges
+                        ? "Acknowledge the odds changes before proceeding."
+                        : "Log the current paper betslip."
+                  }
+                >
+                  {placing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                  {placing
+                    ? "Logging..."
+                    : blockingIssues.length > 0
+                      ? "Fix Slip Warnings"
+                      : reviewIssues.length > 0 && !acknowledgeOddsChanges
+                        ? "Review Odds Changes"
+                        : "Log Paper Bets"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       <style jsx global>{`
         .betslip-container {
@@ -390,16 +418,22 @@ export default function PaperBetslip() {
           box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
           z-index: 10000;
           overflow: hidden;
-          transition: transform var(--transition-slow), opacity var(--transition);
+          transition: 
+            width 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+            max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+            border-radius 0.45s cubic-bezier(0.16, 1, 0.3, 1),
+            box-shadow 0.4s ease,
+            transform 0.4s ease,
+            opacity 0.3s ease;
           display: flex;
           flex-direction: column;
-          max-height: calc(100vh - 100px);
+          max-height: 700px;
         }
 
         .betslip-container.collapsed {
-          width: auto;
-          min-width: 180px;
-          border-radius: 999px;
+          width: 220px;
+          max-height: 48px;
+          border-radius: 24px;
         }
 
         .betslip-header {
@@ -464,6 +498,17 @@ export default function PaperBetslip() {
           flex-direction: column;
           min-height: 220px;
           background: var(--bg-primary);
+          transition: opacity 0.3s ease, max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+          opacity: 1;
+          max-height: 650px;
+          overflow-y: hidden;
+        }
+
+        .collapsed .betslip-content {
+          opacity: 0;
+          max-height: 0;
+          min-height: 0;
+          pointer-events: none;
         }
 
         .betslip-status-stack {
@@ -663,6 +708,47 @@ export default function PaperBetslip() {
         .summary-row.total {
           color: var(--text-primary);
           font-size: 0.92rem;
+        }
+
+        .default-stake-row {
+          padding-top: 0.5rem;
+          margin-top: 0.5rem;
+          border-top: 1px dashed var(--border);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+
+        .footer-stake-input-wrap {
+          display: flex;
+          align-items: center;
+          gap: 0.25rem;
+          background: var(--bg-primary);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          padding: 0.15rem 0.35rem;
+        }
+
+        .footer-stake-input-wrap span {
+          font-size: 0.72rem;
+          color: var(--text-muted);
+        }
+
+        .footer-stake-input {
+          width: 50px;
+          border: none;
+          background: transparent;
+          color: var(--text-primary);
+          outline: none;
+          font-size: 0.78rem;
+          font-weight: 700;
+        }
+
+        .apply-all-btn {
+          font-size: 0.7rem;
+          padding: 0.25rem 0.45rem;
+          border-radius: 6px;
+          line-height: 1;
         }
 
         .betslip-actions {
