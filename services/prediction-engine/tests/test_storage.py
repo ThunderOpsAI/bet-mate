@@ -1142,3 +1142,52 @@ class TestPostgresJsonCompatibility:
         assert card["skipped_opportunities"] == [{"selection": "A"}]
         assert card["sport_mix"] == {"afl": 1.0}
         assert card["expected_edge"] == 0.08
+
+
+class TestRetrainingData:
+    def test_get_settled_paper_bets_for_training(self):
+        # Log a prediction
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="test_train_game_1",
+            event_name="Cats vs Blues",
+            predictions=[
+                {"selection": "Cats", "probability": 55, "fair_odds": 1.8},
+                {"selection": "Blues", "probability": 45, "fair_odds": 2.2},
+            ],
+        )
+
+        # Create a paper bet
+        storage.create_paper_bet(
+            sport="afl",
+            event_id="test_train_game_1",
+            event_name="Cats vs Blues",
+            selection="Cats",
+            stake=100.0,
+            odds=1.8,
+            bet_type="head_to_head",
+            origin="automated_agent",
+            user_id="automated_agent",
+        )
+
+        # Before settling, training bets list should be empty
+        assert len(storage.get_settled_paper_bets_for_training("afl")) == 0
+
+        # Settle prediction result
+        storage.settle_prediction_result(
+            sport="afl",
+            event_id="test_train_game_1",
+            winner_selection="Cats",
+        )
+
+        # Now, it should be in the list of training bets
+        bets = storage.get_settled_paper_bets_for_training("afl")
+        assert len(bets) == 1
+        assert bets[0]["selection"] == "Cats"
+        assert bets[0]["status"] == "WON"
+        assert bets[0]["prediction"]["payload"] is not None
+
+        # Verify automated_bet_exists
+        assert storage.automated_bet_exists("afl", "test_train_game_1", "Cats", "head_to_head") is True
+        assert storage.automated_bet_exists("afl", "test_train_game_1", "Blues", "head_to_head") is False
+

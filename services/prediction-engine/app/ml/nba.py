@@ -112,16 +112,73 @@ class NBAPredictor:
         )
         return data[FEATURE_COLUMNS + ['home_win']]
 
+    def _parse_settled_paper_bet(self, bet):
+        prediction = bet.get("prediction") or {}
+        payload = prediction.get("payload")
+        if not payload or not isinstance(payload, dict):
+            return None
+        
+        home_team = payload.get("home_team")
+        away_team = payload.get("away_team")
+        selection = bet.get("selection")
+        status = bet.get("status")
+        
+        if not home_team or not away_team or not selection or status not in ("WON", "LOST"):
+            return None
+            
+        selection_lower = selection.strip().lower()
+        home_team_lower = home_team.strip().lower()
+        away_team_lower = away_team.strip().lower()
+        
+        if selection_lower == home_team_lower:
+            home_win = 1.0 if status == "WON" else 0.0
+        elif selection_lower == away_team_lower:
+            home_win = 0.0 if status == "WON" else 1.0
+        else:
+            return None
+            
+        row = {"home_win": home_win}
+        for col in FEATURE_COLUMNS:
+            row[col] = payload.get(col, FEATURE_DEFAULTS.get(col, 0.0))
+            
+        return row
+
     def train(self, training_rows=None):
         df, training_source = self._get_training_frame(training_rows)
         if df is None:
             return
 
+        # Load and append settled paper bets
+        try:
+            import app.storage as storage
+            settled_bets = storage.get_settled_paper_bets_for_training('nba')
+            parsed_rows = []
+            for bet in settled_bets:
+                parsed = self._parse_settled_paper_bet(bet)
+                if parsed:
+                    parsed_rows.append(parsed)
+            if parsed_rows:
+                bets_df = pd.DataFrame(parsed_rows)
+                df = pd.concat([df, bets_df], ignore_index=True)
+                print(f"Augmented NBA training data with {len(parsed_rows)} settled paper bets.")
+        except Exception as e:
+            print(f"Error loading settled paper bets for NBA training: {e}")
+
+        # Coerce columns to numeric to be safe
+        for column in FEATURE_COLUMNS:
+            df[column] = pd.to_numeric(df[column], errors='coerce').fillna(FEATURE_DEFAULTS[column])
+        df['home_win'] = pd.to_numeric(df['home_win'], errors='coerce').fillna(0).astype(int)
+
         X = df[FEATURE_COLUMNS]
         y = df['home_win']
         
+        # Create equal sample weights for all training rows
+        sample_weights = np.ones(len(df))
+        
         X_scaled = self.scaler.fit_transform(X)
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test, sample_weight_train, sample_weight_test = train_test_split(
+            X_scaled, y, sample_weights, test_size=0.2, random_state=42
+        )
         
         self.model = xgb.XGBClassifier(
             objective='binary:logistic',
@@ -130,7 +187,7 @@ class NBAPredictor:
             max_depth=5,
             n_estimators=200
         )
-        self.model.fit(X_train, y_train)
+        self.model.fit(X_train, y_train, sample_weight=sample_weight_train)
         self.training_source = training_source
         self.training_rows = len(df)
         

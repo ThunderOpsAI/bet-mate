@@ -155,6 +155,7 @@ def run_nightly_cycle(
     weekly_retrain_day: str = DEFAULT_WEEKLY_RETRAIN_DAY,
     backup_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
+    database.user_id_ctx.set("automated_agent")
     storage.init_db()
     effective_date = run_date or today_melbourne().isoformat()
     target_profiles = [key.strip() for key in (profile_keys or []) if key and key.strip()]
@@ -193,6 +194,38 @@ def run_nightly_cycle(
         scheduled_day=weekly_retrain_day,
     )
 
+    # Automated betting loop: log all selected_bets from generated cards to paper_bet_log
+    automated_bets_logged = []
+    for card in cards:
+        for bet in card.get("selected_bets", []):
+            try:
+                if not storage.automated_bet_exists(
+                    sport=bet["sport"],
+                    event_id=bet["event_id"],
+                    selection=bet["selection"],
+                    bet_type=bet["market_type"],
+                ):
+                    logged = storage.create_paper_bet(
+                        sport=bet["sport"],
+                        event_id=bet["event_id"],
+                        event_name=bet["event_name"],
+                        selection=bet["selection"],
+                        stake=bet["stake"],
+                        odds=bet.get("odds_used"),
+                        bet_type=bet["market_type"],
+                        origin="automated_agent",
+                        user_id="automated_agent",
+                    )
+                    automated_bets_logged.append({
+                        "id": logged["id"],
+                        "sport": bet["sport"],
+                        "event_name": bet["event_name"],
+                        "selection": bet["selection"],
+                        "stake": bet["stake"],
+                    })
+            except Exception as e:
+                print(f"Error logging automated bet for {bet.get('selection')}: {e}")
+
     backup_path = None
     if backup_dir:
         backup_path = database.create_sqlite_backup(backup_dir)
@@ -211,6 +244,7 @@ def run_nightly_cycle(
         "ingestion": ingestion,
         "auto_tune": tuning,
         "weekly_retrain": weekly_retrain,
+        "automated_bets": automated_bets_logged,
         "backup": {"path": backup_path, "created": bool(backup_path)} if backup_dir else {"created": False},
     }
 

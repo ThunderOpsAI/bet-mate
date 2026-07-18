@@ -111,6 +111,12 @@ class StrategyService:
                     "odds_source": odds_source,
                     "edge": round(edge, 4),
                     "confidence": confidence_bucket(probability, edge),
+                    "barrier": horse["barrier"],
+                    "weight": horse["weight"],
+                    "past_win_rate": horse["past_win_rate"],
+                    "jockey_win_rate": horse["jockey_win_rate"],
+                    "track_condition": horse["track_condition"],
+                    "days_since_last_race": horse["days_since_last_race"],
                 })
 
             ranked.sort(key=lambda item: item["model_probability"], reverse=True)
@@ -135,6 +141,12 @@ class StrategyService:
                             "start_time": race.get("start_time"),
                             "distance": race.get("distance"),
                             "data_source": race.get("data_source"),
+                            "barrier": item["barrier"],
+                            "weight": item["weight"],
+                            "past_win_rate": item["past_win_rate"],
+                            "jockey_win_rate": item["jockey_win_rate"],
+                            "track_condition": item["track_condition"],
+                            "days_since_last_race": item["days_since_last_race"],
                         },
                     }
                     for item in ranked
@@ -159,8 +171,26 @@ class StrategyService:
                 event_id=game["game_id"],
                 event_name=f"{game['home_team']} vs {game['away_team']}",
                 predictions=[
-                    {"selection": game["home_team"], "probability": round(home_probability * 100, 2), "fair_odds": round(1 / home_probability, 2)},
-                    {"selection": game["away_team"], "probability": round(away_probability * 100, 2), "fair_odds": round(1 / away_probability, 2)},
+                    {
+                        "selection": game["home_team"],
+                        "probability": round(home_probability * 100, 2),
+                        "fair_odds": round(1 / home_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
+                    {
+                        "selection": game["away_team"],
+                        "probability": round(away_probability * 100, 2),
+                        "fair_odds": round(1 / away_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
                 ],
                 feature_impact={},
             )
@@ -184,8 +214,26 @@ class StrategyService:
                 event_id=game["game_id"],
                 event_name=f"{game['home_team']} vs {game['away_team']}",
                 predictions=[
-                    {"selection": game["home_team"], "probability": round(home_probability * 100, 2), "fair_odds": round(1 / home_probability, 2)},
-                    {"selection": game["away_team"], "probability": round(away_probability * 100, 2), "fair_odds": round(1 / away_probability, 2)},
+                    {
+                        "selection": game["home_team"],
+                        "probability": round(home_probability * 100, 2),
+                        "fair_odds": round(1 / home_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
+                    {
+                        "selection": game["away_team"],
+                        "probability": round(away_probability * 100, 2),
+                        "fair_odds": round(1 / away_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
                 ],
                 feature_impact={},
             )

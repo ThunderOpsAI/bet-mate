@@ -228,3 +228,102 @@ def test_weekly_retrain_skips_on_non_matching_weekday(monkeypatch):
     )
     assert summary["weekly_retrain"]["ran"] is False
     assert summary["weekly_retrain"]["reason"] == "not scheduled weekday"
+
+
+def test_run_nightly_cycle_sets_user_id_ctx(monkeypatch):
+    import app.database as database
+    monkeypatch.setattr(nightly.storage, "init_db", lambda: None)
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+
+    database.user_id_ctx.set(None)
+    assert database.user_id_ctx.get() is None
+
+    nightly.run_nightly_cycle(
+        strategy_service=DummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+    assert database.user_id_ctx.get() == "automated_agent"
+
+
+def test_run_nightly_cycle_automated_betting(monkeypatch):
+    import app.storage as storage
+
+    # We must ensure there is a prediction in prediction_log to link to the paper bet,
+    # because create_paper_bet checks prediction_log for event_id/selection.
+    storage.log_prediction_batch(
+        sport="afl",
+        event_id="afl_game_999",
+        event_name="Team A vs Team B",
+        predictions=[
+            {"selection": "Team A", "probability": 60.0, "fair_odds": 1.67},
+            {"selection": "Team B", "probability": 40.0, "fair_odds": 2.5},
+        ]
+    )
+
+    class BettingDummyStrategyService:
+        def get_or_create_cards(self, run_date):
+            return [
+                {
+                    "profile_key": "bob",
+                    "card_date": run_date,
+                    "selected_bets": [
+                        {
+                            "sport": "afl",
+                            "event_id": "afl_game_999",
+                            "event_name": "Team A vs Team B",
+                            "market_type": "head_to_head",
+                            "selection": "Team A",
+                            "model_probability": 0.6,
+                            "odds_used": 1.67,
+                            "odds_source": "model_implied",
+                            "edge": 0.1,
+                            "stake": 50.0,
+                        }
+                    ],
+                    "total_allocated": 50.0,
+                }
+            ]
+
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+
+    summary = nightly.run_nightly_cycle(
+        strategy_service=BettingDummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+
+    # Verify that the bet was logged to paper_bet_log and returned in automated_bets
+    assert len(summary["automated_bets"]) == 1
+    assert summary["automated_bets"][0]["selection"] == "Team A"
+    assert summary["automated_bets"][0]["stake"] == 50.0
+
+    # Verify that running again does not log duplicate bets (idempotency check)
+    second_summary = nightly.run_nightly_cycle(
+        strategy_service=BettingDummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+    assert len(second_summary["automated_bets"]) == 0
+
+    # Verify storage contents
+    bets = storage.get_paper_bets(user_id="automated_agent")
+    assert len(bets) == 1
+    assert bets[0]["selection"] == "Team A"
+    assert bets[0]["origin"] == "automated_agent"
+    assert bets[0]["status"] == "PENDING"
+
+

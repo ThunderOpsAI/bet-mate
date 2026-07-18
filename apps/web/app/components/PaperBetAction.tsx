@@ -43,7 +43,7 @@ export default function PaperBetAction({
   fullWidth = false,
 }: PaperBetActionProps) {
   const [feedback, setFeedback] = useState<
-    "added" | "duplicate" | "removed" | null
+    "added" | "duplicate" | "removed" | "limit_reached" | null
   >(null);
   const { addBet, bets, registerSelectionSnapshot, removeBet } = usePaperBetslip();
 
@@ -119,6 +119,9 @@ export default function PaperBetAction({
 
   const handleQuickAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    if (totalSlipCount >= 50 && existingSelectionCount === 0) {
+      return;
+    }
 
     const result = addBet(
       {
@@ -171,11 +174,13 @@ export default function PaperBetAction({
             existingSelectionCount > 0 ? "is-logged" : ""
           }`}
           onClick={handleQuickAdd}
-          disabled={existingSelectionCount > 0}
+          disabled={existingSelectionCount > 0 || (totalSlipCount >= 50 && existingSelectionCount === 0)}
           title={
             existingSelectionCount > 0
               ? "This selection is already in your paper betslip."
-              : "Add this selection to your persistent paper betslip."
+              : totalSlipCount >= 50
+                ? "Betslip capacity reached (50 bets max)."
+                : "Add this selection to your persistent paper betslip."
           }
         >
           {existingSelectionCount > 0 ? (
@@ -274,6 +279,18 @@ export default function PaperBetAction({
             opacity: 1;
           }
 
+          .paper-bet-action-primary:disabled:not(.is-logged) {
+            background: linear-gradient(
+              135deg,
+              rgba(100, 116, 139, 0.35),
+              rgba(71, 85, 105, 0.25)
+            );
+            border-color: rgba(148, 163, 184, 0.15);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+          }
+
           .paper-bet-action-cancel {
             background: rgba(15, 23, 42, 0.9);
             border-color: rgba(248, 113, 113, 0.42);
@@ -316,11 +333,14 @@ export default function PaperBetAction({
       <button
         className="btn btn-sm btn-secondary"
         onClick={handleQuickAdd}
+        disabled={existingSelectionCount > 0 || (totalSlipCount >= 50 && existingSelectionCount === 0)}
         style={{ gap: "0.35rem", whiteSpace: "nowrap" }}
         title={
           existingSelectionCount > 0
             ? "This selection is already in your paper betslip. Open the slip to review it."
-            : "Add this selection to your persistent paper betslip."
+            : totalSlipCount >= 50
+              ? "Betslip capacity reached (50 bets max)."
+              : "Add this selection to your persistent paper betslip."
         }
       >
         {feedback === "added" ? <CheckCircle2 size={14} /> : <ListPlus size={14} />}

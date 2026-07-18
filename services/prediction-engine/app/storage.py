@@ -2630,3 +2630,43 @@ def _optional_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def get_settled_paper_bets_for_training(sport: str) -> List[Dict[str, Any]]:
+    sport = sport.strip().lower()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                paper_bet_log.*,
+                prediction_log.payload_json AS prediction_payload_json,
+                prediction_log.probability AS prediction_probability,
+                prediction_log.fair_odds AS prediction_fair_odds
+            FROM paper_bet_log
+            LEFT JOIN prediction_log
+                ON prediction_log.id = paper_bet_log.prediction_log_id
+            WHERE paper_bet_log.sport = ? AND paper_bet_log.status IN ('WON', 'LOST')
+            ORDER BY paper_bet_log.created_at ASC
+            """,
+            (sport,),
+        ).fetchall()
+    return [_row_to_paper_bet(row) for row in rows]
+
+
+def automated_bet_exists(sport: str, event_id: str, selection: str, bet_type: str) -> bool:
+    sport = sport.strip().lower()
+    event_id = event_id.strip()
+    selection = selection.strip()
+    bet_type = bet_type.strip().lower()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM paper_bet_log
+            WHERE sport = ? AND event_id = ? AND selection = ? AND bet_type = ? AND origin = 'automated_agent' AND user_id = 'automated_agent'
+            LIMIT 1
+            """,
+            (sport, event_id, selection, bet_type),
+        ).fetchone()
+    return row is not None
+
+
