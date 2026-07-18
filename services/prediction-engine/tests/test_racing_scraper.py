@@ -402,3 +402,13 @@ def test_fetch_completed_racing_results_uses_target_metadata(monkeypatch):
     assert results[0]["sport"] == "racing"
     assert results[0]["winner_selection"] == "Late Charger"
     assert results[0]["result_payload"]["place_getters"] == ["Late Charger", "Swift Star", "Harbour Light"]
+
+
+def test_load_metro_allowlist_file_not_found(monkeypatch):
+    from pathlib import Path
+    monkeypatch.setattr(scraper, "ALLOWLIST_PATH", Path("non_existent_file_path_12345.json"))
+    monkeypatch.setattr(scraper, "_metro_allowlist_cache", None)
+
+    res = scraper.load_metro_allowlist(force_reload=True)
+    assert res == {}
+

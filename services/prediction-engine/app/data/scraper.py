@@ -187,8 +187,13 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
     if _metro_allowlist_cache is not None and not force_reload:
         return _metro_allowlist_cache
 
-    with ALLOWLIST_PATH.open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
+    try:
+        with ALLOWLIST_PATH.open("r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except FileNotFoundError as exc:
+        print(f"[Warning] Metro allowlist file not found at {ALLOWLIST_PATH}: {exc}")
+        _metro_allowlist_cache = {}
+        return _metro_allowlist_cache
 
     alias_map = {}
     for entry in raw.values():
