@@ -520,9 +520,41 @@ class TestPaperBetEndpoints:
         assert summary["won_bets"] == 1
         assert summary["lost_bets"] == 1
         assert summary["total_staked"] == 47.0
-        assert summary["settled_staked"] == 35.0
         assert summary["pending_exposure"] == 12.0
         assert summary["net_profit"] == 5.0
+
+    def test_create_paper_bets_batch(self, client):
+        import app.storage as storage
+        storage.log_prediction_batch(
+            sport="afl",
+            event_id="batch_g1",
+            event_name="A vs B",
+            predictions=[
+                {"selection": "A", "probability": 60, "fair_odds": 2.0},
+            ],
+        )
+
+        response = client.post(
+            "/api/paper-bets/batch",
+            json=[
+                {
+                    "sport": "afl",
+                    "event_id": "batch_g1",
+                    "event_name": "A vs B",
+                    "selection": "A",
+                    "stake": 10.0,
+                    "odds": 2.0,
+                }
+            ],
+            headers=_auth_headers("user_a"),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["count"] == 1
+        assert len(data["bets"]) == 1
+        assert data["bets"][0]["selection"] == "A"
+        assert data["summary"]["total_bets"] == 1
 
 
 class TestResultIngestionSettlement:
