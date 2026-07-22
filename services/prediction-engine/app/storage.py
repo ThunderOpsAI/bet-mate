@@ -2585,7 +2585,9 @@ def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Di
         raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
 
     total = sum(raw.values()) or 1.0
-    return {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl", "nba")}
+    weights = {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl")}
+    weights["nba"] = round(1.0 - sum(weights.values()), 3)
+    return weights
 
 
 def _dedupe_prediction_log(conn) -> None:

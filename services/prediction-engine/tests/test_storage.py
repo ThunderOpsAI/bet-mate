@@ -1012,6 +1012,25 @@ class TestStrategyStorage:
         assert rows[0]["window_start"] == "2026-02-01"
         assert rows[0]["window_end"] == "2026-03-02"
 
+    def test_retune_sport_weights_exact_sum(self):
+        # Pass dummy window_bets and initial weights that could produce floating point rounding discrepancies
+        weights = storage._retune_sport_weights([], {"racing": 0.333, "afl": 0.333, "nba": 0.334})
+        assert sum(weights.values()) == 1.0
+        storage._validate_rule_set({
+            "profile_key": "test",
+            "display_name": "Test",
+            "min_edge": 0.05,
+            "min_confidence": "medium",
+            "max_bets_per_day": 10,
+            "max_stake_per_bet": 50,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["head_to_head"],
+            "allow_multis": False,
+            "max_multi_legs": 3,
+            "sport_weights": weights,
+            "notes": "",
+        })
+
 
 class TestPostgresJsonCompatibility:
     def test_loads_json_accepts_native_jsonb_values(self):
