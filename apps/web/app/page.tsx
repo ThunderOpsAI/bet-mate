@@ -1521,7 +1521,7 @@ export default function DashboardPage() {
                 <Trophy size={24} />
               </div>
               <div className="category-hub-info">
-                <h4>Racing</h4>
+                <h4>Racing ({new Set(races.map((r) => r.venue)).size} venues)</h4>
                 <p>{races.length} races today ({new Set(races.map((r) => r.venue)).size} venues)</p>
               </div>
               <div className="category-hub-status">
@@ -1538,7 +1538,18 @@ export default function DashboardPage() {
                 <Zap size={24} />
               </div>
               <div className="category-hub-info">
-                <h4>Sports</h4>
+                <h4>
+                  Sports (
+                  {
+                    new Set([
+                      ...aflGames.map((g) => g.venue).filter(Boolean),
+                      ...nrlGames.map((g) => g.venue).filter(Boolean),
+                      ...golfTournaments.map((t) => t.venue).filter(Boolean),
+                      ...mmaMatchups.map((g) => g.venue).filter(Boolean),
+                    ]).size
+                  }{" "}
+                  venues)
+                </h4>
                 <p>
                   {aflGames.length + nbaGames.length + nrlGames.length + soccerGames.length + golfTournaments.length + mmaMatchups.length} events ({
                     new Set([
@@ -1565,7 +1576,7 @@ export default function DashboardPage() {
               </ErrorBoundary>
 
               <div className="section-header">
-                <h3>🏇 Main Racing Predictions</h3>
+                <h3>🏇 Main Racing Predictions ({new Set(races.map((r) => r.venue)).size} venues)</h3>
                 <Link href="/racing" className="btn btn-sm btn-secondary">
                   View All <ChevronRight size={14} />
                 </Link>

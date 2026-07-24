@@ -104,13 +104,38 @@ body {
   object-fit: contain;
 }
 
-.sidebar-nav {
+.sidebar-nav-container {
   flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar-nav {
   padding: 1rem 0.75rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
   list-style: none;
+}
+
+.sidebar-section-title {
+  padding: 0.8rem 0.75rem 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sidebar-section-count {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent-hover);
+  background: var(--accent-glow);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
 }
 
 .sidebar-nav a {

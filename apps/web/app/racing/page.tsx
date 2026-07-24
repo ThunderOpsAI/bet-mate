@@ -487,7 +487,7 @@ export default function RacingPage() {
       </ErrorBoundary>
 
       <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>🏇 Main Race Predictions</h3>
+        <h3>🏇 Main Race Predictions ({venues.length} venues)</h3>
       </div>
       <p className="muted-copy" style={{ marginBottom: "1rem" }}>
         Main-race prediction cards stay focused on Melbourne, Sydney, Brisbane,
