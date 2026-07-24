@@ -1521,7 +1521,7 @@ export default function DashboardPage() {
                 <Trophy size={24} />
               </div>
               <div className="category-hub-info">
-                <h4>Racing Board</h4>
+                <h4>Racing</h4>
                 <p>{races.length} races today ({new Set(races.map((r) => r.venue)).size} venues)</p>
               </div>
               <div className="category-hub-status">
@@ -1538,8 +1538,17 @@ export default function DashboardPage() {
                 <Zap size={24} />
               </div>
               <div className="category-hub-info">
-                <h4>Sports Arena</h4>
-                <p>{aflGames.length + nbaGames.length + nrlGames.length + soccerGames.length + golfTournaments.length + mmaMatchups.length} events</p>
+                <h4>Sports</h4>
+                <p>
+                  {aflGames.length + nbaGames.length + nrlGames.length + soccerGames.length + golfTournaments.length + mmaMatchups.length} events ({
+                    new Set([
+                      ...aflGames.map((g) => g.venue).filter(Boolean),
+                      ...nrlGames.map((g) => g.venue).filter(Boolean),
+                      ...golfTournaments.map((t) => t.venue).filter(Boolean),
+                      ...mmaMatchups.map((g) => g.venue).filter(Boolean),
+                    ]).size
+                  } venues)
+                </p>
               </div>
               <div className="category-hub-status">
                 <span className="category-hub-badge">Select</span>
@@ -1549,31 +1558,6 @@ export default function DashboardPage() {
 
           {activeCategory === "racing" ? (
             <>
-              <div className="stats-grid">
-                <div className="stat-card accent">
-                  <div className="stat-label">
-                    <Trophy
-                      size={14}
-                      style={{ display: "inline", verticalAlign: "middle" }}
-                    />{" "}
-                    Races Today
-                  </div>
-                  <div className="stat-value">{races.length}</div>
-                  <div className="stat-sub">{new Set(races.map((race) => race.venue)).size} venues</div>
-                </div>
-                <div className="stat-card yellow">
-                  <div className="stat-label">
-                    <Brain
-                      size={14}
-                      style={{ display: "inline", verticalAlign: "middle" }}
-                    />{" "}
-                    ML Models
-                  </div>
-                  <div className="stat-value">3</div>
-                  <div className="stat-sub">Shared cached snapshots</div>
-                </div>
-              </div>
-
               <ErrorBoundary sectionName="Dashboard opportunities">
                 <div className="dashboard-opportunities-grid">
                   <BestRacingOpportunities opportunities={racingOpportunities} compact />
