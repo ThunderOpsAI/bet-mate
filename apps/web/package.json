@@ -12,11 +12,12 @@
   "dependencies": {
     "@tanstack/react-query": "^5.90.21",
     "date-fns": "^4.1.0",
+    "eslint-config-next": "^16.2.11",
     "framer-motion": "^12.36.0",
     "lucide-react": "^0.577.0",
-    "next": "^14.2.15",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "next": "^16.2.11",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "recharts": "^3.8.0",
     "zustand": "^5.0.11"
   },

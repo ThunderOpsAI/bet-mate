@@ -26,8 +26,8 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
   const searchParams = useSearchParams();
 
   const [expanded, setExpanded] = useState({
-    racing: true,
-    sport: true,
+    racing: false,
+    sport: false,
     tools: false,
   });
 
