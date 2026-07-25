@@ -16,6 +16,8 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import SocialProfileModal from "../components/SocialProfileModal";
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -30,6 +32,10 @@ function LoginForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [socialInfo, setSocialInfo] = useState("");
+
+  const [socialModalOpen, setSocialModalOpen] = useState(false);
+  const [socialProvider, setSocialProvider] = useState<"Google" | "Apple">("Google");
+  const [socialEmail, setSocialEmail] = useState("");
 
   useEffect(() => {
     // If user is already authenticated (not guest), redirect
@@ -77,8 +83,11 @@ function LoginForm() {
     setError("");
   }
 
-  function handleSocialLogin(provider: string) {
-    setSocialInfo(`${provider} login is configured for production SSO. For local testing, use Email/Username login or Guest mode.`);
+  function handleSocialLogin(provider: "Google" | "Apple") {
+    setSocialProvider(provider);
+    const mockEmail = provider === "Google" ? "user@gmail.com" : "user@icloud.com";
+    setSocialEmail(mockEmail);
+    setSocialModalOpen(true);
   }
 
   return (
@@ -261,6 +270,14 @@ function LoginForm() {
           </p>
         </div>
       </div>
+
+      <SocialProfileModal
+        open={socialModalOpen}
+        onClose={() => setSocialModalOpen(false)}
+        provider={socialProvider}
+        email={socialEmail}
+        returnUrl={returnUrl}
+      />
     </div>
   );
 }
