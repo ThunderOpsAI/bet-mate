@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import SocialProfileModal from "../components/SocialProfileModal";
+import { triggerGoogleOAuth, triggerAppleOAuth } from "../lib/socialAuth";
 
 function RegisterForm() {
   const router = useRouter();
@@ -41,11 +42,16 @@ function RegisterForm() {
   const [socialProvider, setSocialProvider] = useState<"Google" | "Apple">("Google");
   const [socialEmail, setSocialEmail] = useState("");
 
-  function handleSocialLogin(provider: "Google" | "Apple") {
-    setSocialProvider(provider);
-    const mockEmail = provider === "Google" ? "user@gmail.com" : "user@icloud.com";
-    setSocialEmail(mockEmail);
-    setSocialModalOpen(true);
+  async function handleSocialLogin(provider: "Google" | "Apple") {
+    setError("");
+    try {
+      const result = provider === "Google" ? await triggerGoogleOAuth() : await triggerAppleOAuth();
+      setSocialProvider(result.provider);
+      setSocialEmail(result.email);
+      setSocialModalOpen(true);
+    } catch (err: any) {
+      setError(err.message || `${provider} authentication failed.`);
+    }
   }
 
   useEffect(() => {
