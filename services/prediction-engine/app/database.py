@@ -18,6 +18,7 @@ import os
 import sqlite3
 import shutil
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -25,18 +26,44 @@ APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DEFAULT_SQLITE_PATH = os.path.join(APP_ROOT, "runtime", "betmate.sqlite3")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-BETMATE_DB_PATH = os.path.abspath(os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH))
+db_path = os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH)
+BETMATE_DB_PATH = db_path if db_path == ":memory:" else os.path.abspath(db_path)
 
 # Determine backend
 DB_BACKEND = "postgresql" if DATABASE_URL.startswith("postgres") else "sqlite"
 
+user_id_ctx: ContextVar[Optional[str]] = ContextVar("user_id_ctx", default=None)
+
 _pg_pool = None
 _initialized = False
+TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def refresh_runtime_configuration() -> None:
+    global DATABASE_URL, BETMATE_DB_PATH, DB_BACKEND
+    DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+    db_path = os.getenv("BETMATE_DB_PATH", DEFAULT_SQLITE_PATH)
+    BETMATE_DB_PATH = db_path if db_path == ":memory:" else os.path.abspath(db_path)
+    DB_BACKEND = "postgresql" if DATABASE_URL.startswith("postgres") else "sqlite"
+
+
+def sqlite_fallback_allowed() -> bool:
+    return os.getenv("BETMATE_ALLOW_SQLITE", "").strip().lower() in TRUE_VALUES
+
+
+def require_database_url() -> None:
+    refresh_runtime_configuration()
+    if DATABASE_URL:
+        return
+    if sqlite_fallback_allowed():
+        return
+    raise RuntimeError("DATABASE_URL required in production")
 
 
 def _get_pg_pool():
     """Lazy-init a psycopg2 connection pool."""
     global _pg_pool
+    refresh_runtime_configuration()
     if _pg_pool is not None:
         return _pg_pool
 
@@ -157,10 +184,15 @@ def get_connection():
     For SQLite: returns the native connection.
     For PostgreSQL: returns a wrapped connection with dict-cursor.
     """
+    refresh_runtime_configuration()
     if DB_BACKEND == "postgresql":
         pool = _get_pg_pool()
         conn = pool.getconn()
         try:
+            user_id = user_id_ctx.get()
+            if user_id is not None:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET LOCAL request.jwt.claim.sub = %s", (user_id,))
             wrapper = _PgCursorWrapper(conn)
             yield wrapper
             conn.commit()
@@ -170,7 +202,9 @@ def get_connection():
         finally:
             pool.putconn(conn)
     else:
-        os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
+        dir_name = os.path.dirname(BETMATE_DB_PATH)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         conn = sqlite3.connect(BETMATE_DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
@@ -185,6 +219,7 @@ def init_database() -> None:
     Runs the appropriate schema for the active backend.
     """
     global _initialized
+    refresh_runtime_configuration()
     if _initialized:
         return
 
@@ -199,10 +234,11 @@ def init_database() -> None:
 
 def validate_persistence_configuration() -> None:
     """Validate storage durability assumptions before serving traffic."""
+    refresh_runtime_configuration()
     if DB_BACKEND != "sqlite":
         return
 
-    require_persistent = os.getenv("BETMATE_REQUIRE_PERSISTENT_STORAGE", "").strip().lower() in {"1", "true", "yes", "on"}
+    require_persistent = os.getenv("BETMATE_REQUIRE_PERSISTENT_STORAGE", "").strip().lower() in TRUE_VALUES
     if not require_persistent:
         return
 
@@ -219,6 +255,7 @@ def validate_persistence_configuration() -> None:
 
 def create_sqlite_backup(backup_dir: str) -> Optional[str]:
     """Snapshot SQLite database file for disaster recovery. Returns backup path."""
+    refresh_runtime_configuration()
     if DB_BACKEND != "sqlite":
         return None
 
@@ -235,6 +272,7 @@ def create_sqlite_backup(backup_dir: str) -> Optional[str]:
 
 def restore_sqlite_backup(backup_path: str) -> None:
     """Restore SQLite database file from a backup snapshot."""
+    refresh_runtime_configuration()
     if DB_BACKEND != "sqlite":
         raise RuntimeError("restore_sqlite_backup is only supported for sqlite backend")
     if not os.path.exists(backup_path):
@@ -248,7 +286,10 @@ def restore_sqlite_backup(backup_path: str) -> None:
 
 def _init_sqlite():
     """Run SQLite schema creation."""
-    os.makedirs(os.path.dirname(BETMATE_DB_PATH), exist_ok=True)
+    refresh_runtime_configuration()
+    dir_name = os.path.dirname(BETMATE_DB_PATH)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     conn = sqlite3.connect(BETMATE_DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
@@ -256,6 +297,12 @@ def _init_sqlite():
         conn.commit()
     finally:
         conn.close()
+
+
+def verify_database_connection() -> None:
+    refresh_runtime_configuration()
+    with get_connection() as conn:
+        conn.execute("SELECT 1")
 
 
 def _init_postgresql():

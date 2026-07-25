@@ -228,3 +228,211 @@ def test_weekly_retrain_skips_on_non_matching_weekday(monkeypatch):
     )
     assert summary["weekly_retrain"]["ran"] is False
     assert summary["weekly_retrain"]["reason"] == "not scheduled weekday"
+
+
+def test_run_nightly_cycle_sets_user_id_ctx(monkeypatch):
+    import app.database as database
+    monkeypatch.setattr(nightly.storage, "init_db", lambda: None)
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+
+    database.user_id_ctx.set(None)
+    assert database.user_id_ctx.get() is None
+
+    nightly.run_nightly_cycle(
+        strategy_service=DummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+    assert database.user_id_ctx.get() == "automated_agent"
+
+
+def test_run_nightly_cycle_automated_betting(monkeypatch):
+    import app.storage as storage
+
+    # We must ensure there is a prediction in prediction_log to link to the paper bet,
+    # because create_paper_bet checks prediction_log for event_id/selection.
+    storage.log_prediction_batch(
+        sport="afl",
+        event_id="afl_game_999",
+        event_name="Team A vs Team B",
+        predictions=[
+            {"selection": "Team A", "probability": 60.0, "fair_odds": 1.67},
+            {"selection": "Team B", "probability": 40.0, "fair_odds": 2.5},
+        ]
+    )
+
+    class BettingDummyStrategyService:
+        def get_or_create_cards(self, run_date):
+            return [
+                {
+                    "profile_key": "bob",
+                    "card_date": run_date,
+                    "selected_bets": [
+                        {
+                            "sport": "afl",
+                            "event_id": "afl_game_999",
+                            "event_name": "Team A vs Team B",
+                            "market_type": "head_to_head",
+                            "selection": "Team A",
+                            "model_probability": 0.6,
+                            "odds_used": 1.67,
+                            "odds_source": "model_implied",
+                            "edge": 0.1,
+                            "stake": 50.0,
+                        }
+                    ],
+                    "total_allocated": 50.0,
+                }
+            ]
+
+    monkeypatch.setattr(
+        nightly,
+        "ingest_completed_results",
+        lambda **kwargs: {"sports": {}, "fetched": 0, "settled": 0, "skipped_unmatched": 0, "errors": []},
+    )
+    monkeypatch.setattr(nightly.storage, "auto_tune_strategy_profile", lambda *args, **kwargs: {"ran": False})
+
+    summary = nightly.run_nightly_cycle(
+        strategy_service=BettingDummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+
+    # Verify that the bet was logged to paper_bet_log and returned in automated_bets
+    assert len(summary["automated_bets"]) == 1
+    assert summary["automated_bets"][0]["selection"] == "Team A"
+    assert summary["automated_bets"][0]["stake"] == 50.0
+
+    # Verify that running again does not log duplicate bets (idempotency check)
+    second_summary = nightly.run_nightly_cycle(
+        strategy_service=BettingDummyStrategyService(),
+        run_date="2026-04-10",
+        ingest_results_enabled=False,
+        tune_enabled=False,
+    )
+    assert len(second_summary["automated_bets"]) == 0
+
+    # Verify storage contents
+    bets = storage.get_paper_bets(user_id="automated_agent")
+    assert len(bets) == 1
+    assert bets[0]["selection"] == "Team A"
+    assert bets[0]["origin"] == "automated_agent"
+    assert bets[0]["status"] == "PENDING"
+
+
+def test_sunday_betfair_import(monkeypatch):
+    import app.storage as storage
+    import requests
+
+    # 1. Log a prediction first so we can create a paper bet for it
+    storage.log_prediction_batch(
+        sport="racing",
+        event_id="race_sun_test_1",
+        event_name="Caulfield R1",
+        predictions=[
+            {"selection": "Super Fast", "probability": 40.0, "fair_odds": 2.5},
+            {"selection": "Slow Coach", "probability": 10.0, "fair_odds": 10.0},
+        ]
+    )
+
+    # 2. Create a pending paper bet for Super Fast
+    storage.create_paper_bet(
+        sport="racing",
+        event_id="race_sun_test_1",
+        event_name="Caulfield R1",
+        selection="Super Fast",
+        stake=25.0,
+        odds=4.5,
+        bet_type="win",
+        origin="user",
+        user_id="test_user",
+    )
+
+    # Verify bet is pending
+    bets_before = storage.get_paper_bets(user_id="test_user")
+    assert len(bets_before) == 1
+    assert bets_before[0]["status"] == "PENDING"
+
+    # 3. Mock requests.get to return Saturday's markets and results payload
+    mock_payload = {
+        "markets": [
+            {
+                "race_id": "race_sun_test_1",
+                "venue": "Caulfield",
+                "race_number": 1,
+                "distance": 1200,
+                "horses": [
+                    {
+                        "name": "Super Fast",
+                        "barrier": 3,
+                        "weight": 58.5,
+                        "past_win_rate": 0.25,
+                        "jockey_win_rate": 0.20,
+                        "track_condition": 3,
+                        "days_since_last_race": 14,
+                        "betfair_back_price": 4.5
+                    },
+                    {
+                        "name": "Slow Coach",
+                        "barrier": 7,
+                        "weight": 54.0,
+                        "past_win_rate": 0.05,
+                        "jockey_win_rate": 0.05,
+                        "track_condition": 3,
+                        "days_since_last_race": 28,
+                        "betfair_back_price": 20.0
+                    }
+                ]
+            }
+        ],
+        "results": [
+            {
+                "sport": "racing",
+                "event_id": "race_sun_test_1",
+                "winner_selection": "Super Fast",
+                "event_name": "Caulfield R1",
+                "completed_at": "2026-07-18T06:05:00Z",
+                "result_payload": {
+                    "winner": "Super Fast"
+                }
+            }
+        ]
+    }
+
+    class MockResponse:
+        status_code = 200
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return mock_payload
+
+    monkeypatch.setattr(requests, "get", lambda url, **kwargs: MockResponse())
+
+    # 4. Call sunday_betfair_import
+    summary = nightly.sunday_betfair_import(run_date="2026-07-19")
+
+    # Assertions on summary
+    assert summary["run_date"] == "2026-07-19"
+    assert summary["target_date"] == "2026-07-18"
+    assert summary["status"] == "success"
+    assert summary["markets_fetched"] == 1
+    assert summary["results_fetched"] == 1
+    assert summary["predictions_logged"] == 1
+    assert summary["results_settled"] == 1
+    assert len(summary["errors"]) == 0
+
+    # Assert that the paper bet got settled as WON
+    bets_after = storage.get_paper_bets(user_id="test_user")
+    assert len(bets_after) == 1
+    assert bets_after[0]["status"] == "WON"
+    assert bets_after[0]["payout"] == 25.0 * 4.5
+
+
+

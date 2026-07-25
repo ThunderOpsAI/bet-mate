@@ -591,3 +591,91 @@ enum one_time_token_type {
 
   @@schema("auth")
 }
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+  VOID
+
+  @@schema("public")
+}
+
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  username         String            @unique
+  passwordHash     String
+  startingBankroll Decimal           @db.Decimal(10, 2)
+  currentBankroll  Decimal           @db.Decimal(10, 2)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  bets             Bet[]
+  bankrollHistory  BankrollHistory[]
+
+  @@schema("public")
+}
+
+model Race {
+  id             String       @id @default(cuid())
+  raceDate       DateTime
+  venue          String
+  raceNumber     Int
+  distanceMeters Int
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  predictions    Prediction[]
+
+  @@index([raceDate, venue])
+  @@schema("public")
+}
+
+model Prediction {
+  id             String   @id @default(cuid())
+  raceId         String
+  horseName      String
+  winProbability Float
+  confidence     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  race           Race     @relation(fields: [raceId], references: [id], onDelete: Cascade)
+
+  @@index([raceId])
+  @@schema("public")
+}
+
+model Bet {
+  id               String    @id @default(cuid())
+  userId           String
+  eventType        String
+  eventId          String
+  eventName        String
+  eventTime        DateTime
+  betType          String
+  selection        String
+  odds             Float
+  stake            Decimal   @db.Decimal(10, 2)
+  payout           Decimal?  @db.Decimal(10, 2)
+  status           BetStatus @default(PENDING)
+  settledAt        DateTime?
+  wasAIRecommended Boolean   @default(false)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@schema("public")
+}
+
+model BankrollHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Decimal  @db.Decimal(10, 2)
+  reason    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@schema("public")
+}

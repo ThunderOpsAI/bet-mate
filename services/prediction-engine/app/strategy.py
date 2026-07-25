@@ -69,7 +69,7 @@ class StrategyService:
         return candidates
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        races = racing_scraper.fetch_today_races(run_date=run_date, allow_mock=False)
+        races = racing_scraper.fetch_today_races(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for race in races:
             horses = race.get("horses", [])
@@ -111,6 +111,12 @@ class StrategyService:
                     "odds_source": odds_source,
                     "edge": round(edge, 4),
                     "confidence": confidence_bucket(probability, edge),
+                    "barrier": horse["barrier"],
+                    "weight": horse["weight"],
+                    "past_win_rate": horse["past_win_rate"],
+                    "jockey_win_rate": horse["jockey_win_rate"],
+                    "track_condition": horse["track_condition"],
+                    "days_since_last_race": horse["days_since_last_race"],
                 })
 
             ranked.sort(key=lambda item: item["model_probability"], reverse=True)
@@ -123,6 +129,25 @@ class StrategyService:
                         "selection": item["selection"],
                         "probability": round(item["model_probability"] * 100, 2),
                         "fair_odds": item["derived_odds"] or item["market_odds"],
+                        "payload": {
+                            "selection": item["selection"],
+                            "venue": race["venue"],
+                            "canonical_venue": race.get("canonical_venue") or race["venue"],
+                            "race_number": race["race_number"],
+                            "meeting_date": race.get("meeting_date"),
+                            "state": race.get("state"),
+                            "meeting_region": race.get("meeting_region"),
+                            "market_name": race.get("market_name"),
+                            "start_time": race.get("start_time"),
+                            "distance": race.get("distance"),
+                            "data_source": race.get("data_source"),
+                            "barrier": item["barrier"],
+                            "weight": item["weight"],
+                            "past_win_rate": item["past_win_rate"],
+                            "jockey_win_rate": item["jockey_win_rate"],
+                            "track_condition": item["track_condition"],
+                            "days_since_last_race": item["days_since_last_race"],
+                        },
                     }
                     for item in ranked
                 ],
@@ -130,11 +155,10 @@ class StrategyService:
             )
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
-            candidates.extend(build_quinella_candidates(race, ranked))
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = afl_scraper.fetch_this_week_afl(run_date=run_date, allow_mock=False)
+        games = afl_scraper.fetch_this_week_afl(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.afl_predictor.predict(game["features"])
@@ -147,8 +171,26 @@ class StrategyService:
                 event_id=game["game_id"],
                 event_name=f"{game['home_team']} vs {game['away_team']}",
                 predictions=[
-                    {"selection": game["home_team"], "probability": round(home_probability * 100, 2), "fair_odds": round(1 / home_probability, 2)},
-                    {"selection": game["away_team"], "probability": round(away_probability * 100, 2), "fair_odds": round(1 / away_probability, 2)},
+                    {
+                        "selection": game["home_team"],
+                        "probability": round(home_probability * 100, 2),
+                        "fair_odds": round(1 / home_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
+                    {
+                        "selection": game["away_team"],
+                        "probability": round(away_probability * 100, 2),
+                        "fair_odds": round(1 / away_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
                 ],
                 feature_impact={},
             )
@@ -159,7 +201,7 @@ class StrategyService:
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
-        games = nba_scraper.fetch_today_nba(run_date=run_date, allow_mock=False)
+        games = nba_scraper.fetch_today_nba(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
         for game in games:
             result = self.nba_predictor.predict(game["features"])
@@ -172,8 +214,26 @@ class StrategyService:
                 event_id=game["game_id"],
                 event_name=f"{game['home_team']} vs {game['away_team']}",
                 predictions=[
-                    {"selection": game["home_team"], "probability": round(home_probability * 100, 2), "fair_odds": round(1 / home_probability, 2)},
-                    {"selection": game["away_team"], "probability": round(away_probability * 100, 2), "fair_odds": round(1 / away_probability, 2)},
+                    {
+                        "selection": game["home_team"],
+                        "probability": round(home_probability * 100, 2),
+                        "fair_odds": round(1 / home_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
+                    {
+                        "selection": game["away_team"],
+                        "probability": round(away_probability * 100, 2),
+                        "fair_odds": round(1 / away_probability, 2),
+                        "payload": {
+                            **game["features"],
+                            "home_team": game["home_team"],
+                            "away_team": game["away_team"],
+                        }
+                    },
                 ],
                 feature_impact={},
             )

@@ -7,6 +7,8 @@ import type {
   ModelMetadata,
 } from "../lib/bob/explainer";
 import { Brain, CircleDot, BarChart3 } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
 import {
   ConfidenceBadge,
@@ -15,6 +17,7 @@ import {
 import BestAflOpportunities from "../components/afl/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -26,11 +29,18 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "../lib/monitoring/performance";
+import {
   getConfidenceSignal,
   getUrgencySignal,
 } from "../lib/predictionSignals";
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
+import FeedbackButtons from "../components/FeedbackButtons";
+import { deriveFallbackWinProb } from "../lib/fallbackProbability";
 
 type AFLGame = {
   game_id: string;
@@ -103,7 +113,7 @@ function isAflPredictionEntry(
 }
 
 async function fetchUpcomingAflGames() {
-  const response = await fetch(`${ML_API}/api/afl/games/upcoming`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, {
     cache: "no-store",
   });
 
@@ -119,7 +129,7 @@ async function fetchAflPredictions(games: AFLGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/afl`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/afl`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -153,6 +163,7 @@ export default function AFLPage() {
   >("connecting");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
@@ -202,6 +213,10 @@ export default function AFLPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -214,6 +229,8 @@ export default function AFLPage() {
       fetchUpcomingAflGames,
       { force: true },
     ).catch((error) => {
+      refreshHadFailure = true;
+      usedCacheFallback = true;
       console.error("Failed to refresh AFL fixtures:", error);
       scheduleMlDataCacheRetry(fixturesKey);
       return readMlDataCache<AFLGame[]>(fixturesKey);
@@ -230,6 +247,8 @@ export default function AFLPage() {
         () => fetchAflPredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
         console.error("Failed to refresh AFL predictions:", error);
         scheduleMlDataCacheRetry(predictionsKey);
         return readMlDataCache<Record<string, AFLPrediction>>(predictionsKey);
@@ -242,14 +261,20 @@ export default function AFLPage() {
 
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/afl", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedGames, cachedPredictions } = hydrateFromCache();
 
     if (cachedGames) {
@@ -306,6 +331,10 @@ export default function AFLPage() {
     };
   }, []);
 
+  useEffect(() => {
+    trackStaleCache("/afl", lastUpdated);
+  }, [lastUpdated]);
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -351,6 +380,22 @@ export default function AFLPage() {
       ];
     }),
   ).slice(0, 5);
+  const hasAflData = games.length > 0 || Object.keys(predictions).length > 0;
+  const aflStatus = getCachedViewStatus({
+    resourceLabel: "AFL data",
+    hasData: hasAflData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
+  const liveScoresStatus =
+    liveStatus === "connected" || !hasAflData
+      ? null
+      : {
+          title: "AFL scores refreshing",
+          message:
+            "Live score updates are reconnecting. Predictions stay available while that feed catches up.",
+        };
 
   return (
     <div>
@@ -366,18 +411,56 @@ export default function AFLPage() {
         onRefresh={refreshPage}
       />
 
-      <BestAflOpportunities opportunities={aflOpportunities} />
+      {(aflStatus || liveScoresStatus) ? (
+        <div className="status-stack">
+          {aflStatus ? (
+            <ErrorState
+              title={aflStatus.title}
+              message={aflStatus.message}
+              tone={aflStatus.tone}
+              actionLabel="Refresh now"
+              onAction={() => void refreshPage()}
+              compact
+            />
+          ) : null}
+          {liveScoresStatus ? (
+            <ErrorState
+              title={liveScoresStatus.title}
+              message={liveScoresStatus.message}
+              tone="info"
+              compact
+            />
+          ) : null}
+        </div>
+      ) : null}
 
-      <div className="game-cards-list">
-        {games.map((game) => {
+      {!hasAflData && refreshFailed ? (
+        <ErrorState
+          title="AFL board unavailable"
+          message="BetMate could not load a usable AFL snapshot yet. Try a manual refresh while the cached board warms up."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : (
+        <>
+
+      <ErrorBoundary sectionName="AFL opportunities">
+        <BestAflOpportunities opportunities={aflOpportunities} />
+      </ErrorBoundary>
+
+      <ErrorBoundary sectionName="AFL predictions">
+        <div className="game-cards-list">
+          {games.map((game) => {
           const prediction = predictions[game.game_id];
           const liveScore = liveScores[game.game_id];
           const homeScore = toScore(liveScore?.hscore ?? game.hscore);
           const awayScore = toScore(liveScore?.ascore ?? game.ascore);
           const gameComplete = toScore(liveScore?.complete ?? game.complete) ?? 0;
           const scoreLabel = formatScoreLabel(homeScore, awayScore, gameComplete);
-          const homePct = prediction?.predictions?.home_win_probability ?? 50;
-          const awayPct = prediction?.predictions?.away_win_probability ?? 50;
+          const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
+          const homePct = prediction?.predictions?.home_win_probability ?? fallback.homePct;
+          const awayPct = prediction?.predictions?.away_win_probability ?? fallback.awayPct;
           const homeWins = homePct > awayPct;
           const isExpanded = expandedGame === game.game_id;
           const confidenceSignal = prediction
@@ -405,10 +488,43 @@ export default function AFLPage() {
                       Fair: ${prediction.predictions.fair_odds_home}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Home"
+                      loggedLabel="Home Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "afl",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: prediction.predictions.fair_odds_home,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_home,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                        is_closed: gameComplete > 0 && gameComplete < 100,
+                      }}
+                    />
+                  ) : null}
                 </div>
 
-                <div className="vs-divider">
-                  <span>VS</span>
+                <div className="matchup-center-block">
+                  <span className="matchup-center-kicker">AFL Matchup</span>
+                  <span className="matchup-center-title">
+                    {game.home_team} vs {game.away_team}
+                  </span>
+                  <span className="matchup-center-subtitle">
+                    {scoreLabel ?? formatGameStartLabel(game.date)}
+                  </span>
+                  <span className="matchup-center-subtitle subtle">
+                    Live scores: {formatLiveStatus(liveStatus)}
+                  </span>
                 </div>
 
                 <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
@@ -420,6 +536,30 @@ export default function AFLPage() {
                       Fair: ${prediction.predictions.fair_odds_away}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Away"
+                      loggedLabel="Away Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "afl",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: prediction.predictions.fair_odds_away,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_away,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                        is_closed: gameComplete > 0 && gameComplete < 100,
+                      }}
+                    />
+                  ) : null}
                 </div>
               </div>
 
@@ -429,10 +569,6 @@ export default function AFLPage() {
               </div>
 
               <div className="game-context-row">
-                <span className="context-chip">
-                  Live scores: {formatLiveStatus(liveStatus)}
-                </span>
-                {scoreLabel ? <span className="context-chip">{scoreLabel}</span> : null}
                 <span className="context-chip">
                   {weatherMap[game.features.weather_condition] ?? "☀️ Clear"}
                 </span>
@@ -479,30 +615,11 @@ export default function AFLPage() {
                     >
                       <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
                     </button>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
+                    <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
+                      <FeedbackButtons 
+                        sport="afl" 
+                        eventId={game.game_id} 
+                        selection={homeWins ? game.home_team : game.away_team}
                       />
                     </div>
                   </>
@@ -531,8 +648,11 @@ export default function AFLPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> AFL predictions are generated by machine
@@ -595,4 +715,23 @@ function formatLiveStatus(status: "connecting" | "connected" | "reconnecting") {
   }
 
   return "connecting";
+}
+
+function formatGameStartLabel(dateValue?: string | null) {
+  if (!dateValue) {
+    return "Start time pending";
+  }
+
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Start time pending";
+  }
+
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    weekday: "short",
+  }).format(parsedDate);
 }

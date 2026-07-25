@@ -81,16 +81,96 @@ class RacingPredictor:
         # Turn into classification (top 15% scores win)
         threshold = np.percentile(base_score, 85)
         data['won'] = (base_score >= threshold).astype(int)
+
+        data['horse_win_rate'] = data['past_win_rate']
+        data['speed_rating'] = np.clip(
+            (data['past_win_rate'] * 0.55) +
+            (data['jockey_win_rate'] * 0.25) +
+            (data['betfair_implied_prob'] * 0.20) +
+            np.random.normal(0, 0.04, num_samples),
+            0,
+            1,
+        )
+        data['track_conditions'] = np.clip(
+            1 - ((data['track_condition'] - 1) / 4) + np.random.normal(0, 0.05, num_samples),
+            0,
+            1,
+        )
+        data['recent_form'] = np.clip(
+            (data['past_win_rate'] * 0.7) + np.random.uniform(0, 0.25, num_samples),
+            0,
+            1,
+        )
+        data['class_factor'] = np.clip(
+            (data['betfair_implied_prob'] * 0.7) + np.random.uniform(0, 0.25, num_samples),
+            0,
+            1,
+        )
+        data['horse_jockey_proven'] = np.clip(
+            (data['past_win_rate'] * data['jockey_win_rate'] * 4) + np.random.uniform(0, 0.08, num_samples),
+            0,
+            1,
+        )
+        data['jockey_trainer_proven'] = np.clip(
+            (data['jockey_win_rate'] * 0.6) + np.random.uniform(0, 0.12, num_samples),
+            0,
+            1,
+        )
         
         return data[FEATURE_COLUMNS + ['won']]
 
+    def _parse_settled_paper_bet(self, bet):
+        prediction = bet.get("prediction") or {}
+        payload = prediction.get("payload")
+        if not payload or not isinstance(payload, dict):
+            return None
+            
+        status = bet.get("status")
+        if status not in ("WON", "LOST"):
+            return None
+            
+        won = 1.0 if status == "WON" else 0.0
+        
+        row = {"won": won}
+        for col in FEATURE_COLUMNS:
+            row[col] = payload.get(col, FEATURE_DEFAULTS.get(col, 0.0))
+            
+        return row
+
     def train(self):
         df = self.generate_mock_data()
+        
+        # Load and append settled paper bets
+        try:
+            import app.storage as storage
+            settled_bets = storage.get_settled_paper_bets_for_training('racing')
+            parsed_rows = []
+            for bet in settled_bets:
+                parsed = self._parse_settled_paper_bet(bet)
+                if parsed:
+                    parsed_rows.append(parsed)
+            if parsed_rows:
+                bets_df = pd.DataFrame(parsed_rows)
+                df = pd.concat([df, bets_df], ignore_index=True)
+                print(f"Augmented Racing training data with {len(parsed_rows)} settled paper bets.")
+        except Exception as e:
+            print(f"Error loading settled paper bets for Racing training: {e}")
+
+        # Coerce columns to numeric to be safe
+        for column in FEATURE_COLUMNS:
+            df[column] = pd.to_numeric(df[column], errors='coerce').fillna(FEATURE_DEFAULTS[column])
+        df['won'] = pd.to_numeric(df['won'], errors='coerce').fillna(0).astype(int)
+
         X = df[FEATURE_COLUMNS]
         y = df['won']
         
+        # Create equal sample weights for all training rows
+        sample_weights = np.ones(len(df))
+        
         X_scaled = self.scaler.fit_transform(X)
-        X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+        X_train, X_test, y_train, y_test, sample_weight_train, sample_weight_test = train_test_split(
+            X_scaled, y, sample_weights, test_size=0.2, random_state=42
+        )
         
         self.model = xgb.XGBClassifier(
             objective='binary:logistic',
@@ -99,7 +179,7 @@ class RacingPredictor:
             max_depth=6,
             n_estimators=200
         )
-        self.model.fit(X_train, y_train)
+        self.model.fit(X_train, y_train, sample_weight=sample_weight_train)
         self.training_source = SYNTHETIC_TRAINING_SOURCE
         self.training_rows = len(df)
         

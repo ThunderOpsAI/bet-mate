@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.scraper as racing_scraper
 import app.database as database
 import app.storage as storage
 from app.ml.afl import AFLPredictor
@@ -56,11 +57,11 @@ def ingest_completed_results(
     afl_year: Optional[int] = None,
     nba_days_back: int = 7,
 ) -> Dict[str, Any]:
-    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba")) if str(sport).strip()}
+    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba", "racing")) if str(sport).strip()}
     if "all" in requested:
-        requested = {"afl", "nba"}
+        requested = {"afl", "nba", "racing"}
 
-    unsupported = sorted(requested - {"afl", "nba"})
+    unsupported = sorted(requested - {"afl", "nba", "racing"})
     if unsupported:
         raise ValueError(f"Result ingestion is not available for: {', '.join(unsupported)}")
 
@@ -85,6 +86,11 @@ def ingest_completed_results(
             max_results=max_results,
         )
         summary["sports"]["nba"] = _settle_ingested_results(nba_results)
+
+    if "racing" in requested:
+        racing_targets = storage.list_pending_racing_result_targets(limit=max_results)
+        racing_results = racing_scraper.fetch_completed_racing_results(racing_targets, max_results=max_results)
+        summary["sports"]["racing"] = _settle_ingested_results(racing_results)
 
     for sport_result in summary["sports"].values():
         summary["fetched"] += sport_result["fetched"]
@@ -149,6 +155,7 @@ def run_nightly_cycle(
     weekly_retrain_day: str = DEFAULT_WEEKLY_RETRAIN_DAY,
     backup_dir: Optional[str] = None,
 ) -> Dict[str, Any]:
+    database.user_id_ctx.set("automated_agent")
     storage.init_db()
     effective_date = run_date or today_melbourne().isoformat()
     target_profiles = [key.strip() for key in (profile_keys or []) if key and key.strip()]
@@ -162,11 +169,11 @@ def run_nightly_cycle(
     ingestion = {
         "skipped": True,
         "reason": "ingestion disabled",
-        "sports": list(ingest_sports or ("afl", "nba")),
+        "sports": list(ingest_sports or ("afl", "nba", "racing")),
     }
     if ingest_results_enabled:
         ingestion = ingest_completed_results(
-            sports=ingest_sports or ("afl", "nba"),
+            sports=ingest_sports or ("afl", "nba", "racing"),
             max_results=max_results,
             afl_year=afl_year,
             nba_days_back=nba_days_back,
@@ -187,6 +194,38 @@ def run_nightly_cycle(
         scheduled_day=weekly_retrain_day,
     )
 
+    # Automated betting loop: log all selected_bets from generated cards to paper_bet_log
+    automated_bets_logged = []
+    for card in cards:
+        for bet in card.get("selected_bets", []):
+            try:
+                if not storage.automated_bet_exists(
+                    sport=bet["sport"],
+                    event_id=bet["event_id"],
+                    selection=bet["selection"],
+                    bet_type=bet["market_type"],
+                ):
+                    logged = storage.create_paper_bet(
+                        sport=bet["sport"],
+                        event_id=bet["event_id"],
+                        event_name=bet["event_name"],
+                        selection=bet["selection"],
+                        stake=bet["stake"],
+                        odds=bet.get("odds_used"),
+                        bet_type=bet["market_type"],
+                        origin="automated_agent",
+                        user_id="automated_agent",
+                    )
+                    automated_bets_logged.append({
+                        "id": logged["id"],
+                        "sport": bet["sport"],
+                        "event_name": bet["event_name"],
+                        "selection": bet["selection"],
+                        "stake": bet["stake"],
+                    })
+            except Exception as e:
+                print(f"Error logging automated bet for {bet.get('selection')}: {e}")
+
     backup_path = None
     if backup_dir:
         backup_path = database.create_sqlite_backup(backup_dir)
@@ -205,6 +244,7 @@ def run_nightly_cycle(
         "ingestion": ingestion,
         "auto_tune": tuning,
         "weekly_retrain": weekly_retrain,
+        "automated_bets": automated_bets_logged,
         "backup": {"path": backup_path, "created": bool(backup_path)} if backup_dir else {"created": False},
     }
 
@@ -263,6 +303,144 @@ def _parse_csv(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def sunday_betfair_import(run_date: Optional[str] = None) -> Dict[str, Any]:
+    import requests
+    from app.time_utils import resolve_melbourne_date
+
+    database.user_id_ctx.set("automated_agent")
+    storage.init_db()
+
+    sunday_date = resolve_melbourne_date(run_date)
+    saturday_date = sunday_date - timedelta(days=1)
+    saturday_date_str = saturday_date.isoformat()
+
+    url = os.getenv("BETFAIR_SUNDAY_INGEST_URL")
+    if not url:
+        url = "https://storage.googleapis.com/betmate-betfair-ingest/saturday_markets_results.json"
+
+    if "{date}" in url:
+        url = url.format(date=saturday_date_str)
+
+    print(f"[Sunday Ingest] Fetching Saturday data from: {url}")
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as e:
+        print(f"[Sunday Ingest] Failed to fetch payload: {e}")
+        raise RuntimeError(f"Failed to fetch Saturday Betfair payload from {url}: {e}")
+
+    markets = payload.get("markets", [])
+    results = payload.get("results", [])
+
+    print(f"[Sunday Ingest] Fetched {len(markets)} markets and {len(results)} results")
+
+    predictor = RacingPredictor()
+    predictor.load_or_train()
+
+    predictions_logged = 0
+    results_settled = 0
+    errors = []
+
+    for race in markets:
+        try:
+            horses = race.get("horses", [])
+            if not horses:
+                continue
+
+            feature_rows = [
+                {
+                    "barrier": horse["barrier"],
+                    "weight": horse["weight"],
+                    "past_win_rate": horse["past_win_rate"],
+                    "jockey_win_rate": horse["jockey_win_rate"],
+                    "track_condition": horse["track_condition"],
+                    "days_since_last_race": horse["days_since_last_race"],
+                }
+                for horse in horses
+            ]
+            probabilities, importances = predictor.predict(feature_rows)
+            feature_impact = {
+                name: round(float(value), 4)
+                for name, value in zip(getattr(predictor, "feature_columns", []), importances)
+            }
+
+            predictions = []
+            for idx, horse in enumerate(horses):
+                probability = float(probabilities[idx])
+                live_odds = float(horse.get("betfair_back_price") or 0.0) or None
+                fair_odds = round(1 / probability, 2) if probability > 0 else None
+
+                venue = race.get("venue", "Unknown")
+                race_number = race.get("race_number", 0)
+
+                predictions.append({
+                    "selection": horse["name"],
+                    "probability": round(probability * 100, 2),
+                    "fair_odds": live_odds or fair_odds,
+                    "payload": {
+                        "selection": horse["name"],
+                        "venue": venue,
+                        "canonical_venue": race.get("canonical_venue") or venue,
+                        "race_number": race_number,
+                        "meeting_date": race.get("meeting_date") or saturday_date_str,
+                        "state": race.get("state", ""),
+                        "meeting_region": race.get("meeting_region", ""),
+                        "market_name": race.get("market_name", ""),
+                        "start_time": race.get("start_time"),
+                        "distance": race.get("distance", 1200),
+                        "data_source": "betfair",
+                        "barrier": horse["barrier"],
+                        "weight": horse["weight"],
+                        "past_win_rate": horse["past_win_rate"],
+                        "jockey_win_rate": horse["jockey_win_rate"],
+                        "track_condition": horse["track_condition"],
+                        "days_since_last_race": horse["days_since_last_race"],
+                    }
+                })
+
+            storage.log_prediction_batch(
+                sport="racing",
+                event_id=race["race_id"],
+                event_name=f"{race.get('venue')} R{race.get('race_number')}",
+                predictions=predictions,
+                feature_impact=feature_impact,
+            )
+            predictions_logged += 1
+        except Exception as e:
+            msg = f"Failed to log prediction batch for race {race.get('race_id')}: {e}"
+            print(f"[Sunday Ingest] {msg}")
+            errors.append(msg)
+
+    for res in results:
+        try:
+            storage.settle_prediction_result(
+                sport=res.get("sport", "racing"),
+                event_id=res["event_id"],
+                winner_selection=res.get("winner_selection"),
+                selection_results=res.get("selection_results"),
+                event_name=res.get("event_name"),
+                completed_at=res.get("completed_at"),
+                result_payload=res.get("result_payload"),
+            )
+            results_settled += 1
+        except Exception as e:
+            msg = f"Failed to settle result for event {res.get('event_id')}: {e}"
+            print(f"[Sunday Ingest] {msg}")
+            errors.append(msg)
+
+    return {
+        "run_date": sunday_date.isoformat(),
+        "target_date": saturday_date_str,
+        "status": "success" if not errors else "partial_success",
+        "markets_fetched": len(markets),
+        "results_fetched": len(results),
+        "predictions_logged": predictions_logged,
+        "results_settled": results_settled,
+        "errors": errors,
+    }
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Generate daily strategy cards, optionally ingest completed results, and run gated auto-tune.",
@@ -278,7 +456,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--weekly-retrain", action="store_true", help="Enable weekly retrain run when the run date matches --weekly-retrain-day.")
     parser.add_argument("--weekly-retrain-day", default=DEFAULT_WEEKLY_RETRAIN_DAY, help="Weekly retrain day name (mon..sun).")
     parser.add_argument("--backup-dir", help="Optional SQLite backup directory after cycle.")
+    parser.add_argument("--sunday-import", action="store_true", help="Run the Sunday Betfair market and results import task.")
     args = parser.parse_args(argv)
+
+    if args.sunday_import:
+        summary = sunday_betfair_import(run_date=args.run_date)
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
 
     strategy_service = build_nightly_strategy_service(load_models=True)
     summary = run_nightly_cycle(

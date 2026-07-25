@@ -1,4 +1,4 @@
-export const ML_DATA_CACHE_TTL_MS = 5 * 60 * 1000;
+export const ML_DATA_CACHE_TTL_MS = 30 * 60 * 1000;
 export const ML_DATA_CACHE_RETRY_MS = 60 * 1000;
 
 const ML_DATA_CACHE_NAMESPACE = "betmate:ml-data-cache:v1";
@@ -99,7 +99,7 @@ export function getMlCacheDateKey(date = new Date()) {
 
 export function getMlDataCacheKey(
   kind: "fixtures" | "predictions",
-  sport: "racing" | "afl" | "nba",
+  sport: "racing" | "afl" | "nba" | "nrl" | "soccer" | "golf" | "mma",
   dateKey: string,
 ) {
   return `${kind}:${sport}:${dateKey}`;

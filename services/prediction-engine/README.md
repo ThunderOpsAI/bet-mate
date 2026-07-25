@@ -21,14 +21,14 @@ python -m app.nightly --sports afl,nba --max-results 100
 
 The auto-tune step is hard-gated. It will not run for a profile until that profile has at least 30 distinct Melbourne-calendar settlement days in `system_bets`.
 
-Set `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true` on the FastAPI service to run the same nightly cycle automatically in-process. The default scheduler time is `05:00` Australia/Melbourne and can be changed with `BETMATE_NIGHTLY_SCHEDULER_TIME=HH:MM`.
+Production scheduling now lives in Modal cron jobs defined in `modal_app.py`:
 
-Weekly retrain can be layered on top of nightly with:
+- `nightly_strategy_refresh`: `0 5 * * *` Australia/Melbourne
+- `race_data_refresh`: `0 4 * * *` Australia/Melbourne
+- `afl_model_refresh`: `15 4 * * *` Australia/Melbourne
+- `nba_model_refresh`: `30 4 * * *` Australia/Melbourne
 
-- `BETMATE_WEEKLY_RETRAIN_ENABLED=true`
-- `BETMATE_WEEKLY_RETRAIN_DAY=sun` (mon..sun)
-
-When enabled, the nightly cycle only runs weekly retrain on the configured weekday and records metadata to `weekly_retrain_log` so each date is processed once.
+Weekly retrain is triggered from the nightly Modal job on the configured weekday and records metadata to `weekly_retrain_log` so each date is processed once.
 
 Optional SQLite backup snapshots can run after each nightly cycle:
 
@@ -138,15 +138,33 @@ Postgres migration path (phase 2):
 4. Shift write traffic to Postgres and monitor parity for at least one weekly retrain cycle.
 5. Keep SQLite backups for rollback window, then decommission fallback writes once stable.
 
+## Modal Deployment
+
+The production prediction engine now runs as a Modal ASGI app with:
+
+- `modal_app.py` as the deploy entrypoint
+- a shared Modal Volume mounted at `/vol/betmate-models`
+- secrets loaded from the `betmate-prediction-engine-secrets` Modal Secret
+- `DATABASE_URL` required in production unless `BETMATE_ALLOW_SQLITE=1` is explicitly set for tests
+
+Typical deployment commands:
+
+```bash
+cd services/prediction-engine
+modal deploy modal_app.py
+modal run modal_app.py::nightly_strategy_refresh
+modal run modal_app.py::race_data_refresh
+modal run modal_app.py::afl_model_refresh
+modal run modal_app.py::nba_model_refresh
+```
+
 ## Rollout Checklist & Environment Matrix
 
 Before deploying to staging or production, ensure the following environment variables are properly set:
 
 - `JWT_SECRET`: Must match exactly between the Express API (`apps/api/`) and the Prediction Engine (`services/prediction-engine/`). Keep secure.
-- `BETMATE_NIGHTLY_SCHEDULER_ENABLED=true`: Enable to run daily ML tasks.
-- `BETMATE_NIGHTLY_SCHEDULER_TIME=05:00`: Schedule time for nightly script.
 - `BETMATE_SQLITE_BACKUP_DIR`: Directory path for automated backups to persist daily snapshots.
-- `BETMATE_WEEKLY_RETRAIN_ENABLED=true`: Keep ML models tuned on current data.
+- `BETMATE_WEEKLY_RETRAIN_DAY=sun`: Weekly retrain day used by the nightly Modal job.
 - `DATABASE_URL`: Ensure database availability limits.
 
 ### Bankroll Baseline Reset

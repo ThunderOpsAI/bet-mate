@@ -1,11 +1,21 @@
 import json
 import math
 import os
+import re
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Union
 
 from app.database import get_connection, init_database
 from app.time_utils import is_melbourne_premium_day, today_melbourne
+
+
+def _to_date_string(val) -> str:
+    if not val:
+        return ""
+    if isinstance(val, (datetime, date)):
+        return val.isoformat()
+    return str(val)
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
@@ -25,7 +35,7 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 5,
             "max_stake_per_bet": 60.0,
             "kelly_fraction": 0.25,
-            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head"],
             "allow_multis": True,
             "max_multi_legs": 2,
             "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
@@ -44,7 +54,7 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 8,
             "max_stake_per_bet": 80.0,
             "kelly_fraction": 0.35,
-            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head"],
             "allow_multis": True,
             "max_multi_legs": 3,
             "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
@@ -101,7 +111,7 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 10,
             "max_stake_per_bet": 90.0,
             "kelly_fraction": 0.50,
-            "allowed_markets": ["win", "place", "quinella", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head"],
             "allow_multis": True,
             "max_multi_legs": 4,
             "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
@@ -299,8 +309,22 @@ def settle_prediction_result(
         if rows and winner_selection and matched_winner == 0:
             raise ValueError("winner_selection did not match any logged prediction selection")
 
-        _settle_paper_bets_for_event(conn, sport, event_id, completed_at)
-        _settle_system_bets_for_event(conn, sport, event_id, completed_at)
+        _settle_paper_bets_for_event(
+            conn,
+            sport,
+            event_id,
+            completed_at,
+            winner_selection=winner_selection,
+            result_payload=result_payload,
+        )
+        _settle_system_bets_for_event(
+            conn,
+            sport,
+            event_id,
+            completed_at,
+            winner_selection=winner_selection,
+            result_payload=result_payload,
+        )
 
         conn.execute(
             """
@@ -384,6 +408,48 @@ def get_recent_results(limit: int = 50) -> List[Dict[str, Any]]:
     return [_row_to_result(row) for row in rows]
 
 
+def list_pending_racing_result_targets(limit: int = 50) -> List[Dict[str, Any]]:
+    limit = max(1, min(int(limit), 200))
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                event_id,
+                event_name,
+                payload_json
+            FROM prediction_log
+            WHERE sport = 'racing' AND settled_at IS NULL
+            ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+            LIMIT ?
+            """,
+            (limit * 8,),
+        ).fetchall()
+
+    seen_event_ids = set()
+    targets: List[Dict[str, Any]] = []
+    for row in rows:
+        event_id = str(row["event_id"] or "").strip()
+        if not event_id or event_id in seen_event_ids:
+            continue
+
+        metadata = _extract_racing_event_metadata(_loads_json(row["payload_json"]))
+        if not metadata:
+            continue
+
+        seen_event_ids.add(event_id)
+        targets.append(
+            {
+                "event_id": event_id,
+                "event_name": str(row["event_name"] or "").strip(),
+                **metadata,
+            }
+        )
+        if len(targets) >= limit:
+            break
+
+    return targets
+
+
 def create_paper_bet(
     sport: str,
     event_id: str,
@@ -416,9 +482,13 @@ def create_paper_bet(
         raise ValueError("stake must be between 1 and 10000")
 
     supported_bet_types = {
-        "racing": {"win", "place", "each way", "ew", "tri", "first 4", "quinella", "exacta", "trifecta"},
+        "racing": {"win", "place"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
         "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nrl": {"win", "head_to_head"},
+        "soccer": {"win", "head_to_head"},
+        "golf": {"win"},
+        "mma": {"win", "head_to_head"},
     }
     allowed_types = supported_bet_types.get(sport)
     if allowed_types is not None and bet_type not in allowed_types:
@@ -438,9 +508,19 @@ def create_paper_bet(
         payout = None
         profit = None
         settled_at = None
-        if prediction and prediction["actual_outcome"] is not None:
-            status, payout, profit = _bet_settlement(stake, odds, float(prediction["actual_outcome"]))
-            settled_at = prediction["settled_at"] or created_at
+        if prediction:
+            _, outcome = _resolve_prediction_outcome_for_bet(
+                conn,
+                sport,
+                event_id,
+                selection,
+                bet_type,
+                prediction_log_id=prediction["id"],
+                prediction=prediction,
+            )
+            if outcome is not None:
+                status, payout, profit = _bet_settlement(stake, odds, outcome)
+                settled_at = prediction["settled_at"] or created_at
 
         cursor = conn.execute(
             """
@@ -488,6 +568,8 @@ def create_paper_bet(
                 system_bet_id,
             ),
         )
+        inserted_row = cursor.fetchone()
+        bet_id = inserted_row["id"] if inserted_row else cursor.lastrowid
         conn.commit()
         row = conn.execute(
             """
@@ -495,7 +577,7 @@ def create_paper_bet(
             FROM paper_bet_log
             WHERE id = ?
             """,
-            (cursor.lastrowid,),
+            (bet_id,),
         ).fetchone()
 
     return _row_to_paper_bet(row)
@@ -634,8 +716,7 @@ def get_paper_bet_trend(sport: Optional[str] = None, days: int = 30, user_id: Op
 
     buckets = {}
     for bet in [_row_to_paper_bet(row) for row in rows]:
-        settled_at = bet["settled_at"] or ""
-        day = settled_at[:10]
+        day = _to_date_string(bet["settled_at"])[:10]
         if len(day) != 10:
             continue
 
@@ -737,7 +818,7 @@ def upsert_blackbook_auto_bet_config(
         raise ValueError("probability_threshold must be between 1.0 and 99.9")
 
     supported_bet_types = {
-        "racing": {"win", "place", "each way", "ew", "tri", "first 4", "quinella", "exacta", "trifecta"},
+        "racing": {"win", "place"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
         "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
     }
@@ -1026,8 +1107,7 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
 
     buckets = {}
     for row in rows:
-        settled_at = row["settled_at"] or ""
-        day = settled_at[:10]
+        day = _to_date_string(row["settled_at"])[:10]
         if len(day) != 10:
             continue
 
@@ -1437,9 +1517,9 @@ def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] =
     bets = [
         bet
         for bet in [_row_to_system_bet(row) for row in rows]
-        if (bet["settled_at"] or "")[:10] <= effective_reference_date
+        if _to_date_string(bet["settled_at"])[:10] <= effective_reference_date
     ]
-    settled_days = sorted({(bet["settled_at"] or "")[:10] for bet in bets if bet.get("settled_at")})
+    settled_days = sorted({_to_date_string(bet["settled_at"])[:10] for bet in bets if bet.get("settled_at")})
     if len(settled_days) < 30:
         return {
             "ran": False,
@@ -1450,7 +1530,7 @@ def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] =
 
     window_end = effective_reference_date
     window_start = settled_days[-30]
-    window_bets = [bet for bet in bets if window_start <= (bet["settled_at"] or "")[:10] <= window_end]
+    window_bets = [bet for bet in bets if window_start <= _to_date_string(bet["settled_at"])[:10] <= window_end]
     if not window_bets:
         return {
             "ran": False,
@@ -2067,7 +2147,204 @@ def _find_prediction_for_bet(conn, sport: str, event_id: str, selection: str, pr
     ).fetchone()
 
 
-def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: str) -> None:
+def _find_prediction_result(conn, sport: str, event_id: str):
+    return conn.execute(
+        """
+        SELECT *
+        FROM prediction_results
+        WHERE sport = ? AND event_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (sport, event_id),
+    ).fetchone()
+
+
+def _extract_racing_event_metadata(payload: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return None
+
+    venue = str(payload.get("canonical_venue") or payload.get("venue") or "").strip()
+    meeting_date = str(payload.get("meeting_date") or "").strip()
+    state = str(payload.get("state") or payload.get("meeting_region") or "").strip().upper()
+    race_number_raw = payload.get("race_number")
+    try:
+        race_number = int(race_number_raw)
+    except (TypeError, ValueError):
+        race_number = 0
+
+    if not venue or not meeting_date or not state or race_number <= 0:
+        return None
+
+    return {
+        "venue": venue,
+        "meeting_date": meeting_date,
+        "state": state,
+        "race_number": race_number,
+    }
+
+
+def _resolve_prediction_outcome_for_bet(
+    conn,
+    sport: str,
+    event_id: str,
+    selection: str,
+    bet_type: str,
+    prediction_log_id: Optional[int] = None,
+    prediction=None,
+    winner_selection: Optional[str] = None,
+    result_payload: Optional[Dict[str, Any]] = None,
+):
+    prediction = prediction or _find_prediction_for_bet(conn, sport, event_id, selection, prediction_log_id)
+    if not prediction:
+        return None, None
+
+    if sport == "racing":
+        normalized_bet_type = str(bet_type or "win").strip().lower()
+        resolved_winner = winner_selection
+        resolved_payload = result_payload
+        if resolved_winner is None and resolved_payload is None:
+            result_row = _find_prediction_result(conn, sport, event_id)
+            if result_row is not None:
+                resolved_winner = result_row["winner_selection"]
+                resolved_payload = _loads_json(result_row["result_payload_json"])
+        outcome = _resolve_racing_bet_outcome(
+            selection=selection,
+            bet_type=bet_type,
+            winner_selection=resolved_winner,
+            result_payload=resolved_payload,
+            prediction=prediction,
+        )
+        if outcome is not None:
+            return prediction, outcome
+        if normalized_bet_type != "win":
+            return prediction, None
+
+    actual_outcome = prediction["actual_outcome"]
+    if actual_outcome is None:
+        return prediction, None
+
+    return prediction, float(actual_outcome)
+
+
+def _resolve_racing_bet_outcome(
+    selection: str,
+    bet_type: str,
+    winner_selection: Optional[str],
+    result_payload: Optional[Dict[str, Any]],
+    prediction=None,
+) -> Optional[float]:
+    normalized_selection = _normalize_market_token(selection)
+    normalized_bet_type = str(bet_type or "win").strip().lower()
+    payload = result_payload if isinstance(result_payload, dict) else {}
+
+    if normalized_bet_type == "win":
+        if winner_selection:
+            return 1.0 if normalized_selection == _normalize_market_token(winner_selection) else 0.0
+        if prediction is not None and prediction["actual_outcome"] is not None:
+            return float(prediction["actual_outcome"])
+        return None
+
+    if normalized_bet_type == "place":
+        place_getters = _derive_racing_place_getters(payload)
+        if place_getters:
+            normalized_places = {_normalize_market_token(name) for name in place_getters}
+            return 1.0 if normalized_selection in normalized_places else 0.0
+        return None
+
+    return _resolve_racing_exotic_outcome(normalized_bet_type, selection, payload)
+
+
+def _derive_racing_place_getters(payload: Dict[str, Any]) -> List[str]:
+    explicit_places = _string_list_from_payload(
+        payload.get("place_getters") or payload.get("placeSelections") or payload.get("placings")
+    )
+    if explicit_places:
+        return explicit_places
+
+    finish_order = _string_list_from_payload(payload.get("finish_order"))
+    if not finish_order:
+        return []
+
+    try:
+        starter_count = int(payload.get("starter_count") or payload.get("starters") or 0)
+    except (TypeError, ValueError):
+        starter_count = 0
+    starter_count = max(starter_count, len(finish_order))
+
+    if starter_count >= 8:
+        return finish_order[:3]
+    if starter_count >= 5:
+        return finish_order[:2]
+    if starter_count >= 1:
+        return finish_order[:1]
+    return []
+
+
+def _resolve_racing_exotic_outcome(bet_type: str, selection: str, payload: Dict[str, Any]) -> Optional[float]:
+    finish_order = _string_list_from_payload(payload.get("finish_order"))
+    exotic_outcomes = payload.get("exotic_outcomes")
+    if not isinstance(exotic_outcomes, dict):
+        exotic_outcomes = {}
+
+    actual_parts = _string_list_from_payload(exotic_outcomes.get(bet_type))
+    if not actual_parts:
+        if bet_type == "quinella":
+            actual_parts = finish_order[:2]
+        elif bet_type == "exacta":
+            actual_parts = finish_order[:2]
+        elif bet_type == "trifecta":
+            actual_parts = finish_order[:3]
+        elif bet_type in {"first 4", "first4", "first_4"}:
+            actual_parts = finish_order[:4]
+
+    expected_parts = _split_compound_selection(selection)
+    if not expected_parts or not actual_parts or len(expected_parts) != len(actual_parts):
+        return None
+
+    normalized_expected = [_normalize_market_token(part) for part in expected_parts]
+    normalized_actual = [_normalize_market_token(part) for part in actual_parts]
+
+    if bet_type == "quinella":
+        return 1.0 if sorted(normalized_expected) == sorted(normalized_actual) else 0.0
+    if bet_type in {"exacta", "trifecta", "first 4", "first4", "first_4"}:
+        return 1.0 if normalized_expected == normalized_actual else 0.0
+    return None
+
+
+def _split_compound_selection(selection: str) -> List[str]:
+    value = str(selection or "").strip()
+    if not value:
+        return []
+
+    separators = [">", "/", ","]
+    parts = [value]
+    for separator in separators:
+        if separator in value:
+            parts = [segment.strip() for segment in value.split(separator)]
+            break
+    return [part for part in parts if part]
+
+
+def _string_list_from_payload(value: Any) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(entry).strip() for entry in value if str(entry).strip()]
+
+
+def _normalize_market_token(value: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", "", ascii_text.casefold())
+
+
+def _settle_paper_bets_for_event(
+    conn,
+    sport: str,
+    event_id: str,
+    settled_at: str,
+    winner_selection: Optional[str] = None,
+    result_payload: Optional[Dict[str, Any]] = None,
+) -> None:
     rows = conn.execute(
         """
         SELECT *
@@ -2078,20 +2355,23 @@ def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: st
     ).fetchall()
 
     for bet in rows:
-        prediction = _find_prediction_for_bet(
+        prediction, outcome = _resolve_prediction_outcome_for_bet(
             conn,
             sport,
             event_id,
             bet["selection"],
+            bet["bet_type"],
             bet["prediction_log_id"],
+            winner_selection=winner_selection,
+            result_payload=result_payload,
         )
-        if not prediction or prediction["actual_outcome"] is None:
+        if not prediction or outcome is None:
             continue
 
         status, payout, profit = _bet_settlement(
             float(bet["stake"]),
             float(bet["odds"]),
-            float(prediction["actual_outcome"]),
+            outcome,
         )
         conn.execute(
             """
@@ -2103,7 +2383,14 @@ def _settle_paper_bets_for_event(conn, sport: str, event_id: str, settled_at: st
         )
 
 
-def _settle_system_bets_for_event(conn, sport: str, event_id: str, settled_at: str) -> None:
+def _settle_system_bets_for_event(
+    conn,
+    sport: str,
+    event_id: str,
+    settled_at: str,
+    winner_selection: Optional[str] = None,
+    result_payload: Optional[Dict[str, Any]] = None,
+) -> None:
     rows = conn.execute(
         """
         SELECT *
@@ -2114,14 +2401,22 @@ def _settle_system_bets_for_event(conn, sport: str, event_id: str, settled_at: s
     ).fetchall()
 
     for bet in rows:
-        prediction = _find_prediction_for_bet(conn, sport, event_id, bet["selection"])
-        if not prediction or prediction["actual_outcome"] is None:
+        prediction, outcome = _resolve_prediction_outcome_for_bet(
+            conn,
+            sport,
+            event_id,
+            bet["selection"],
+            bet["market_type"],
+            winner_selection=winner_selection,
+            result_payload=result_payload,
+        )
+        if not prediction or outcome is None:
             continue
 
         status, payout, profit = _bet_settlement(
             float(bet["stake"]),
             float(bet["odds_used"]),
-            float(prediction["actual_outcome"]),
+            outcome,
         )
         conn.execute(
             """
@@ -2179,21 +2474,22 @@ def _resolve_multi_bet_settlement(conn, bet, legs: List[Dict[str, Any]]) -> Opti
 
     outcomes: List[Optional[float]] = []
     for leg in legs:
-        prediction = _find_prediction_for_bet(
+        prediction, outcome = _resolve_prediction_outcome_for_bet(
             conn,
             str(leg.get("sport", "")).strip().lower(),
             str(leg.get("event_id", "")).strip(),
             str(leg.get("selection", "")),
+            str(leg.get("market_type", "win")).strip().lower(),
         )
         if not prediction:
             outcomes.append(None)
             continue
 
-        actual_outcome = prediction["actual_outcome"]
-        if actual_outcome is None:
+        if outcome is None:
             outcomes.append(None)
             continue
-        outcomes.append(float(actual_outcome))
+
+        outcomes.append(float(outcome))
 
     if any(outcome is not None and outcome <= 0.0 for outcome in outcomes):
         return "LOST", 0.0, -float(bet["stake"])
@@ -2289,7 +2585,9 @@ def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Di
         raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
 
     total = sum(raw.values()) or 1.0
-    return {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl", "nba")}
+    weights = {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl")}
+    weights["nba"] = round(1.0 - sum(weights.values()), 3)
+    return weights
 
 
 def _dedupe_prediction_log(conn) -> None:
@@ -2338,3 +2636,43 @@ def _optional_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def get_settled_paper_bets_for_training(sport: str) -> List[Dict[str, Any]]:
+    sport = sport.strip().lower()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                paper_bet_log.*,
+                prediction_log.payload_json AS prediction_payload_json,
+                prediction_log.probability AS prediction_probability,
+                prediction_log.fair_odds AS prediction_fair_odds
+            FROM paper_bet_log
+            LEFT JOIN prediction_log
+                ON prediction_log.id = paper_bet_log.prediction_log_id
+            WHERE paper_bet_log.sport = ? AND paper_bet_log.status IN ('WON', 'LOST')
+            ORDER BY paper_bet_log.created_at ASC
+            """,
+            (sport,),
+        ).fetchall()
+    return [_row_to_paper_bet(row) for row in rows]
+
+
+def automated_bet_exists(sport: str, event_id: str, selection: str, bet_type: str) -> bool:
+    sport = sport.strip().lower()
+    event_id = event_id.strip()
+    selection = selection.strip()
+    bet_type = bet_type.strip().lower()
+    with _connect() as conn:
+        row = conn.execute(
+            """
+            SELECT 1 FROM paper_bet_log
+            WHERE sport = ? AND event_id = ? AND selection = ? AND bet_type = ? AND origin = 'automated_agent' AND user_id = 'automated_agent'
+            LIMIT 1
+            """,
+            (sport, event_id, selection, bet_type),
+        ).fetchone()
+    return row is not None
+
+

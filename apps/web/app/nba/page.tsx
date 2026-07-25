@@ -7,6 +7,8 @@ import type {
   ModelMetadata,
 } from "../lib/bob/explainer";
 import { Brain, Zap, BarChart3 } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
 import {
   ConfidenceBadge,
@@ -15,6 +17,7 @@ import {
 import BestNbaOpportunities from "../components/nba/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -26,11 +29,19 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "../lib/monitoring/performance";
+import {
   getConfidenceSignal,
   getUrgencySignal,
 } from "../lib/predictionSignals";
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
+import FeedbackButtons from "../components/FeedbackButtons";
+
+import { deriveFallbackWinProb } from "../lib/fallbackProbability";
 
 type NBAGame = {
   game_id: string;
@@ -80,7 +91,7 @@ function isNbaPredictionEntry(
 }
 
 async function fetchTodayNbaGames() {
-  const response = await fetch(`${ML_API}/api/nba/games/today`, {
+  const response = await fetchWithTimeout(`${ML_API}/api/nba/games/today`, {
     cache: "no-store",
   });
 
@@ -96,7 +107,7 @@ async function fetchNbaPredictions(games: NBAGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/nba`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/nba`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -126,6 +137,7 @@ export default function NBAPage() {
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
@@ -175,6 +187,10 @@ export default function NBAPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -187,6 +203,8 @@ export default function NBAPage() {
       fetchTodayNbaGames,
       { force: true },
     ).catch((error) => {
+      refreshHadFailure = true;
+      usedCacheFallback = true;
       console.error("Failed to refresh NBA fixtures:", error);
       scheduleMlDataCacheRetry(fixturesKey);
       return readMlDataCache<NBAGame[]>(fixturesKey);
@@ -203,6 +221,8 @@ export default function NBAPage() {
         () => fetchNbaPredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
         console.error("Failed to refresh NBA predictions:", error);
         scheduleMlDataCacheRetry(predictionsKey);
         return readMlDataCache<Record<string, NBAPrediction>>(predictionsKey);
@@ -215,14 +235,20 @@ export default function NBAPage() {
 
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/nba", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedGames, cachedPredictions } = hydrateFromCache();
 
     if (cachedGames) {
@@ -243,6 +269,10 @@ export default function NBAPage() {
       isMountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    trackStaleCache("/nba", lastUpdated);
+  }, [lastUpdated]);
 
   if (loading) {
     return (
@@ -287,6 +317,14 @@ export default function NBAPage() {
       ];
     }),
   ).slice(0, 5);
+  const hasNbaData = games.length > 0 || Object.keys(predictions).length > 0;
+  const nbaStatus = getCachedViewStatus({
+    resourceLabel: "NBA data",
+    hasData: hasNbaData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
 
   return (
     <div>
@@ -302,13 +340,41 @@ export default function NBAPage() {
         onRefresh={refreshPage}
       />
 
-      <BestNbaOpportunities opportunities={nbaOpportunities} />
+      {nbaStatus ? (
+        <div className="status-stack">
+          <ErrorState
+            title={nbaStatus.title}
+            message={nbaStatus.message}
+            tone={nbaStatus.tone}
+            actionLabel="Refresh now"
+            onAction={() => void refreshPage()}
+            compact
+          />
+        </div>
+      ) : null}
 
-      <div className="game-cards-list">
-        {games.map((game) => {
+      {!hasNbaData && refreshFailed ? (
+        <ErrorState
+          title="NBA board unavailable"
+          message="BetMate could not load a usable NBA snapshot yet. Try again shortly while the latest cache is retried."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : (
+        <>
+
+      <ErrorBoundary sectionName="NBA opportunities">
+        <BestNbaOpportunities opportunities={nbaOpportunities} />
+      </ErrorBoundary>
+
+      <ErrorBoundary sectionName="NBA predictions">
+        <div className="game-cards-list">
+          {games.map((game) => {
           const prediction = predictions[game.game_id];
-          const homePct = prediction?.predictions?.home_win_probability ?? 50;
-          const awayPct = prediction?.predictions?.away_win_probability ?? 50;
+          const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
+          const homePct = prediction?.predictions?.home_win_probability ?? fallback.homePct;
+          const awayPct = prediction?.predictions?.away_win_probability ?? fallback.awayPct;
           const homeWins = homePct > awayPct;
           const isExpanded = expandedGame === game.game_id;
           const confidenceSignal = prediction
@@ -336,10 +402,42 @@ export default function NBAPage() {
                       Fair: ${prediction.predictions.fair_odds_home}
                     </span>
                   ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Home"
+                      loggedLabel="Home Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "nba",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.home_team,
+                        odds: prediction.predictions.fair_odds_home,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_home,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                      }}
+                    />
+                  ) : null}
                 </div>
 
-                <div className="vs-divider nba">
-                  <span>VS</span>
+                <div className="matchup-center-block nba">
+                  <span className="matchup-center-kicker">NBA Matchup</span>
+                  <span className="matchup-center-title">
+                    {game.home_team} vs {game.away_team}
+                  </span>
+                  <span className="matchup-center-subtitle">
+                    {formatGameStartLabel(game.date)}
+                  </span>
+                  <span className="matchup-center-subtitle subtle">
+                    Head to head market
+                  </span>
                 </div>
 
                 <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
@@ -350,6 +448,29 @@ export default function NBAPage() {
                     <span className="team-odds">
                       Fair: ${prediction.predictions.fair_odds_away}
                     </span>
+                  ) : null}
+                  {prediction ? (
+                    <PaperBetAction
+                      variant="phase1"
+                      label="Log Selection Away"
+                      loggedLabel="Away Logged"
+                      cancelLabel="Cancel"
+                      openBetslipOnAdd={false}
+                      fullWidth
+                      bet={{
+                        sport: "nba",
+                        event_id: game.game_id,
+                        event_name: `${game.home_team} vs ${game.away_team}`,
+                        selection: game.away_team,
+                        odds: prediction.predictions.fair_odds_away,
+                        bet_type: "head_to_head",
+                        stake: 10,
+                        odds_source: "model_fair",
+                        current_odds: prediction.predictions.fair_odds_away,
+                        can_compare_odds: false,
+                        event_start_time: game.date,
+                      }}
+                    />
                   ) : null}
                 </div>
               </div>
@@ -405,30 +526,11 @@ export default function NBAPage() {
                     >
                       <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
                     </button>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
+                    <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
+                      <FeedbackButtons 
+                        sport="nba" 
+                        eventId={game.game_id} 
+                        selection={homeWins ? game.home_team : game.away_team}
                       />
                     </div>
                   </>
@@ -489,8 +591,11 @@ export default function NBAPage() {
               ) : null}
             </div>
           );
-        })}
-      </div>
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> NBA predictions are generated by machine
@@ -499,4 +604,23 @@ export default function NBAPage() {
       </div>
     </div>
   );
+}
+
+function formatGameStartLabel(dateValue?: string | null) {
+  if (!dateValue) {
+    return "Start time pending";
+  }
+
+  const parsedDate = new Date(dateValue);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Start time pending";
+  }
+
+  return new Intl.DateTimeFormat("en-AU", {
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    month: "short",
+    weekday: "short",
+  }).format(parsedDate);
 }

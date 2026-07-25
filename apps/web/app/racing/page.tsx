@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type {
   BobExplanation,
   FeatureImpactItem,
@@ -14,7 +15,11 @@ import {
   BarChart3,
   Bell,
   BellOff,
+  CircleDot,
+  Flag,
 } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
 import {
   ConfidenceBadge,
@@ -23,6 +28,7 @@ import {
 import BestRacingOpportunities from "../components/racing/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
 import {
   getMlCacheDateKey,
@@ -34,12 +40,19 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "../lib/monitoring/performance";
+import {
   getConfidenceSignal,
   getUrgencySignal,
 } from "../lib/predictionSignals";
 import { getEdgePercent, rankOpportunities } from "../lib/opportunityScore";
+import { isPhase2MainRace } from "../lib/racingMainRaces";
 import { useAuth } from "../providers/AuthProvider";
 import PaperBetAction from "../components/PaperBetAction";
+import FeedbackButtons from "../components/FeedbackButtons";
 
 type BlackbookConfig = {
   probability_threshold: number;
@@ -123,8 +136,11 @@ function isRacePredictionEntry(
   return entry !== null;
 }
 
-async function fetchTodayRaces() {
-  const response = await fetch(`${ML_API}/api/races/today`, { cache: "no-store" });
+async function fetchTodayRaces(raceType: string = "T") {
+  const typeParam = raceType ? `?type=${raceType}` : "";
+  const response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}`, {
+    cache: "no-store",
+  });
   if (!response.ok) {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
   }
@@ -137,7 +153,7 @@ async function fetchRacePredictions(races: Race[]) {
   const entries = await Promise.all(
     races.map(async (race) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/racing`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/racing`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(race),
@@ -160,17 +176,24 @@ async function fetchRacePredictions(races: Race[]) {
   >;
 }
 
-export default function RacingPage() {
-  const { user } = useAuth();
+function RacingPageContent() {
+  const { token, user } = useAuth();
+  const searchParams = useSearchParams();
+  const raceType = searchParams.get("type") || "T";
+  const raceTypeLabel = raceType === "G" ? "Greyhound" : raceType === "H" ? "Harness" : "Thoroughbred";
   const [races, setRaces] = useState<Race[]>([]);
   const [predictions, setPredictions] = useState<Record<string, RacePrediction>>(
     {},
   );
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
-  const [expandedRace, setExpandedRace] = useState<string | null>(null);
+  const [expandedPredictionRace, setExpandedPredictionRace] = useState<string | null>(
+    null,
+  );
+  const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(null);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
   const [watchPanel, setWatchPanel] = useState<string | null>(null);
   const [watchConfig, setWatchConfig] = useState<BlackbookConfig>({
@@ -233,6 +256,10 @@ export default function RacingPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -240,9 +267,11 @@ export default function RacingPage() {
 
     const { fixturesKey, predictionsKey } = getRacingCacheKeys();
 
-    const fixturesEntry = await refreshMlDataCache(fixturesKey, fetchTodayRaces, {
+    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType), {
       force: true,
     }).catch((error) => {
+      refreshHadFailure = true;
+      usedCacheFallback = true;
       console.error("Failed to refresh racing fixtures:", error);
       scheduleMlDataCacheRetry(fixturesKey);
       return readMlDataCache<Race[]>(fixturesKey);
@@ -259,6 +288,8 @@ export default function RacingPage() {
         () => fetchRacePredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
         console.error("Failed to refresh racing predictions:", error);
         scheduleMlDataCacheRetry(predictionsKey);
         return readMlDataCache<Record<string, RacePrediction>>(predictionsKey);
@@ -271,22 +302,27 @@ export default function RacingPage() {
 
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/racing", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
   };
 
   const saveWatchConfig = async (horseName: string) => {
-    if (!user) return;
+    if (!user || user.id === "guest" || !token) return;
     setWatchSaving(true);
     try {
       await fetch(`${ML_API}/blackbook/${encodeURIComponent(horseName)}/auto-bet`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${user.id}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           user_id: user.id,
@@ -310,6 +346,7 @@ export default function RacingPage() {
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const { cachedRaces, cachedPredictions } = hydrateFromCache();
 
     if (cachedRaces) {
@@ -329,7 +366,12 @@ export default function RacingPage() {
     return () => {
       isMountedRef.current = false;
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raceType]);
+
+  useEffect(() => {
+    trackStaleCache("/racing", lastUpdated);
+  }, [lastUpdated]);
 
   if (loading) {
     return (
@@ -347,8 +389,11 @@ export default function RacingPage() {
     selectedVenue === "all"
       ? races
       : races.filter((race) => race.venue === selectedVenue);
+  const mainRacePredictions = filteredRaces.filter(
+    (race) => predictions[race.race_id] && isPhase2MainRace(race),
+  );
   const racingOpportunities = rankOpportunities(
-    filteredRaces.flatMap((race) => {
+    mainRacePredictions.flatMap((race) => {
       const prediction = predictions[race.race_id];
       if (!prediction) {
         return [];
@@ -380,6 +425,14 @@ export default function RacingPage() {
       });
     }),
   ).slice(0, 5);
+  const hasRacingData = races.length > 0 || Object.keys(predictions).length > 0;
+  const racingStatus = getCachedViewStatus({
+    resourceLabel: "Racing data",
+    hasData: hasRacingData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
 
   return (
     <div>
@@ -394,6 +447,58 @@ export default function RacingPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
+
+      {racingStatus ? (
+        <div className="status-stack">
+          <ErrorState
+            title={racingStatus.title}
+            message={racingStatus.message}
+            tone={racingStatus.tone}
+            actionLabel="Refresh now"
+            onAction={() => void refreshPage()}
+            compact
+          />
+        </div>
+      ) : null}
+
+      {!hasRacingData && refreshFailed ? (
+        <ErrorState
+          title="Racing snapshot unavailable"
+          message="BetMate could not load the current race board. Try again shortly while cached data warms back up."
+          tone="danger"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : (
+        <>
+
+      {/* Racing Type Tabs */}
+      <div className="racing-type-tabs">
+        <a
+          href="/racing?type=T"
+          className={`racing-type-tab ${raceType === "T" ? "active" : ""}`}
+          data-type="T"
+        >
+          <Trophy size={16} />
+          Thoroughbred
+        </a>
+        <a
+          href="/racing?type=G"
+          className={`racing-type-tab ${raceType === "G" ? "active" : ""}`}
+          data-type="G"
+        >
+          <CircleDot size={16} />
+          Greyhounds
+        </a>
+        <a
+          href="/racing?type=H"
+          className={`racing-type-tab ${raceType === "H" ? "active" : ""}`}
+          data-type="H"
+        >
+          <Flag size={16} />
+          Harness
+        </a>
+      </div>
 
       <div className="filter-bar">
         <button
@@ -413,13 +518,33 @@ export default function RacingPage() {
         ))}
       </div>
 
-      <BestRacingOpportunities opportunities={racingOpportunities} />
+      <ErrorBoundary sectionName="Racing opportunities">
+        <BestRacingOpportunities opportunities={racingOpportunities} />
+      </ErrorBoundary>
 
-      <div className="race-list">
-        {filteredRaces.map((race) => {
+      <div className="section-header" style={{ marginTop: "2rem" }}>
+        <h3>{raceType === "G" ? "🐕" : raceType === "H" ? "🏎️" : "🏇"} {raceTypeLabel} Predictions ({venues.length} venues)</h3>
+      </div>
+      <p className="muted-copy" style={{ marginBottom: "1rem" }}>
+        Main-race prediction cards stay focused on Melbourne, Sydney, Brisbane,
+        and WA metro meetings. Every predicted runner below still supports direct
+        paper-bet adds.
+      </p>
+
+      <ErrorBoundary sectionName="Racing main predictions">
+        {mainRacePredictions.length === 0 ? (
+          <div className="card">
+            <p className="muted-copy">
+              No approved main-race prediction cards are available right now. The
+              full Australian race board below still supports paper bet logging.
+            </p>
+          </div>
+        ) : (
+        <div className="race-list">
+          {mainRacePredictions.map((race) => {
           const prediction = predictions[race.race_id];
           const top3 = prediction?.predictions?.slice(0, 3) ?? [];
-          const isExpanded = expandedRace === race.race_id;
+          const isExpanded = expandedPredictionRace === race.race_id;
           const confidenceSignal = prediction
             ? getConfidenceSignal(prediction.ai_insights_context)
             : null;
@@ -435,7 +560,9 @@ export default function RacingPage() {
             >
               <div
                 className="race-detail-header"
-                onClick={() => setExpandedRace(isExpanded ? null : race.race_id)}
+                onClick={() =>
+                  setExpandedPredictionRace(isExpanded ? null : race.race_id)
+                }
               >
                 <div className="race-detail-title">
                   <span className="race-venue-badge">{race.venue}</span>
@@ -552,20 +679,38 @@ export default function RacingPage() {
                                   }}
                                 >
                                   <PaperBetAction
+                                    variant="phase1"
+                                    label="Log Selection"
+                                    loggedLabel="Selection Logged"
+                                    cancelLabel="Cancel"
+                                    openBetslipOnAdd={false}
                                     bet={{
                                       sport: "racing",
                                       event_id: race.race_id,
                                       event_name: `${race.venue} R${race.race_number}`,
+                                      selection_id: pick.horse_id,
                                       selection: pick.name,
-                                      odds: pick.fair_odds,
+                                      odds: horse?.betfair_back_price ?? pick.fair_odds,
                                       bet_type: "win",
                                       stake: 10,
+                                      odds_source: horse?.betfair_back_price
+                                        ? "market"
+                                        : "model_fair",
+                                      current_odds:
+                                        horse?.betfair_back_price ?? pick.fair_odds,
+                                      can_compare_odds: Boolean(
+                                        horse?.betfair_back_price &&
+                                          horse.betfair_back_price > 1,
+                                      ),
+                                      event_start_time: race.start_time,
+                                      event_date: race.meeting_date,
                                     }}
                                   />
                                   <button
                                     type="button"
                                     className="why-pick-button"
-                                    onClick={() =>
+                                    onClick={(event) => {
+                                      event.stopPropagation();
                                       setActiveExplanation(
                                         buildBobExplanation({
                                           sport: "racing",
@@ -579,10 +724,17 @@ export default function RacingPage() {
                                           modelMetadata: prediction.model_metadata,
                                         }),
                                       )
-                                    }
+                                    }}
                                   >
                                     Why this pick?
                                   </button>
+                                  <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: '0.5rem' }}>
+                                    <FeedbackButtons 
+                                      sport="racing" 
+                                      eventId={race.race_id} 
+                                      selection={pick.name}
+                                    />
+                                  </div>
                                   {user && user.id !== "guest" ? (
                                     <button
                                       className="btn btn-sm btn-outline"
@@ -620,7 +772,7 @@ export default function RacingPage() {
                                         marginBottom: "8px",
                                       }}
                                     >
-                                      Watch: {pick.name}
+                                      Save watch rule: {pick.name}
                                     </div>
                                     <label
                                       style={{
@@ -628,7 +780,7 @@ export default function RacingPage() {
                                         marginBottom: "6px",
                                       }}
                                     >
-                                      Trigger if above{" "}
+                                      Trigger when model win chance reaches{" "}
                                       <strong>
                                         {watchConfig.probability_threshold}%
                                       </strong>
@@ -658,7 +810,7 @@ export default function RacingPage() {
                                         marginBottom: "6px",
                                       }}
                                     >
-                                      Auto stake $
+                                      Paper bet stake $
                                       <input
                                         type="number"
                                         min={1}
@@ -754,10 +906,10 @@ export default function RacingPage() {
                                       style={{ width: "100%" }}
                                     >
                                       {watchSaved === pick.name
-                                        ? "Watching ✓"
+                                        ? "Saved ✓"
                                         : watchSaving
                                           ? "Saving..."
-                                          : "Watch"}
+                                          : "Save watch rule"}
                                     </button>
                                   </div>
                                 ) : null}
@@ -783,8 +935,150 @@ export default function RacingPage() {
               ) : null}
             </div>
           );
-        })}
+          })}
+        </div>
+        )}
+      </ErrorBoundary>
+
+      <div className="section-header" style={{ marginTop: "2rem" }}>
+        <h3>🇦🇺 Full Australian Race Listings</h3>
       </div>
+      <p className="muted-copy" style={{ marginBottom: "1rem" }}>
+        Use the full race board below to place paper bets across all Australian
+        races, even when a meeting does not have a prediction card attached.
+      </p>
+
+      <ErrorBoundary sectionName="Racing full race board">
+        <div className="race-board-list">
+          {filteredRaces.map((race) => {
+            const prediction = predictions[race.race_id];
+            const isExpanded = expandedRaceListing === race.race_id;
+
+            return (
+              <div
+                key={`${race.race_id}-board`}
+                className={`race-board-card ${isExpanded ? "expanded" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="race-board-header"
+                  onClick={() =>
+                    setExpandedRaceListing(isExpanded ? null : race.race_id)
+                  }
+                >
+                  <div className="race-board-title">
+                    <div className="race-detail-title">
+                      <span className="race-venue-badge">{race.venue}</span>
+                      <span className="race-number-lg">R{race.race_number}</span>
+                      <span className="badge badge-accent">{race.distance}m</span>
+                      <span className="badge badge-muted">
+                        {race.horses.length} runners
+                      </span>
+                      {race.meeting_type && race.meeting_type !== "unknown" ? (
+                        <span className="badge badge-green">
+                          {race.meeting_type.toUpperCase()}
+                        </span>
+                      ) : null}
+                      {race.meeting_region && race.meeting_region !== "unknown" ? (
+                        <span className="badge badge-muted">{race.meeting_region}</span>
+                      ) : null}
+                      {prediction ? (
+                        <span className="badge badge-blue">Prediction available</span>
+                      ) : (
+                        <span className="badge badge-muted">Paper bet only</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="race-board-summary">
+                    <span>{prediction ? "Model plus full field" : "Full field only"}</span>
+                    {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+                  </div>
+                </button>
+
+                {isExpanded ? (
+                  <div className="race-board-body">
+                    <div className="field-table-wrap">
+                      <table className="field-table">
+                        <thead>
+                          <tr>
+                            <th>Horse</th>
+                            <th>Jockey</th>
+                            <th>Barrier</th>
+                            <th>Weight</th>
+                            <th>Market</th>
+                            <th>Model</th>
+                            <th>Paper Bet</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {race.horses.map((horse) => {
+                            const pick = prediction?.predictions.find(
+                              (candidate) => candidate.horse_id === horse.horse_id,
+                            );
+                            const hasMarketPrice =
+                              typeof horse.betfair_back_price === "number" &&
+                              horse.betfair_back_price > 1;
+
+                            return (
+                              <tr key={horse.horse_id}>
+                                <td className="horse-name-cell">{horse.name}</td>
+                                <td>{horse.jockey_name ?? "TBA"}</td>
+                                <td>{horse.barrier ?? "-"}</td>
+                                <td>{horse.weight ?? "-"}kg</td>
+                                <td>{formatMarketPrice(horse)}</td>
+                                <td>
+                                  {pick ? (
+                                    <div className="race-board-model-pill">
+                                      <span>{pick.win_probability}%</span>
+                                      <span>${pick.fair_odds}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="badge badge-muted">No model pick</span>
+                                  )}
+                                </td>
+                                <td>
+                                  {hasMarketPrice ? (
+                                    <div onClick={(event) => event.stopPropagation()}>
+                                      <PaperBetAction
+                                        bet={{
+                                          sport: "racing",
+                                          event_id: race.race_id,
+                                          event_name: `${race.venue} R${race.race_number}`,
+                                          selection_id: horse.horse_id,
+                                          selection: horse.name,
+                                          odds: horse.betfair_back_price,
+                                          bet_type: "win",
+                                          stake: 10,
+                                          notes: prediction
+                                            ? `Race board paper bet for ${race.venue} R${race.race_number}`
+                                            : `Paper bet for ${race.venue} R${race.race_number} without model prediction`,
+                                          odds_source: "market",
+                                          current_odds: horse.betfair_back_price,
+                                          can_compare_odds: true,
+                                          event_start_time: race.start_time,
+                                          event_date: race.meeting_date,
+                                        }}
+                                      />
+                                    </div>
+                                  ) : (
+                                    <span className="badge badge-muted">Odds pending</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </ErrorBoundary>
+        </>
+      )}
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> Predictions are generated by machine
@@ -801,4 +1095,21 @@ function formatMarketPrice(horse?: HorseData): string {
   }
 
   return `$${horse.betfair_back_price.toFixed(2)}`;
+}
+
+export default function RacingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dashboard-loading">
+          <div className="loading-pulse">
+            <Trophy size={48} />
+            <p>Loading racing snapshot...</p>
+          </div>
+        </div>
+      }
+    >
+      <RacingPageContent />
+    </Suspense>
+  );
 }

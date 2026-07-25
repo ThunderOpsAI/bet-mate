@@ -46,4 +46,37 @@ AFL_TRAVEL_FACTORS = {
     "standard": 0.05,
 }
 
-WEIGHTS_VERSION = "v1.0_manual_2026-04-21"
+NRL_WEIGHTS = {
+    "points_differential": 0.25,
+    "recent_form": 0.20,
+    "head_to_head": 0.15,
+    "home_advantage_base": 0.05,
+    "live_odds_signal": 0.15,
+}
+
+SOCCER_WEIGHTS = {
+    "goal_difference": 0.25,
+    "recent_form": 0.20,
+    "head_to_head": 0.15,
+    "home_advantage_base": 0.05,
+    "live_odds_signal": 0.15,
+}
+
+GOLF_WEIGHTS = {
+    "recent_finishes": 0.30,
+    "course_history": 0.25,
+    "driving_accuracy": 0.15,
+    "putting_average": 0.15,
+    "live_odds_signal": 0.15,
+}
+
+MMA_WEIGHTS = {
+    "striking_accuracy": 0.25,
+    "takedown_defense": 0.20,
+    "reach_advantage": 0.15,
+    "recent_form": 0.20,
+    "live_odds_signal": 0.15,
+}
+
+WEIGHTS_VERSION = "v1.0_manual_2026-07-19"
+

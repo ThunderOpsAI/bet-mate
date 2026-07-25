@@ -146,6 +146,10 @@ function BetsContent() {
 
       <div className="paper-bet-controls">
         <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <h3 style={{ marginBottom: "0.2rem" }}>Bankroll</h3>
+            <p className="muted-copy">Track logged bets, outcomes, and history in one place.</p>
+          </div>
           <div className="paper-bet-tabs">
             {(["active", "settled"] as const).map((candidate) => (
               <button
@@ -166,15 +170,13 @@ function BetsContent() {
             </select>
             <select className="form-input paper-bet-filter" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
               <option value="all">All Sources</option>
-              <option value="manual">Manual</option>
+              <option value="manual">Betslip</option>
               <option value="strategy_copy">Strategy Copy</option>
-              <option value="system">System</option>
             </select>
             <input className="form-input paper-bet-filter" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
             <input className="form-input paper-bet-filter" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           </div>
         </div>
-        <Link href="/bets/new" className="btn btn-primary btn-sm"><Plus size={15} /> Log Paper Bet</Link>
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -186,9 +188,8 @@ function BetsContent() {
       ) : filteredBets({ bets, tab, sportFilter, sourceFilter, fromDate, toDate }).length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon"><ListIcon size={48} /></div>
-          <h4>No paper bets found</h4>
-          <p>Try adjusting the filters or log a new paper bet.</p>
-          <Link href="/bets/new" className="btn btn-primary" style={{ marginTop: "1rem" }}><Plus size={16} /> Log Paper Bet</Link>
+          <h4>No bankroll entries found</h4>
+          <p>Paper bets are automatically logged here when you place bets in the Betslip or copy strategy cards.</p>
         </div>
       ) : (
         <div className="bet-list">
@@ -321,10 +322,12 @@ function filteredBets({
   });
 }
 
-function sourceLabel(bet: PaperBet): { label: string; badgeClass: string; kind: "manual" | "strategy_copy" | "system" } {
+function sourceLabel(bet: PaperBet): { label: string; badgeClass: string; kind: "manual" | "strategy_copy" } {
   const origin = (bet.origin ?? "user").toLowerCase();
-  if (origin.includes("strategy")) return { label: "Strategy Copy", badgeClass: "badge-blue", kind: "strategy_copy" };
-  if (origin === "system") return { label: "System", badgeClass: "badge-yellow", kind: "system" };
+  const notes = parseNotes(bet.notes);
+  if (origin.includes("strategy") || (notes && typeof notes.strategy_name === "string")) {
+    return { label: "Strategy Copy", badgeClass: "badge-blue", kind: "strategy_copy" };
+  }
   return { label: "Manual", badgeClass: "badge-muted", kind: "manual" };
 }
 

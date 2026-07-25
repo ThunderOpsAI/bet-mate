@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 APP_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 DEFAULT_MODEL_DIR = os.path.join(APP_ROOT, "models")
@@ -15,4 +16,9 @@ def legacy_model_path(filename):
 
 
 def ensure_model_dir():
-    os.makedirs(MODEL_DIR, exist_ok=True)
+    Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
+
+
+def ensure_volume_mount() -> str:
+    ensure_model_dir()
+    return MODEL_DIR

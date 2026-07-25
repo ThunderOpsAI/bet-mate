@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import type {
   BobExplanation,
   FeatureImpactItem,
   ModelMetadata,
 } from "./lib/bob/explainer";
+import VariantA_CyberpunkTerminal from "./components/VariantA_CyberpunkTerminal";
 import {
   Trophy,
   Zap,
@@ -14,11 +16,23 @@ import {
   ChevronRight,
   Activity,
   Brain,
+  Shield,
+  Globe,
+  Flag,
+  Swords,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import Link from "next/link";
 import BestAflOpportunities from "./components/afl/BestOpportunities";
-import ExplainDrawer from "./components/ExplainDrawer";
 import BestNbaOpportunities from "./components/nba/BestOpportunities";
+import BestNrlOpportunities from "./components/nrl/BestOpportunities";
+import BestSoccerOpportunities from "./components/soccer/BestOpportunities";
+import BestGolfOpportunities from "./components/golf/BestOpportunities";
+import BestMmaOpportunities from "./components/mma/BestOpportunities";
+import ErrorBoundary from "./components/ErrorBoundary";
+import ErrorState from "./components/ErrorState";
+import ExplainDrawer from "./components/ExplainDrawer";
 import {
   ConfidenceBadge,
   UrgencyBadge,
@@ -29,6 +43,7 @@ import PaperBetAction from "./components/PaperBetAction";
 import { buildBobExplanation } from "./lib/bob/explainer";
 import { ML_API } from "./lib/mlApi";
 import { getEdgePercent, rankOpportunities } from "./lib/opportunityScore";
+import { fetchWithTimeout } from "./lib/fetchWithTimeout";
 import {
   getConfidenceSignal,
   getUrgencySignal,
@@ -42,6 +57,12 @@ import {
   refreshMlDataCache,
   scheduleMlDataCacheRetry,
 } from "./lib/cache/mlDataCache";
+import {
+  getCachedViewStatus,
+  trackRefreshOutcome,
+  trackStaleCache,
+} from "./lib/monitoring/performance";
+import { isPhase2MainRace } from "./lib/racingMainRaces";
 
 type RaceSummary = {
   race_id: string;
@@ -84,6 +105,14 @@ type AFLGame = {
   home_team: string;
   away_team: string;
   features: Record<string, number>;
+  round?: number;
+  venue?: string;
+  date?: string;
+  complete?: number;
+  hscore?: number | null;
+  ascore?: number | null;
+  squiggle_tip?: string;
+  squiggle_confidence?: number | string | null;
 };
 
 type AFLPrediction = {
@@ -138,9 +167,123 @@ type NBAPrediction = {
   model_metadata?: ModelMetadata;
 };
 
+type NRLGame = {
+  game_id: string;
+  home_team: string;
+  away_team: string;
+  features?: Record<string, number>;
+  date?: string;
+  venue?: string;
+  complete?: number;
+  hscore?: number | null;
+  ascore?: number | null;
+};
+
+type NRLPrediction = {
+  game_id: string;
+  predictions: {
+    home_team: string;
+    away_team: string;
+    home_win_probability: number;
+    away_win_probability: number;
+    fair_odds_home: number;
+    fair_odds_away: number;
+  };
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?: any;
+  model_metadata?: ModelMetadata;
+};
+
+type SoccerGame = {
+  game_id: string;
+  home_team: string;
+  away_team: string;
+  features?: Record<string, number>;
+  date?: string;
+  league?: string;
+  complete?: number;
+  hscore?: number | null;
+  ascore?: number | null;
+};
+
+type SoccerPrediction = {
+  game_id: string;
+  predictions: {
+    home_team: string;
+    away_team: string;
+    home_win_probability: number;
+    away_win_probability: number;
+    draw_probability?: number;
+    fair_odds_home: number;
+    fair_odds_away: number;
+    fair_odds_draw?: number;
+  };
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?: any;
+  model_metadata?: ModelMetadata;
+};
+
+type GolfPlayer = {
+  player_id: string;
+  name: string;
+  betfair_back_price?: number;
+};
+
+type GolfTournament = {
+  tournament_id: string;
+  name: string;
+  venue?: string;
+  start_time?: string;
+  meeting_date?: string;
+  players: GolfPlayer[];
+};
+
+type GolfPrediction = {
+  tournament_id: string;
+  predictions: Array<{
+    player_id: string;
+    name: string;
+    win_probability: number;
+    fair_odds: number;
+  }>;
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?: any;
+  model_metadata?: ModelMetadata;
+};
+
+type MMAMatchup = {
+  game_id: string;
+  home_team: string;
+  away_team: string;
+  features?: Record<string, number>;
+  date?: string;
+  weight_class?: string;
+  venue?: string;
+  complete?: number;
+};
+
+type MMAPrediction = {
+  game_id: string;
+  predictions: {
+    home_team: string;
+    away_team: string;
+    home_win_probability: number;
+    away_win_probability: number;
+    fair_odds_home: number;
+    fair_odds_away: number;
+  };
+  feature_impact?: FeatureImpactItem[] | Record<string, number>;
+  ai_insights_context?: any;
+  model_metadata?: ModelMetadata;
+};
+
 type RacePredictionEntry = readonly [string, RacePrediction];
 type AFLPredictionEntry = readonly [string, AFLPrediction];
 type NBAPredictionEntry = readonly [string, NBAPrediction];
+type NRLPredictionEntry = readonly [string, NRLPrediction];
+type SoccerPredictionEntry = readonly [string, SoccerPrediction];
+type GolfPredictionEntry = readonly [string, GolfPrediction];
+type MMAPredictionEntry = readonly [string, MMAPrediction];
 
 function getDashboardCacheKeys() {
   const dateKey = getMlCacheDateKey();
@@ -152,6 +295,14 @@ function getDashboardCacheKeys() {
     aflPredictionsKey: getMlDataCacheKey("predictions", "afl", dateKey),
     nbaFixturesKey: getMlDataCacheKey("fixtures", "nba", dateKey),
     nbaPredictionsKey: getMlDataCacheKey("predictions", "nba", dateKey),
+    nrlFixturesKey: getMlDataCacheKey("fixtures", "nrl", dateKey),
+    nrlPredictionsKey: getMlDataCacheKey("predictions", "nrl", dateKey),
+    soccerFixturesKey: getMlDataCacheKey("fixtures", "soccer", dateKey),
+    soccerPredictionsKey: getMlDataCacheKey("predictions", "soccer", dateKey),
+    golfFixturesKey: getMlDataCacheKey("fixtures", "golf", dateKey),
+    golfPredictionsKey: getMlDataCacheKey("predictions", "golf", dateKey),
+    mmaFixturesKey: getMlDataCacheKey("fixtures", "mma", dateKey),
+    mmaPredictionsKey: getMlDataCacheKey("predictions", "mma", dateKey),
   };
 }
 
@@ -173,9 +324,35 @@ function isNbaPredictionEntry(
   return entry !== null;
 }
 
+function isNrlPredictionEntry(
+  entry: NRLPredictionEntry | null,
+): entry is NRLPredictionEntry {
+  return entry !== null;
+}
+
+function isSoccerPredictionEntry(
+  entry: SoccerPredictionEntry | null,
+): entry is SoccerPredictionEntry {
+  return entry !== null;
+}
+
+function isGolfPredictionEntry(
+  entry: GolfPredictionEntry | null,
+): entry is GolfPredictionEntry {
+  return entry !== null;
+}
+
+function isMmaPredictionEntry(
+  entry: MMAPredictionEntry | null,
+): entry is MMAPredictionEntry {
+  return entry !== null;
+}
+
 async function fetchEngineStatus() {
   try {
-    const response = await fetch(`${ML_API}/health`, { cache: "no-store" });
+    const response = await fetchWithTimeout(`${ML_API}/health`, {
+      cache: "no-store",
+    });
     return response.ok ? "online" : "offline";
   } catch {
     return "offline" as const;
@@ -183,44 +360,101 @@ async function fetchEngineStatus() {
 }
 
 async function fetchTodayRaces() {
-  const response = await fetch(`${ML_API}/api/races/today`, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Racing fixtures request failed with ${response.status}`);
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.races ?? []) as RaceSummary[];
+  } catch (error) {
+    return [];
   }
-
-  const data = await response.json();
-  return (data?.races ?? []) as RaceSummary[];
 }
 
 async function fetchUpcomingAflGames() {
-  const response = await fetch(`${ML_API}/api/afl/games/upcoming`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(`AFL fixtures request failed with ${response.status}`);
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as AFLGame[];
+  } catch (error) {
+    return [];
   }
-
-  const data = await response.json();
-  return (data?.games ?? []) as AFLGame[];
 }
 
 async function fetchTodayNbaGames() {
-  const response = await fetch(`${ML_API}/api/nba/games/today`, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(`NBA fixtures request failed with ${response.status}`);
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/nba/games/today`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as NBAGame[];
+  } catch (error) {
+    return [];
   }
+}
 
-  const data = await response.json();
-  return (data?.games ?? []) as NBAGame[];
+async function fetchUpcomingNrlGames() {
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as NRLGame[];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function fetchTodaySoccerGames() {
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/soccer/games/today`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as SoccerGame[];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function fetchTodayGolfTournaments() {
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/golf/games/today`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as GolfTournament[];
+  } catch (error) {
+    return [];
+  }
+}
+
+async function fetchTodayMmaGames() {
+  try {
+    const response = await fetchWithTimeout(`${ML_API}/api/mma/games/today`, {
+      cache: "no-store",
+    });
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data?.games ?? []) as MMAMatchup[];
+  } catch (error) {
+    return [];
+  }
 }
 
 async function fetchRacePredictions(races: RaceSummary[]) {
   const entries = await Promise.all(
     races.map(async (race) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/racing`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/racing`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(race),
@@ -247,7 +481,7 @@ async function fetchAflPredictions(games: AFLGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/afl`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/afl`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -274,7 +508,7 @@ async function fetchNbaPredictions(games: NBAGame[]) {
   const entries = await Promise.all(
     games.map(async (game) => {
       try {
-        const response = await fetch(`${ML_API}/api/predict/nba`, {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/nba`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
@@ -297,11 +531,108 @@ async function fetchNbaPredictions(games: NBAGame[]) {
   >;
 }
 
-export default function DashboardPage() {
+async function fetchNrlPredictions(games: NRLGame[]) {
+  if (!games || games.length === 0) return {};
+  const entries = await Promise.all(
+    games.map(async (game) => {
+      try {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/nrl`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(game),
+        });
+        if (!response.ok) return null;
+        return [game.game_id, await response.json()] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter(isNrlPredictionEntry)) as Record<
+    string,
+    NRLPrediction
+  >;
+}
+
+async function fetchSoccerPredictions(games: SoccerGame[]) {
+  if (!games || games.length === 0) return {};
+  const entries = await Promise.all(
+    games.map(async (game) => {
+      try {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/soccer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(game),
+        });
+        if (!response.ok) return null;
+        return [game.game_id, await response.json()] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter(isSoccerPredictionEntry)) as Record<
+    string,
+    SoccerPrediction
+  >;
+}
+
+async function fetchGolfPredictions(tournaments: GolfTournament[]) {
+  if (!tournaments || tournaments.length === 0) return {};
+  const entries = await Promise.all(
+    tournaments.map(async (tournament) => {
+      try {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/golf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tournament),
+        });
+        if (!response.ok) return null;
+        return [tournament.tournament_id, await response.json()] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter(isGolfPredictionEntry)) as Record<
+    string,
+    GolfPrediction
+  >;
+}
+
+async function fetchMmaPredictions(games: MMAMatchup[]) {
+  if (!games || games.length === 0) return {};
+  const entries = await Promise.all(
+    games.map(async (game) => {
+      try {
+        const response = await fetchWithTimeout(`${ML_API}/api/predict/mma`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(game),
+        });
+        if (!response.ok) return null;
+        return [game.game_id, await response.json()] as const;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return Object.fromEntries(entries.filter(isMmaPredictionEntry)) as Record<
+    string,
+    MMAPrediction
+  >;
+}
+
+function DashboardContent() {
   const router = useRouter();
   const [races, setRaces] = useState<RaceSummary[]>([]);
   const [aflGames, setAFLGames] = useState<AFLGame[]>([]);
   const [nbaGames, setNBAGames] = useState<NBAGame[]>([]);
+  const [nrlGames, setNRLGames] = useState<NRLGame[]>([]);
+  const [soccerGames, setSoccerGames] = useState<SoccerGame[]>([]);
+  const [golfTournaments, setGolfTournaments] = useState<GolfTournament[]>([]);
+  const [mmaMatchups, setMMAMatchups] = useState<MMAMatchup[]>([]);
+
   const [racePredictions, setRacePredictions] = useState<
     Record<string, RacePrediction>
   >({});
@@ -311,6 +642,19 @@ export default function DashboardPage() {
   const [nbaPredictions, setNBAPredictions] = useState<
     Record<string, NBAPrediction>
   >({});
+  const [nrlPredictions, setNRLPredictions] = useState<
+    Record<string, NRLPrediction>
+  >({});
+  const [soccerPredictions, setSoccerPredictions] = useState<
+    Record<string, SoccerPrediction>
+  >({});
+  const [golfPredictions, setGolfPredictions] = useState<
+    Record<string, GolfPrediction>
+  >({});
+  const [mmaPredictions, setMMAPredictions] = useState<
+    Record<string, MMAPrediction>
+  >({});
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
@@ -318,9 +662,11 @@ export default function DashboardPage() {
   const [engineStatus, setEngineStatus] = useState<"online" | "offline">(
     "offline",
   );
+  const [refreshFailed, setRefreshFailed] = useState(false);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
+  const [activeCategory, setActiveCategory] = useState<"racing" | "sports">("racing");
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
@@ -350,6 +696,22 @@ export default function DashboardPage() {
     const cachedNbaPredictions = readMlDataCache<Record<string, NBAPrediction>>(
       keys.nbaPredictionsKey,
     );
+    const cachedNrlGames = readMlDataCache<NRLGame[]>(keys.nrlFixturesKey);
+    const cachedNrlPredictions = readMlDataCache<Record<string, NRLPrediction>>(
+      keys.nrlPredictionsKey,
+    );
+    const cachedSoccerGames = readMlDataCache<SoccerGame[]>(keys.soccerFixturesKey);
+    const cachedSoccerPredictions = readMlDataCache<Record<string, SoccerPrediction>>(
+      keys.soccerPredictionsKey,
+    );
+    const cachedGolfTournaments = readMlDataCache<GolfTournament[]>(keys.golfFixturesKey);
+    const cachedGolfPredictions = readMlDataCache<Record<string, GolfPrediction>>(
+      keys.golfPredictionsKey,
+    );
+    const cachedMmaMatchups = readMlDataCache<MMAMatchup[]>(keys.mmaFixturesKey);
+    const cachedMmaPredictions = readMlDataCache<Record<string, MMAPrediction>>(
+      keys.mmaPredictionsKey,
+    );
 
     if (cachedRaces && isMountedRef.current) {
       setRaces(cachedRaces.data);
@@ -375,6 +737,38 @@ export default function DashboardPage() {
       setNBAPredictions(cachedNbaPredictions.data);
     }
 
+    if (cachedNrlGames && isMountedRef.current) {
+      setNRLGames(cachedNrlGames.data);
+    }
+
+    if (cachedNrlPredictions && isMountedRef.current) {
+      setNRLPredictions(cachedNrlPredictions.data);
+    }
+
+    if (cachedSoccerGames && isMountedRef.current) {
+      setSoccerGames(cachedSoccerGames.data);
+    }
+
+    if (cachedSoccerPredictions && isMountedRef.current) {
+      setSoccerPredictions(cachedSoccerPredictions.data);
+    }
+
+    if (cachedGolfTournaments && isMountedRef.current) {
+      setGolfTournaments(cachedGolfTournaments.data);
+    }
+
+    if (cachedGolfPredictions && isMountedRef.current) {
+      setGolfPredictions(cachedGolfPredictions.data);
+    }
+
+    if (cachedMmaMatchups && isMountedRef.current) {
+      setMMAMatchups(cachedMmaMatchups.data);
+    }
+
+    if (cachedMmaPredictions && isMountedRef.current) {
+      setMMAPredictions(cachedMmaPredictions.data);
+    }
+
     syncCacheMetadata();
 
     return {
@@ -384,6 +778,14 @@ export default function DashboardPage() {
       cachedAflPredictions,
       cachedNbaGames,
       cachedNbaPredictions,
+      cachedNrlGames,
+      cachedNrlPredictions,
+      cachedSoccerGames,
+      cachedSoccerPredictions,
+      cachedGolfTournaments,
+      cachedGolfPredictions,
+      cachedMmaMatchups,
+      cachedMmaPredictions,
     };
   };
 
@@ -400,6 +802,10 @@ export default function DashboardPage() {
       return;
     }
 
+    const refreshStartedAt = Date.now();
+    let refreshHadFailure = false;
+    let usedCacheFallback = false;
+
     refreshingRef.current = true;
     if (isMountedRef.current) {
       setRefreshing(true);
@@ -408,30 +814,79 @@ export default function DashboardPage() {
     const keys = getDashboardCacheKeys();
     const healthPromise = refreshEngineHealth();
 
-    const [racingFixturesEntry, aflFixturesEntry, nbaFixturesEntry] =
-      await Promise.all([
-        refreshMlDataCache(keys.racingFixturesKey, fetchTodayRaces, {
-          force: true,
-        }).catch((error) => {
-          console.error("Failed to refresh racing fixtures:", error);
-          scheduleMlDataCacheRetry(keys.racingFixturesKey);
-          return readMlDataCache<RaceSummary[]>(keys.racingFixturesKey);
-        }),
-        refreshMlDataCache(keys.aflFixturesKey, fetchUpcomingAflGames, {
-          force: true,
-        }).catch((error) => {
-          console.error("Failed to refresh AFL fixtures:", error);
-          scheduleMlDataCacheRetry(keys.aflFixturesKey);
-          return readMlDataCache<AFLGame[]>(keys.aflFixturesKey);
-        }),
-        refreshMlDataCache(keys.nbaFixturesKey, fetchTodayNbaGames, {
-          force: true,
-        }).catch((error) => {
-          console.error("Failed to refresh NBA fixtures:", error);
-          scheduleMlDataCacheRetry(keys.nbaFixturesKey);
-          return readMlDataCache<NBAGame[]>(keys.nbaFixturesKey);
-        }),
-      ]);
+    const [
+      racingFixturesEntry,
+      aflFixturesEntry,
+      nbaFixturesEntry,
+      nrlFixturesEntry,
+      soccerFixturesEntry,
+      golfFixturesEntry,
+      mmaFixturesEntry,
+    ] = await Promise.all([
+      refreshMlDataCache(keys.racingFixturesKey, fetchTodayRaces, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh racing fixtures:", error);
+        scheduleMlDataCacheRetry(keys.racingFixturesKey);
+        return readMlDataCache<RaceSummary[]>(keys.racingFixturesKey);
+      }),
+      refreshMlDataCache(keys.aflFixturesKey, fetchUpcomingAflGames, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh AFL fixtures:", error);
+        scheduleMlDataCacheRetry(keys.aflFixturesKey);
+        return readMlDataCache<AFLGame[]>(keys.aflFixturesKey);
+      }),
+      refreshMlDataCache(keys.nbaFixturesKey, fetchTodayNbaGames, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh NBA fixtures:", error);
+        scheduleMlDataCacheRetry(keys.nbaFixturesKey);
+        return readMlDataCache<NBAGame[]>(keys.nbaFixturesKey);
+      }),
+      refreshMlDataCache(keys.nrlFixturesKey, fetchUpcomingNrlGames, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh NRL fixtures:", error);
+        scheduleMlDataCacheRetry(keys.nrlFixturesKey);
+        return readMlDataCache<NRLGame[]>(keys.nrlFixturesKey);
+      }),
+      refreshMlDataCache(keys.soccerFixturesKey, fetchTodaySoccerGames, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh Soccer fixtures:", error);
+        scheduleMlDataCacheRetry(keys.soccerFixturesKey);
+        return readMlDataCache<SoccerGame[]>(keys.soccerFixturesKey);
+      }),
+      refreshMlDataCache(keys.golfFixturesKey, fetchTodayGolfTournaments, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh Golf fixtures:", error);
+        scheduleMlDataCacheRetry(keys.golfFixturesKey);
+        return readMlDataCache<GolfTournament[]>(keys.golfFixturesKey);
+      }),
+      refreshMlDataCache(keys.mmaFixturesKey, fetchTodayMmaGames, {
+        force: true,
+      }).catch((error) => {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh MMA fixtures:", error);
+        scheduleMlDataCacheRetry(keys.mmaFixturesKey);
+        return readMlDataCache<MMAMatchup[]>(keys.mmaFixturesKey);
+      }),
+    ]);
 
     if (racingFixturesEntry && isMountedRef.current) {
       setRaces(racingFixturesEntry.data);
@@ -445,6 +900,22 @@ export default function DashboardPage() {
       setNBAGames(nbaFixturesEntry.data);
     }
 
+    if (nrlFixturesEntry && isMountedRef.current) {
+      setNRLGames(nrlFixturesEntry.data);
+    }
+
+    if (soccerFixturesEntry && isMountedRef.current) {
+      setSoccerGames(soccerFixturesEntry.data);
+    }
+
+    if (golfFixturesEntry && isMountedRef.current) {
+      setGolfTournaments(golfFixturesEntry.data);
+    }
+
+    if (mmaFixturesEntry && isMountedRef.current) {
+      setMMAMatchups(mmaFixturesEntry.data);
+    }
+
     if (isMountedRef.current) {
       setLoading(false);
     }
@@ -455,6 +926,8 @@ export default function DashboardPage() {
           () => fetchRacePredictions(racingFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh racing predictions:", error);
           scheduleMlDataCacheRetry(keys.racingPredictionsKey);
           return readMlDataCache<Record<string, RacePrediction>>(
@@ -473,6 +946,8 @@ export default function DashboardPage() {
           () => fetchAflPredictions(aflFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh AFL predictions:", error);
           scheduleMlDataCacheRetry(keys.aflPredictionsKey);
           return readMlDataCache<Record<string, AFLPrediction>>(
@@ -489,6 +964,8 @@ export default function DashboardPage() {
           () => fetchNbaPredictions(nbaFixturesEntry.data),
           { force: true },
         ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
           console.error("Failed to refresh NBA predictions:", error);
           scheduleMlDataCacheRetry(keys.nbaPredictionsKey);
           return readMlDataCache<Record<string, NBAPrediction>>(
@@ -499,12 +976,95 @@ export default function DashboardPage() {
           readMlDataCache<Record<string, NBAPrediction>>(keys.nbaPredictionsKey),
         );
 
-    const [racePredictionsEntry, aflPredictionsEntry, nbaPredictionsEntry] =
-      await Promise.all([
-        racePredictionsPromise,
-        aflPredictionsPromise,
-        nbaPredictionsPromise,
-      ]);
+    const nrlPredictionsPromise = nrlFixturesEntry
+      ? refreshMlDataCache(
+          keys.nrlPredictionsKey,
+          () => fetchNrlPredictions(nrlFixturesEntry.data),
+          { force: true },
+        ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
+          console.error("Failed to refresh NRL predictions:", error);
+          scheduleMlDataCacheRetry(keys.nrlPredictionsKey);
+          return readMlDataCache<Record<string, NRLPrediction>>(
+            keys.nrlPredictionsKey,
+          );
+        })
+      : Promise.resolve(
+          readMlDataCache<Record<string, NRLPrediction>>(keys.nrlPredictionsKey),
+        );
+
+    const soccerPredictionsPromise = soccerFixturesEntry
+      ? refreshMlDataCache(
+          keys.soccerPredictionsKey,
+          () => fetchSoccerPredictions(soccerFixturesEntry.data),
+          { force: true },
+        ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
+          console.error("Failed to refresh Soccer predictions:", error);
+          scheduleMlDataCacheRetry(keys.soccerPredictionsKey);
+          return readMlDataCache<Record<string, SoccerPrediction>>(
+            keys.soccerPredictionsKey,
+          );
+        })
+      : Promise.resolve(
+          readMlDataCache<Record<string, SoccerPrediction>>(keys.soccerPredictionsKey),
+        );
+
+    const golfPredictionsPromise = golfFixturesEntry
+      ? refreshMlDataCache(
+          keys.golfPredictionsKey,
+          () => fetchGolfPredictions(golfFixturesEntry.data),
+          { force: true },
+        ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
+          console.error("Failed to refresh Golf predictions:", error);
+          scheduleMlDataCacheRetry(keys.golfPredictionsKey);
+          return readMlDataCache<Record<string, GolfPrediction>>(
+            keys.golfPredictionsKey,
+          );
+        })
+      : Promise.resolve(
+          readMlDataCache<Record<string, GolfPrediction>>(keys.golfPredictionsKey),
+        );
+
+    const mmaPredictionsPromise = mmaFixturesEntry
+      ? refreshMlDataCache(
+          keys.mmaPredictionsKey,
+          () => fetchMmaPredictions(mmaFixturesEntry.data),
+          { force: true },
+        ).catch((error) => {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
+          console.error("Failed to refresh MMA predictions:", error);
+          scheduleMlDataCacheRetry(keys.mmaPredictionsKey);
+          return readMlDataCache<Record<string, MMAPrediction>>(
+            keys.mmaPredictionsKey,
+          );
+        })
+      : Promise.resolve(
+          readMlDataCache<Record<string, MMAPrediction>>(keys.mmaPredictionsKey),
+        );
+
+    const [
+      racePredictionsEntry,
+      aflPredictionsEntry,
+      nbaPredictionsEntry,
+      nrlPredictionsEntry,
+      soccerPredictionsEntry,
+      golfPredictionsEntry,
+      mmaPredictionsEntry,
+    ] = await Promise.all([
+      racePredictionsPromise,
+      aflPredictionsPromise,
+      nbaPredictionsPromise,
+      nrlPredictionsPromise,
+      soccerPredictionsPromise,
+      golfPredictionsPromise,
+      mmaPredictionsPromise,
+    ]);
 
     if (racePredictionsEntry && isMountedRef.current) {
       setRacePredictions(racePredictionsEntry.data);
@@ -518,20 +1078,48 @@ export default function DashboardPage() {
       setNBAPredictions(nbaPredictionsEntry.data);
     }
 
+    if (nrlPredictionsEntry && isMountedRef.current) {
+      setNRLPredictions(nrlPredictionsEntry.data);
+    }
+
+    if (soccerPredictionsEntry && isMountedRef.current) {
+      setSoccerPredictions(soccerPredictionsEntry.data);
+    }
+
+    if (golfPredictionsEntry && isMountedRef.current) {
+      setGolfPredictions(golfPredictionsEntry.data);
+    }
+
+    if (mmaPredictionsEntry && isMountedRef.current) {
+      setMMAPredictions(mmaPredictionsEntry.data);
+    }
+
     await healthPromise;
     syncCacheMetadata();
     refreshingRef.current = false;
+    trackRefreshOutcome("/dashboard", refreshStartedAt, {
+      failed: refreshHadFailure,
+      usedCache: usedCacheFallback,
+    });
 
     if (isMountedRef.current) {
+      setRefreshFailed(refreshHadFailure);
       setRefreshing(false);
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    isMountedRef.current = true;
     const cached = hydrateFromCache();
     const hasFixtureCache =
-      !!cached.cachedRaces || !!cached.cachedAflGames || !!cached.cachedNbaGames;
+      !!cached.cachedRaces ||
+      !!cached.cachedAflGames ||
+      !!cached.cachedNbaGames ||
+      !!cached.cachedNrlGames ||
+      !!cached.cachedSoccerGames ||
+      !!cached.cachedGolfTournaments ||
+      !!cached.cachedMmaMatchups;
 
     if (hasFixtureCache) {
       setLoading(false);
@@ -544,12 +1132,28 @@ export default function DashboardPage() {
       !cached.cachedAflPredictions ||
       !cached.cachedNbaGames ||
       !cached.cachedNbaPredictions ||
+      !cached.cachedNrlGames ||
+      !cached.cachedNrlPredictions ||
+      !cached.cachedSoccerGames ||
+      !cached.cachedSoccerPredictions ||
+      !cached.cachedGolfTournaments ||
+      !cached.cachedGolfPredictions ||
+      !cached.cachedMmaMatchups ||
+      !cached.cachedMmaPredictions ||
       isMlDataCacheStale(cached.cachedRaces) ||
       isMlDataCacheStale(cached.cachedRacePredictions) ||
       isMlDataCacheStale(cached.cachedAflGames) ||
       isMlDataCacheStale(cached.cachedAflPredictions) ||
       isMlDataCacheStale(cached.cachedNbaGames) ||
-      isMlDataCacheStale(cached.cachedNbaPredictions);
+      isMlDataCacheStale(cached.cachedNbaPredictions) ||
+      isMlDataCacheStale(cached.cachedNrlGames) ||
+      isMlDataCacheStale(cached.cachedNrlPredictions) ||
+      isMlDataCacheStale(cached.cachedSoccerGames) ||
+      isMlDataCacheStale(cached.cachedSoccerPredictions) ||
+      isMlDataCacheStale(cached.cachedGolfTournaments) ||
+      isMlDataCacheStale(cached.cachedGolfPredictions) ||
+      isMlDataCacheStale(cached.cachedMmaMatchups) ||
+      isMlDataCacheStale(cached.cachedMmaPredictions);
 
     if (shouldRefresh) {
       void refreshDashboard();
@@ -562,19 +1166,23 @@ export default function DashboardPage() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="dashboard-loading">
-        <div className="loading-pulse">
-          <Brain size={48} />
-          <p>Loading today's ML snapshots...</p>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    trackStaleCache("/dashboard", lastUpdated);
+  }, [lastUpdated]);
 
+  // Fallback timer: if live data fetching takes > 2 seconds or stays empty, stop loading guard immediately
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setLoading(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const mainRacePredictionRaces = races.filter(
+    (race) => racePredictions[race.race_id] && isPhase2MainRace(race),
+  );
   const racingOpportunities = rankOpportunities(
-    races.flatMap((race) => {
+    mainRacePredictionRaces.flatMap((race) => {
       const prediction = racePredictions[race.race_id];
       const confidenceSignal = prediction
         ? getConfidenceSignal(prediction.ai_insights_context)
@@ -677,6 +1285,196 @@ export default function DashboardPage() {
     }),
   ).slice(0, 2);
 
+  const nrlOpportunities = rankOpportunities(
+    nrlGames.flatMap((game) => {
+      const prediction = nrlPredictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const homeWins = homePct > awayPct;
+
+      return [
+        {
+          id: game.game_id,
+          sport: "nrl" as const,
+          selectionName: homeWins ? game.home_team : game.away_team,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability: homeWins ? homePct : awayPct,
+          fairOdds: homeWins
+            ? prediction.predictions.fair_odds_home
+            : prediction.predictions.fair_odds_away,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          }),
+          href: "/nrl",
+          note: "No live market price is attached on this screen, so this ranking stays model-led.",
+        },
+      ];
+    }),
+  ).slice(0, 2);
+
+  const soccerOpportunities = rankOpportunities(
+    soccerGames.flatMap((game) => {
+      const prediction = soccerPredictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const drawPct = prediction.predictions.draw_probability ?? 0;
+      
+      let selectionName = game.home_team;
+      let probability = homePct;
+      let fairOdds = prediction.predictions.fair_odds_home;
+
+      if (awayPct > homePct && awayPct > drawPct) {
+        selectionName = game.away_team;
+        probability = awayPct;
+        fairOdds = prediction.predictions.fair_odds_away;
+      } else if (drawPct > homePct && drawPct > awayPct) {
+        selectionName = "Draw";
+        probability = drawPct;
+        fairOdds = prediction.predictions.fair_odds_draw ?? 3.0;
+      }
+
+      return [
+        {
+          id: game.game_id,
+          sport: "soccer" as const,
+          selectionName,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability,
+          fairOdds,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          }),
+          href: "/soccer",
+          note: "No live market price is attached on this screen, so this ranking stays model-led.",
+        },
+      ];
+    }),
+  ).slice(0, 2);
+
+  const golfOpportunities = rankOpportunities(
+    golfTournaments.flatMap((tournament) => {
+      const prediction = golfPredictions[tournament.tournament_id];
+      if (!prediction) {
+        return [];
+      }
+
+      return prediction.predictions.map((pick) => {
+        const player = tournament.players.find(
+          (candidate) => candidate.player_id === pick.player_id,
+        );
+
+        return {
+          id: `${tournament.tournament_id}-${pick.player_id}`,
+          sport: "golf" as const,
+          selectionName: pick.name,
+          eventLabel: tournament.name,
+          probability: pick.win_probability,
+          fairOdds: pick.fair_odds,
+          marketOdds: player?.betfair_back_price ?? null,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: tournament.start_time,
+            eventDate: tournament.meeting_date,
+          }),
+          href: "/golf",
+        };
+      });
+    }),
+  ).slice(0, 2);
+
+  const mmaOpportunities = rankOpportunities(
+    mmaMatchups.flatMap((game) => {
+      const prediction = mmaPredictions[game.game_id];
+      if (!prediction) {
+        return [];
+      }
+
+      const homePct = prediction.predictions.home_win_probability;
+      const awayPct = prediction.predictions.away_win_probability;
+      const homeWins = homePct > awayPct;
+
+      return [
+        {
+          id: game.game_id,
+          sport: "mma" as const,
+          selectionName: homeWins ? game.home_team : game.away_team,
+          eventLabel: `${game.home_team} vs ${game.away_team}`,
+          probability: homeWins ? homePct : awayPct,
+          fairOdds: homeWins
+            ? prediction.predictions.fair_odds_home
+            : prediction.predictions.fair_odds_away,
+          confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
+          urgencySignal: getUrgencySignal({
+            startTime: game.date,
+            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
+            isResultPending: (game.complete ?? 0) >= 100,
+          }),
+          href: "/mma",
+          note: "No live market price is attached on this screen, so this ranking stays model-led.",
+        },
+      ];
+    }),
+  ).slice(0, 2);
+
+  const hasDashboardData =
+    races.length > 0 ||
+    aflGames.length > 0 ||
+    nbaGames.length > 0 ||
+    nrlGames.length > 0 ||
+    soccerGames.length > 0 ||
+    golfTournaments.length > 0 ||
+    mmaMatchups.length > 0;
+
+  const dashboardStatus = getCachedViewStatus({
+    resourceLabel: "Dashboard data",
+    hasData: hasDashboardData,
+    lastUpdated,
+    isRefreshing: refreshing,
+    refreshFailed,
+  });
+
+  const activeRaces = races;
+
+  const mockOpportunities = [
+    { id: "opp-1", sport: "AFL", event: "Collingwood vs Carlton", selection: "Collingwood -6.5", fairOdds: 1.75, marketOdds: 2.10, edge: 20.0, bookie: "Sportsbet" },
+    { id: "opp-2", sport: "NBA", event: "Lakers vs Celtics", selection: "Over 224.5 Points", fairOdds: 1.80, marketOdds: 2.05, edge: 13.8, bookie: "Betfair" },
+    { id: "opp-3", sport: "NRL", event: "Penrith vs Broncos", selection: "Penrith H2H", fairOdds: 1.50, marketOdds: 1.72, edge: 14.6, bookie: "Ladbrokes" },
+    { id: "opp-4", sport: "Racing", event: "Flemington Race 7", selection: "Imperatriz", fairOdds: 2.00, marketOdds: 2.40, edge: 20.0, bookie: "TAB" },
+    { id: "opp-5", sport: "Soccer", event: "Man City vs Arsenal", selection: "Man City Win", fairOdds: 1.65, marketOdds: 1.95, edge: 18.2, bookie: "Betfair" },
+  ];
+
+  const handleOpenPaperBet = (opp: any) => {
+    alert(`Added ${opp.selection || opp.runner} ($${opp.marketOdds || opp.odds}) to Betslip!`);
+  };
+
+  const handleOpenBobModal = (ctx: any) => {
+    setActiveExplanation(
+      buildBobExplanation({
+        sport: "afl",
+        selectionName: ctx.selection || "Top Value Pick",
+        opponentName: ctx.event || "Opponent",
+        probability: 0.62,
+        fairOdds: 1.61,
+        featureImpact: [],
+        aiInsightsContext: { notes: [`Value signal triggered with ${ctx.edge} edge.`] },
+      })
+    );
+  };
+
   return (
     <div>
       <ExplainDrawer
@@ -684,453 +1482,21 @@ export default function DashboardPage() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <div className={`engine-banner ${engineStatus}`}>
-        <Activity size={16} />
-        <span>
-          ML Prediction Engine:{" "}
-          <strong>{engineStatus === "online" ? "Online" : "Offline"}</strong>
-        </span>
-        {engineStatus === "online" ? (
-          <span className="engine-models">3 prediction models active</span>
-        ) : null}
-      </div>
 
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshDashboard}
+      <VariantA_CyberpunkTerminal
+        racesData={activeRaces}
+        allOpportunities={mockOpportunities}
+        onOpenPaperBet={handleOpenPaperBet}
+        onOpenBobModal={handleOpenBobModal}
       />
-
-      <div className="stats-grid">
-        <div className="stat-card accent">
-          <div className="stat-label">
-            <Trophy
-              size={14}
-              style={{ display: "inline", verticalAlign: "middle" }}
-            />{" "}
-            Races Today
-          </div>
-          <div className="stat-value">{races.length}</div>
-          <div className="stat-sub">{new Set(races.map((race) => race.venue)).size} venues</div>
-        </div>
-        <div className="stat-card green">
-          <div className="stat-label">
-            <CircleDot
-              size={14}
-              style={{ display: "inline", verticalAlign: "middle" }}
-            />{" "}
-            AFL Games
-          </div>
-          <div className="stat-value">{aflGames.length}</div>
-          <div className="stat-sub">This round</div>
-        </div>
-        <div className="stat-card blue">
-          <div className="stat-label">
-            <Zap
-              size={14}
-              style={{ display: "inline", verticalAlign: "middle" }}
-            />{" "}
-            NBA Games
-          </div>
-          <div className="stat-value">{nbaGames.length}</div>
-          <div className="stat-sub">Tonight</div>
-        </div>
-        <div className="stat-card yellow">
-          <div className="stat-label">
-            <Brain
-              size={14}
-              style={{ display: "inline", verticalAlign: "middle" }}
-            />{" "}
-            ML Models
-          </div>
-          <div className="stat-value">3</div>
-          <div className="stat-sub">Shared cached snapshots</div>
-        </div>
-      </div>
-
-      <div className="dashboard-opportunities-grid">
-        <BestRacingOpportunities opportunities={racingOpportunities} compact />
-        <BestAflOpportunities opportunities={aflOpportunities} compact />
-        <BestNbaOpportunities opportunities={nbaOpportunities} compact />
-      </div>
-
-      <div className="section-header">
-        <h3>🏇 Top Racing Predictions</h3>
-        <Link href="/racing" className="btn btn-sm btn-secondary">
-          View All <ChevronRight size={14} />
-        </Link>
-      </div>
-      <div className="predictions-grid">
-        {races.slice(0, 3).map((race) => {
-          const prediction = racePredictions[race.race_id];
-          const top3 = prediction?.predictions?.slice(0, 3) ?? [];
-          const confidenceSignal = prediction
-            ? getConfidenceSignal(prediction.ai_insights_context)
-            : null;
-          const urgencySignal = getUrgencySignal({
-            startTime: race.start_time,
-            eventDate: race.meeting_date,
-          });
-
-          return (
-            <div
-              key={race.race_id}
-              className="prediction-card"
-              onClick={() => router.push("/racing")}
-            >
-              <div className="prediction-card-header">
-                <div>
-                  <span className="prediction-venue">{race.venue}</span>
-                  <span className="prediction-race">Race {race.race_number}</span>
-                  <div className="prediction-card-signals" style={{ marginTop: "0.4rem" }}>
-                    {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                    {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                  </div>
-                  {race.meeting_region || race.meeting_type ? (
-                    <div className="context-chip" style={{ marginTop: "0.4rem" }}>
-                      {[race.meeting_region, race.meeting_type]
-                        .filter(Boolean)
-                        .join(" • ")}
-                    </div>
-                  ) : null}
-                </div>
-                <span className="badge badge-accent">{race.distance}m</span>
-              </div>
-              <div className="prediction-picks">
-                {top3.map((pick, index) => {
-                  const horse = race.horses.find(
-                    (candidate) => candidate.horse_id === pick.horse_id,
-                  );
-                  const edgePercent = getEdgePercent(
-                    pick.fair_odds,
-                    horse?.betfair_back_price,
-                  );
-
-                  return (
-                    <div key={pick.horse_id} className="prediction-pick-row">
-                    <div className="prediction-pick-left">
-                      <span className={`pick-rank rank-${index + 1}`}>
-                        {index + 1}
-                      </span>
-                      <span className="prediction-horse-name">{pick.name}</span>
-                    </div>
-                    <div className="prediction-pick-right">
-                      <span className="prediction-prob">
-                        {pick.win_probability}%
-                      </span>
-                      <span className="prediction-odds">${pick.fair_odds}</span>
-                      {edgePercent ? (
-                        <span className="value-badge positive">
-                          Edge +{edgePercent.toFixed(0)}%
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="why-pick-button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setActiveExplanation(
-                            buildBobExplanation({
-                              sport: "racing",
-                              selectionName: pick.name,
-                              probability: pick.win_probability,
-                              fairOdds: pick.fair_odds,
-                              featureImpact: prediction?.feature_impact,
-                              aiInsightsContext: prediction?.ai_insights_context,
-                              modelMetadata: prediction?.model_metadata,
-                            }),
-                          );
-                        }}
-                      >
-                        Why this pick?
-                      </button>
-                      <Link
-                        className="btn btn-sm btn-secondary"
-                        href={paperBetHref({
-                          sport: "racing",
-                          eventId: race.race_id,
-                          eventName: `${race.venue} R${race.race_number}`,
-                          selection: pick.name,
-                          odds: pick.fair_odds,
-                          betType: "win",
-                        })}
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        Paper
-                      </Link>
-                    </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>🏈 AFL Predictions</h3>
-        <Link href="/afl" className="btn btn-sm btn-secondary">
-          View All <ChevronRight size={14} />
-        </Link>
-      </div>
-      <div className="predictions-grid">
-        {aflGames.slice(0, 3).map((game) => {
-          const prediction = aflPredictions[game.game_id];
-          const homePct = prediction?.predictions?.home_win_probability ?? 50;
-          const awayPct = prediction?.predictions?.away_win_probability ?? 50;
-          const homeWins = homePct > awayPct;
-          const confidenceSignal = prediction
-            ? getConfidenceSignal(prediction.ai_insights_context)
-            : null;
-          const urgencySignal = getUrgencySignal({
-            startTime: game.date,
-            isClosed: (game.complete ?? 0) > 0 && (game.complete ?? 0) < 100,
-            isResultPending: (game.complete ?? 0) >= 100,
-          });
-
-          return (
-            <div
-              key={game.game_id}
-              className="prediction-card game-card-variant"
-              onClick={() => router.push("/afl")}
-            >
-              <div className="game-matchup">
-                <div className={`game-team ${homeWins ? "favoured" : ""}`}>
-                  <span className="team-name">{game.home_team}</span>
-                  <span className="team-prob">{homePct}%</span>
-                  {prediction ? (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      style={{ marginTop: "0.75rem" }}
-                    >
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-                <div className="game-vs">VS</div>
-                <div className={`game-team ${!homeWins ? "favoured" : ""}`}>
-                  <span className="team-name">{game.away_team}</span>
-                  <span className="team-prob">{awayPct}%</span>
-                  {prediction ? (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      style={{ marginTop: "0.75rem" }}
-                    >
-                      <PaperBetAction
-                        bet={{
-                          sport: "afl",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="game-prob-bar">
-                <div className="prob-fill home" style={{ width: `${homePct}%` }} />
-                <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
-              </div>
-              <div className="prediction-card-signals" style={{ marginTop: "0.9rem" }}>
-                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-              </div>
-              {prediction ? (
-                <div className="dashboard-card-actions">
-                  <button
-                    type="button"
-                    className="why-pick-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setActiveExplanation(
-                        buildBobExplanation({
-                          sport: "afl",
-                          selectionName: homeWins ? game.home_team : game.away_team,
-                          opponentName: homeWins ? game.away_team : game.home_team,
-                          probability: homeWins ? homePct : awayPct,
-                          fairOdds: homeWins
-                            ? prediction.predictions.fair_odds_home
-                            : prediction.predictions.fair_odds_away,
-                          featureImpact: prediction.feature_impact,
-                          aiInsightsContext: prediction.ai_insights_context,
-                          modelMetadata: prediction.model_metadata,
-                        }),
-                      );
-                    }}
-                  >
-                    <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>🏀 NBA Predictions</h3>
-        <Link href="/nba" className="btn btn-sm btn-secondary">
-          View All <ChevronRight size={14} />
-        </Link>
-      </div>
-      <div className="predictions-grid">
-        {nbaGames.slice(0, 3).map((game) => {
-          const prediction = nbaPredictions[game.game_id];
-          const homePct = prediction?.predictions?.home_win_probability ?? 50;
-          const awayPct = prediction?.predictions?.away_win_probability ?? 50;
-          const homeWins = homePct > awayPct;
-          const confidenceSignal = prediction
-            ? getConfidenceSignal(prediction.ai_insights_context)
-            : null;
-          const urgencySignal = getUrgencySignal({
-            startTime: game.date,
-          });
-
-          return (
-            <div
-              key={game.game_id}
-              className="prediction-card game-card-variant"
-              onClick={() => router.push("/nba")}
-            >
-              <div className="game-matchup">
-                <div className={`game-team ${homeWins ? "favoured" : ""}`}>
-                  <span className="team-name">{game.home_team}</span>
-                  <span className="team-prob">{homePct}%</span>
-                  {prediction ? (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      style={{ marginTop: "0.75rem" }}
-                    >
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.home_team,
-                          odds: prediction.predictions.fair_odds_home,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-                <div className="game-vs">VS</div>
-                <div className={`game-team ${!homeWins ? "favoured" : ""}`}>
-                  <span className="team-name">{game.away_team}</span>
-                  <span className="team-prob">{awayPct}%</span>
-                  {prediction ? (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      style={{ marginTop: "0.75rem" }}
-                    >
-                      <PaperBetAction
-                        bet={{
-                          sport: "nba",
-                          event_id: game.game_id,
-                          event_name: `${game.home_team} vs ${game.away_team}`,
-                          selection: game.away_team,
-                          odds: prediction.predictions.fair_odds_away,
-                          bet_type: "head_to_head",
-                          stake: 10,
-                        }}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <div className="game-prob-bar">
-                <div className="prob-fill home" style={{ width: `${homePct}%` }} />
-                <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
-              </div>
-              <div className="prediction-card-signals" style={{ marginTop: "0.9rem" }}>
-                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-              </div>
-              {prediction ? (
-                <div className="dashboard-card-actions">
-                  <button
-                    type="button"
-                    className="why-pick-button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setActiveExplanation(
-                        buildBobExplanation({
-                          sport: "nba",
-                          selectionName: homeWins ? game.home_team : game.away_team,
-                          opponentName: homeWins ? game.away_team : game.home_team,
-                          probability: homeWins ? homePct : awayPct,
-                          fairOdds: homeWins
-                            ? prediction.predictions.fair_odds_home
-                            : prediction.predictions.fair_odds_away,
-                          featureImpact: prediction.feature_impact,
-                          aiInsightsContext: prediction.ai_insights_context,
-                          modelMetadata: prediction.model_metadata,
-                        }),
-                      );
-                    }}
-                  >
-                    <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="disclaimer">
-        ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking
-        purposes only. We do not facilitate betting or handle payments.
-        Predictions are generated by machine learning models and are not
-        guarantees. Past performance does not indicate future results. Please
-        gamble responsibly. If you need help, visit{" "}
-        <a
-          href="https://www.gamblinghelponline.org.au/"
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ color: "var(--yellow)", textDecoration: "underline" }}
-        >
-          Gambling Help Online
-        </a>
-        .
-      </div>
     </div>
   );
 }
 
-function paperBetHref(params: {
-  sport: string;
-  eventId: string;
-  eventName: string;
-  selection: string;
-  odds: number;
-  betType: string;
-}): string {
-  const search = new URLSearchParams({
-    sport: params.sport,
-    event_id: params.eventId,
-    event_name: params.eventName,
-    selection: params.selection,
-    odds: String(params.odds),
-    bet_type: params.betType,
-  });
-
-  return `/bets/new?${search.toString()}`;
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#07090E]" />}>
+      <DashboardContent />
+    </Suspense>
+  );
 }

@@ -1,10 +1,11 @@
 "use client";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
-import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
+import { Save, SlidersHorizontal, User, RefreshCw, LogOut } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
+import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
 type JamesRuleSet = {
   display_name: string;
@@ -25,7 +26,7 @@ type JamesRuleSet = {
 };
 
 function SettingsContent() {
-  const { user, token, refreshUser } = useAuth();
+  const { user, token, refreshUser, logout } = useAuth();
   const [username, setUsername] = useState(user?.username ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [loading, setLoading] = useState(false);
@@ -37,13 +38,22 @@ function SettingsContent() {
   const [jamesMessage, setJamesMessage] = useState("");
   const [resettingBankroll, setResettingBankroll] = useState(false);
   const { requireAuthAction } = useActionGuard();
+  const { defaultStake, setDefaultStake } = usePaperBetslip();
 
   useEffect(() => {
     const loadJames = async () => {
       try {
         const response = await fetch(`${ML_API}/api/strategy-profiles/james`);
         const data = await response.json();
-        setJamesConfig(data?.rule_set ?? null);
+        const ruleSet = data?.rule_set ?? null;
+        if (!ruleSet) {
+          setJamesConfig(null);
+          return;
+        }
+        setJamesConfig({
+          ...ruleSet,
+          allowed_markets: (ruleSet.allowed_markets ?? []).filter((market: string) => market !== "quinella"),
+        });
       } catch (err) {
         console.error("Failed to load James config", err);
       } finally {
@@ -164,7 +174,14 @@ function SettingsContent() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>Account Info</h4>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <h4 style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>Account Info</h4>
+          {user && user.id !== "guest" && (
+            <button type="button" className="btn btn-danger btn-sm" onClick={logout}>
+              <LogOut size={14} /> Sign Out
+            </button>
+          )}
+        </div>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
           User ID: <code style={{ fontSize: "0.8rem", background: "var(--bg-glass)", padding: "0.15rem 0.4rem", borderRadius: 4 }}>{user?.id}</code>
         </p>
@@ -176,6 +193,25 @@ function SettingsContent() {
         <button type="button" className="btn btn-secondary btn-sm" onClick={handleResetBankroll} disabled={resettingBankroll}>
           <RefreshCw size={14} /> {resettingBankroll ? "Resetting…" : "Reset Bankroll Baseline"}
         </button>
+      </div>
+
+      <div className="card" style={{ marginTop: "1rem" }}>
+        <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "1.25rem", fontWeight: 700 }}>
+          <SlidersHorizontal size={20} /> Betslip Settings
+        </h3>
+        <div className="form-group">
+          <label className="form-label">Default Paper Bet Stake ($)</label>
+          <input
+            type="number"
+            className="form-input"
+            min="1"
+            value={defaultStake}
+            onChange={(e) => setDefaultStake(Number(e.target.value))}
+          />
+          <span style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginTop: "0.4rem", display: "block" }}>
+            This stake will be automatically applied to any new selections added to the paper betslip.
+          </span>
+        </div>
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
@@ -248,7 +284,7 @@ function SettingsContent() {
             <div className="form-group">
               <label className="form-label">Allowed Markets</label>
               <div className="filter-bar" style={{ marginTop: "0.5rem" }}>
-                {["win", "place", "quinella", "head_to_head"].map((market) => (
+                {["win", "place", "head_to_head"].map((market) => (
                   <button
                     key={market}
                     type="button"
