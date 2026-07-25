@@ -40,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import { deriveFallbackWinProb } from "../lib/fallbackProbability";
 
 type SoccerGame = {
   game_id: string;
@@ -457,9 +458,10 @@ export default function SoccerPage() {
                   ? `${gameComplete >= 100 ? "Final" : "Live"}: ${homeScore}-${awayScore}`
                   : null;
 
-                const homePct = prediction?.predictions?.home_win_probability ?? 33.3;
-                const awayPct = prediction?.predictions?.away_win_probability ?? 33.3;
-                const drawPct = prediction?.predictions?.draw_probability ?? 33.3;
+                const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
+                const drawPct = prediction?.predictions?.draw_probability ?? 26.0;
+                const homePct = prediction?.predictions?.home_win_probability ?? Number((fallback.homePct * 0.74).toFixed(1));
+                const awayPct = prediction?.predictions?.away_win_probability ?? Number((100 - homePct - drawPct).toFixed(1));
                 const isExpanded = expandedGame === game.game_id;
                 const confidenceSignal = prediction
                   ? getConfidenceSignal(prediction.ai_insights_context)

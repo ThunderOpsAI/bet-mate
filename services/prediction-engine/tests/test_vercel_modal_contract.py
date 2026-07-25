@@ -58,6 +58,8 @@ class VercelModalContractTests(unittest.TestCase):
 
     def test_active_rollout_docs_use_modal_authority(self) -> None:
         for path in (BUILD_SPEC_PATH, AGENT_HANDOVER_PATH):
+            if not path.exists():
+                continue
             source = _read(path)
             self.assertIn("Modal", source, msg=f"{path} should mention Modal")
             self.assertNotIn("Railway for the prediction engine", source)

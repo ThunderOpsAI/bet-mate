@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ListPlus, ShoppingCart, X } from "lucide-react";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
+import { useAuth } from "../providers/AuthProvider";
+import GuestModal from "./GuestModal";
 
 interface PaperBetActionProps {
   bet: {
@@ -42,6 +44,8 @@ export default function PaperBetAction({
   openBetslipOnAdd = true,
   fullWidth = false,
 }: PaperBetActionProps) {
+  const { user } = useAuth();
+  const [showGuestModal, setShowGuestModal] = useState(false);
   const [feedback, setFeedback] = useState<
     "added" | "duplicate" | "removed" | "limit_reached" | null
   >(null);
@@ -119,6 +123,10 @@ export default function PaperBetAction({
 
   const handleQuickAdd = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
+    if (!user || user.id === "guest") {
+      setShowGuestModal(true);
+      return;
+    }
     if (totalSlipCount >= 50 && existingSelectionCount === 0) {
       return;
     }
@@ -377,6 +385,7 @@ export default function PaperBetAction({
           Already added. Review it in the slip.
         </span>
       ) : null}
+      <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
     </div>
   );
 }

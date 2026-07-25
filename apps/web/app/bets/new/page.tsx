@@ -1,177 +1,24 @@
 "use client";
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save } from "lucide-react";
-import { ML_API } from "../../lib/mlApi";
-import { useAuth } from "../../providers/AuthProvider";
-import { useActionGuard } from "../../lib/useActionGuard";
 
 function NewBetContent() {
   const router = useRouter();
-  const { token } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const { requireAuthAction } = useActionGuard();
-
-  const [sport, setSport] = useState("racing");
-  const [eventId, setEventId] = useState("");
-  const [eventName, setEventName] = useState("");
-  const [betType, setBetType] = useState("win");
-  const [selection, setSelection] = useState("");
-  const [odds, setOdds] = useState("");
-  const [stake, setStake] = useState("10");
-  const [notes, setNotes] = useState("");
-  const isRacing = sport === "racing";
-  const betTypeOptions = isRacing
-    ? [
-        { value: "win", label: "Win" },
-        { value: "place", label: "Place" },
-      ]
-    : [
-        { value: "win", label: "Win" },
-        { value: "head_to_head", label: "Head to Head" },
-        { value: "line", label: "Line/Spread" },
-        { value: "over_under", label: "Over/Under" },
-        { value: "other", label: "Other" },
-      ];
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const nextSport = params.get("sport") || "racing";
-    setSport(nextSport);
-    setEventId(params.get("event_id") || "");
-    setEventName(params.get("event_name") || "");
-    const requestedBetType = params.get("bet_type") || "win";
-    const validRacingBetTypes = new Set(["win", "place"]);
-    setBetType(nextSport === "racing" && !validRacingBetTypes.has(requestedBetType) ? "win" : requestedBetType);
-    setSelection(params.get("selection") || "");
-    setOdds(params.get("odds") || "");
-    setStake(params.get("stake") || "10");
-    setNotes(params.get("notes") || "");
-  }, []);
-
-  useEffect(() => {
-    const validBetTypes = new Set(
-      sport === "racing"
-        ? ["win", "place"]
-        : ["win", "head_to_head", "line", "over_under", "other"],
-    );
-    if (!validBetTypes.has(betType)) {
-      setBetType("win");
-    }
-  }, [betType, sport]);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    requireAuthAction(async () => {
-      setError("");
-      setLoading(true);
-      try {
-        const res = await fetch(`${ML_API}/api/paper-bets`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token || "guest"}`,
-        },
-        body: JSON.stringify({
-          sport,
-          event_id: eventId,
-          event_name: eventName,
-          bet_type: betType,
-          selection,
-          odds: odds ? Number(odds) : undefined,
-          stake: Number(stake),
-          notes: notes || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || "Failed to log paper bet");
-      }
-      router.push("/bets");
-    } catch (err: any) {
-        setError(err.message);
-      } finally {
-        setLoading(false);
-      }
-    });
-  }
+    router.replace("/bets");
+  }, [router]);
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <button onClick={() => router.back()} className="btn btn-secondary btn-sm" style={{ marginBottom: "1rem" }}>
-        <ArrowLeft size={16} /> Back
-      </button>
-
-      <div className="card">
-        <h3 style={{ marginBottom: "1.25rem", fontWeight: 700 }}>Log a Paper Bet</h3>
-        {error && <div className="error-message">{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Sport</label>
-            <select className="form-input" value={sport} onChange={(e) => setSport(e.target.value)}>
-              <option value="racing">Racing</option>
-              <option value="nba">Basketball (NBA)</option>
-              <option value="afl">AFL</option>
-              <option value="nrl">NRL</option>
-              <option value="soccer">Soccer</option>
-              <option value="golf">Golf</option>
-              <option value="mma">MMA</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Event ID</label>
-            <input className="form-input" placeholder="e.g. Squiggle game ID, NBA game ID, or race market ID" value={eventId} onChange={(e) => setEventId(e.target.value)} required />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Event</label>
-            <input className="form-input" placeholder="e.g. Collingwood vs Carlton" value={eventName} onChange={(e) => setEventName(e.target.value)} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Bet Type</label>
-            <select className="form-input" value={betType} onChange={(e) => setBetType(e.target.value)}>
-              {betTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Selection</label>
-            <input className="form-input" placeholder="Must match the prediction selection for auto-settlement" value={selection} onChange={(e) => setSelection(e.target.value)} required />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
-            <div className="form-group">
-              <label className="form-label">Odds</label>
-              <input className="form-input" type="number" step="0.01" min="1.01" placeholder="Blank uses fair odds" value={odds} onChange={(e) => setOdds(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">Stake ($)</label>
-              <input className="form-input" type="number" step="1" min="1" placeholder="e.g. 10" value={stake} onChange={(e) => setStake(e.target.value)} required />
-            </div>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Notes</label>
-            <input className="form-input" placeholder="Optional rationale or bookmaker reference" value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </div>
-          <button type="submit" className="btn btn-primary btn-block" disabled={loading}>
-            <Save size={16} /> {loading ? "Saving..." : "Log Paper Bet"}
-          </button>
-        </form>
-      </div>
-
-      <div className="disclaimer" style={{ marginTop: "1rem" }}>
-        Paper bets are local tracking records only. BetMate does not place wagers or handle payments.
-      </div>
+    <div className="card" style={{ maxWidth: 560, margin: "2rem auto", textAlign: "center" }}>
+      <p style={{ color: "var(--text-muted)" }}>Redirecting to Bankroll bets page...</p>
     </div>
   );
 }
 
 export default function NewBetPage() {
   return (
-    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 300 }} /></div>}>
+    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 100 }} /></div>}>
       <NewBetContent />
     </Suspense>
   );

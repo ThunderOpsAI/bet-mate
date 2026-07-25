@@ -170,14 +170,13 @@ function BetsContent() {
             </select>
             <select className="form-input paper-bet-filter" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
               <option value="all">All Sources</option>
-              <option value="manual">Manual</option>
+              <option value="manual">Betslip</option>
               <option value="strategy_copy">Strategy Copy</option>
             </select>
             <input className="form-input paper-bet-filter" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
             <input className="form-input paper-bet-filter" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           </div>
         </div>
-        <Link href="/bets/new" className="btn btn-primary btn-sm"><Plus size={15} /> Log Bet</Link>
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -190,8 +189,7 @@ function BetsContent() {
         <div className="empty-state">
           <div className="empty-icon"><ListIcon size={48} /></div>
           <h4>No bankroll entries found</h4>
-          <p>Try adjusting the filters or log a new bet.</p>
-          <Link href="/bets/new" className="btn btn-primary" style={{ marginTop: "1rem" }}><Plus size={16} /> Log Bet</Link>
+          <p>Paper bets are automatically logged here when you place bets in the Betslip or copy strategy cards.</p>
         </div>
       ) : (
         <div className="bet-list">

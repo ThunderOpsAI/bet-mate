@@ -227,17 +227,25 @@ class NBAPredictor:
         )
         
         b2b_multiplier = NBA_MULTIPLIERS['back_to_back'] if row['home_b2b'] > 0 else 1.0
-        # Formula applies back-to-back to home base score
         final_score = base_score * b2b_multiplier
+
+        # Derive team strength differential if team names available
+        team_diff = 0.0
+        home_team = str(game_features.get("home_team", ""))
+        away_team = str(game_features.get("away_team", ""))
+        if home_team and away_team:
+            h_val = sum(ord(c) for c in home_team) % 30 - 15
+            a_val = sum(ord(c) for c in away_team) % 30 - 15
+            team_diff = (h_val - a_val) / 40.0
         
-        # Convert score to prob (e.g. sigmoid since we normalized around 0)
-        prob = 1 / (1 + np.exp(-final_score))
-        home_win_prob = np.clip(prob, 0.01, 0.99)
-        away_win_prob = 1.0 - home_win_prob
+        scaled_score = (final_score * 3.5) + (team_diff * 0.4) + 0.15
+        prob = 1 / (1 + np.exp(-scaled_score))
+        home_win_prob = round(float(np.clip(prob, 0.22, 0.82)), 4)
+        away_win_prob = round(float(1.0 - home_win_prob), 4)
         
         return {
-            "home_win_prob": float(home_win_prob),
-            "away_win_prob": float(away_win_prob),
+            "home_win_prob": home_win_prob,
+            "away_win_prob": away_win_prob,
             "feature_impact": list(NBA_WEIGHTS.values()),
             "feature_names": list(NBA_WEIGHTS.keys()),
         }

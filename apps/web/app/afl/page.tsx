@@ -40,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import { deriveFallbackWinProb } from "../lib/fallbackProbability";
 
 type AFLGame = {
   game_id: string;
@@ -457,8 +458,9 @@ export default function AFLPage() {
           const awayScore = toScore(liveScore?.ascore ?? game.ascore);
           const gameComplete = toScore(liveScore?.complete ?? game.complete) ?? 0;
           const scoreLabel = formatScoreLabel(homeScore, awayScore, gameComplete);
-          const homePct = prediction?.predictions?.home_win_probability ?? 50;
-          const awayPct = prediction?.predictions?.away_win_probability ?? 50;
+          const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
+          const homePct = prediction?.predictions?.home_win_probability ?? fallback.homePct;
+          const awayPct = prediction?.predictions?.away_win_probability ?? fallback.awayPct;
           const homeWins = homePct > awayPct;
           const isExpanded = expandedGame === game.game_id;
           const confidenceSignal = prediction

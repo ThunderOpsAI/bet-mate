@@ -187,12 +187,22 @@ export default function BlackbookPage() {
 
   if (!user || user.id === "guest") {
     return (
-      <div className="status-stack" style={{ padding: "2rem" }}>
-        <ErrorState
-          title="Login required"
-          message="Please log in to view and manage your Blackbook watch rules."
-          tone="info"
-        />
+      <div style={{ maxWidth: "600px", margin: "3rem auto", padding: "2rem", textAlign: "center" }} className="card">
+        <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(6, 182, 212, 0.12)", border: "1px solid rgba(6, 182, 212, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem", color: "var(--accent)" }}>
+          <BookOpen size={28} />
+        </div>
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>Blackbook Restricted in Guest Mode</h2>
+        <p style={{ color: "var(--text-muted)", lineHeight: 1.6, marginBottom: "1.75rem", fontSize: "0.92rem" }}>
+          Guest mode allows browsing all main racing and sports pages. Blackbook watch rules, horse/team tracking, and automated trigger alerts are reserved for registered accounts.
+        </p>
+        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+          <Link href="/register" className="btn btn-primary" style={{ padding: "0.7rem 1.4rem" }}>
+            Create Account
+          </Link>
+          <Link href="/login" className="btn btn-secondary" style={{ padding: "0.7rem 1.4rem" }}>
+            Sign In
+          </Link>
+        </div>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   BarChart3,
@@ -219,7 +220,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function AnalyticsPage() {
-  const { token } = useAuth();
+  const { user, token } = useAuth();
   const [activeTab, setActiveTab] = useState<AnalyticsTab>("user");
   const [mlSportFilter, setMlSportFilter] = useState("all");
   const [models, setModels] = useState<ModelMetadata[]>([]);
@@ -431,6 +432,28 @@ export default function AnalyticsPage() {
         <div className="loading-pulse">
           <BarChart3 size={48} />
           <p>Loading analytics...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user || user.id === "guest") {
+    return (
+      <div style={{ maxWidth: "600px", margin: "3rem auto", padding: "2rem", textAlign: "center" }} className="card">
+        <div style={{ width: "56px", height: "56px", borderRadius: "16px", background: "rgba(6, 182, 212, 0.12)", border: "1px solid rgba(6, 182, 212, 0.3)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 1.25rem", color: "var(--accent)" }}>
+          <BarChart3 size={28} />
+        </div>
+        <h2 style={{ fontSize: "1.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>Analytics Restricted in Guest Mode</h2>
+        <p style={{ color: "var(--text-muted)", lineHeight: 1.6, marginBottom: "1.75rem", fontSize: "0.92rem" }}>
+          Guest mode allows browsing all main racing and sports pages. User bankroll performance, strategy ROI history, and ML calibration telemetry are reserved for registered accounts.
+        </p>
+        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
+          <Link href="/register" className="btn btn-primary" style={{ padding: "0.7rem 1.4rem" }}>
+            Create Account
+          </Link>
+          <Link href="/login" className="btn btn-secondary" style={{ padding: "0.7rem 1.4rem" }}>
+            Sign In
+          </Link>
         </div>
       </div>
     );

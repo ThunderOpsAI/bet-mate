@@ -314,36 +314,36 @@ export default function VariantA_CyberpunkTerminal({
 
       {/* Main Content Area */}
       <div className="max-w-7xl mx-auto p-6 md:p-8 space-y-12">
-        {/* Signal Feeds Component */}
-        <div className="space-y-3 mb-10">
+        {/* Signal Feeds Horizontal Selector with extra spacing */}
+        <div className="space-y-4 mb-10 mt-3">
           <div className="flex items-center justify-between">
             <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
               SIGNAL FEEDS
             </h2>
           </div>
-          <div className="flex items-center gap-3.5 overflow-x-auto pb-4 scrollbar-none">
+          <div className="flex items-center gap-4 overflow-x-auto pb-4 pt-1 scrollbar-none">
             {sportsList.map((sport) => {
               const active = selectedSportFilter === sport.id;
               return (
                 <button
                   key={sport.id}
                   onClick={() => setSelectedSportFilter(sport.id)}
-                  className={`group flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
+                  className={`group flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
                     active
                       ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
                       : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
                   }`}
                 >
-                  <div className="flex items-center gap-3">
-                    {/* Circular Emoji Badge with generous padding & perfect centering */}
+                  <div className="flex items-center gap-3.5">
+                    {/* Circular Emoji Badge */}
                     <span className="w-9 h-9 rounded-full bg-slate-800/90 border border-slate-700/60 flex items-center justify-center text-base p-1.5 shrink-0 shadow-inner group-hover:scale-105 transition-transform">
                       {sport.emoji}
                     </span>
                     <span>{sport.label}</span>
                   </div>
-                  {/* Circular/Pill Count Badge with generous padding & perfect centering */}
-                  <span className="min-w-[32px] h-7 px-3 py-1 rounded-full bg-cyan-500/15 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30 flex items-center justify-center leading-none text-center shadow-sm">
+                  {/* Circular/Pill Count Badge with generous padding & border ring */}
+                  <span className="min-w-[38px] h-7 px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-bold border border-emerald-500/40 ring-1 ring-emerald-500/25 flex items-center justify-center leading-none text-center shadow-md ml-2">
                     {sport.count}
                   </span>
                 </button>
@@ -352,8 +352,8 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full items-start mb-12">
+        {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) with extra top/bottom margin */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full items-start mt-6 mb-16">
           {/* Left Column: Next Racing Card */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
@@ -531,8 +531,8 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* Bottom Full-Width Section: HIGH EV FEED */}
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 md:p-8 mt-14 pt-8 border-t border-slate-800/80 shadow-2xl space-y-6">
+        {/* Bottom Full-Width Section: HIGH EV FEED with generous top spacing */}
+        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 md:p-8 mt-20 pt-10 border-t border-slate-800/80 shadow-2xl space-y-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
               <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />

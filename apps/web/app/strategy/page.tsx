@@ -4,6 +4,8 @@ import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import { Bot, Brain, TrendingUp, Wallet } from "lucide-react";
 import PaperBetAction from "../components/PaperBetAction";
+import GuestModal from "../components/GuestModal";
+import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
 
 type SystemBet = {
@@ -53,6 +55,8 @@ type StrategyCard = {
 };
 
 export default function StrategyPage() {
+  const { user } = useAuth();
+  const [showGuestModal, setShowGuestModal] = useState(false);
   const [cards, setCards] = useState<StrategyCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -82,6 +86,10 @@ export default function StrategyPage() {
   async function handleBobChat(event: FormEvent) {
     event.preventDefault();
     if (!chatInput.trim()) return;
+    if (!user || user.id === "guest") {
+      setShowGuestModal(true);
+      return;
+    }
     setChatLoading(true);
     try {
       const response = await fetch(`${ML_API}/api/bob/chat`, {
@@ -238,6 +246,7 @@ export default function StrategyPage() {
           </div>
         )}
       </div>
+      <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
     </div>
   );
 }

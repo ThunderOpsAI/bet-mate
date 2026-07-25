@@ -18,6 +18,8 @@ import {
   hasEventStarted,
 } from "../lib/betslip/betKey";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
+import { useAuth } from "../providers/AuthProvider";
+import GuestModal from "./GuestModal";
 
 type BetIssue = {
   tone: "warning" | "danger" | "info";
@@ -27,6 +29,8 @@ type BetIssue = {
 };
 
 export default function PaperBetslip() {
+  const { user } = useAuth();
+  const [showGuestModal, setShowGuestModal] = useState(false);
   const {
     bets,
     clearBetslip,
@@ -165,6 +169,10 @@ export default function PaperBetslip() {
     (reviewIssues.length === 0 || acknowledgeOddsChanges);
 
   const handlePlaceBets = async () => {
+    if (!user || user.id === "guest") {
+      setShowGuestModal(true);
+      return;
+    }
     if (!canSubmit) {
       return;
     }
@@ -786,6 +794,7 @@ export default function PaperBetslip() {
           }
         }
       `}</style>
+      <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
     </div>
   );
 }

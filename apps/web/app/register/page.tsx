@@ -27,7 +27,9 @@ function RegisterForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [startingBankroll, setStartingBankroll] = useState(1000);
+  const [startingBankroll, setStartingBankroll] = useState(10000);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -62,6 +64,10 @@ function RegisterForm() {
     }
     if (startingBankroll <= 0) {
       setError("Starting bankroll must be a positive number.");
+      return;
+    }
+    if (!acceptedTerms) {
+      setError("You must accept the Terms & Conditions to create an account.");
       return;
     }
 
@@ -236,24 +242,53 @@ function RegisterForm() {
               />
             </div>
             <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-              {[250, 500, 1000, 2500].map((preset) => (
+              {[1000, 2500, 5000, 10000].map((preset) => (
                 <button
                   key={preset}
                   type="button"
                   className={`badge ${startingBankroll === preset ? "badge-accent" : "badge-muted"}`}
-                  style={{ cursor: "pointer", border: "1px solid var(--border)" }}
+                  style={{ cursor: "pointer", border: "1px solid var(--border)", padding: "0.35rem 0.65rem", fontSize: "0.82rem" }}
                   onClick={() => setStartingBankroll(preset)}
                 >
-                  ${preset}
+                  ${preset.toLocaleString()}
                 </button>
               ))}
             </div>
           </div>
 
+          <div className="form-group" style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-primary)" }}>
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                disabled={submitting}
+                style={{ marginTop: "0.2rem", accentColor: "var(--accent)" }}
+                required
+              />
+              <span>
+                I accept the <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Terms &amp; Conditions</a> and <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Privacy Policy</a> <span style={{ color: "var(--red)" }}>*</span>
+              </span>
+            </label>
+
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-muted)" }}>
+              <input
+                type="checkbox"
+                checked={marketingOptIn}
+                onChange={(e) => setMarketingOptIn(e.target.checked)}
+                disabled={submitting}
+                style={{ marginTop: "0.2rem", accentColor: "var(--accent)" }}
+              />
+              <span>
+                Send me strategy updates, model alerts, and product news (optional)
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
             className="btn btn-primary btn-block"
-            disabled={submitting}
+            disabled={submitting || !acceptedTerms}
             style={{ marginTop: "1.25rem" }}
           >
             {submitting ? (

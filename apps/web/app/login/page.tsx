@@ -24,6 +24,7 @@ function LoginForm() {
   const { user, login } = useAuth();
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -49,6 +50,10 @@ function LoginForm() {
     }
     if (!password) {
       setError("Please enter your password.");
+      return;
+    }
+    if (!acceptedTerms) {
+      setError("You must accept the Terms & Conditions to sign in.");
       return;
     }
 
@@ -176,10 +181,26 @@ function LoginForm() {
             </div>
           </div>
 
+          <div className="form-group" style={{ marginTop: "1rem" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: "0.6rem", cursor: "pointer", fontSize: "0.85rem", color: "var(--text-primary)" }}>
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                disabled={submitting}
+                style={{ marginTop: "0.2rem", accentColor: "var(--accent)" }}
+                required
+              />
+              <span>
+                I accept the <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Terms &amp; Conditions</a> and <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Privacy Policy</a> <span style={{ color: "var(--red)" }}>*</span>
+              </span>
+            </label>
+          </div>
+
           <button
             type="submit"
             className="btn btn-primary btn-block"
-            disabled={submitting}
+            disabled={submitting || !acceptedTerms}
             style={{ marginTop: "1.25rem" }}
           >
             {submitting ? (
