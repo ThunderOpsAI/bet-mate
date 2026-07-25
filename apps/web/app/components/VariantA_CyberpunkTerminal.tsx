@@ -312,17 +312,17 @@ export default function VariantA_CyberpunkTerminal({
         </div>
       </div>
 
-      {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto p-6 md:p-8 space-y-12">
+      {/* Main Content Area with generous section spacing */}
+      <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-16 md:space-y-20">
         {/* Signal Feeds Horizontal Selector with extra spacing */}
-        <div className="space-y-4 mb-10 mt-3">
-          <div className="flex items-center justify-between">
+        <div className="space-y-5 mb-14 mt-4 pt-2">
+          <div className="flex items-center justify-between mb-2">
             <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
               SIGNAL FEEDS
             </h2>
           </div>
-          <div className="flex items-center gap-4 overflow-x-auto pb-4 pt-1 scrollbar-none">
+          <div className="flex items-center gap-4 overflow-x-auto pb-4 pt-2 scrollbar-none">
             {sportsList.map((sport) => {
               const active = selectedSportFilter === sport.id;
               return (
@@ -352,11 +352,11 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) with extra top/bottom margin */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 w-full items-start mt-6 mb-16">
+        {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) with generous top/bottom margin */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-12 w-full items-start mt-10 mb-20">
           {/* Left Column: Next Racing Card */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-7 md:p-8 shadow-xl space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-5 mb-2">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -370,7 +370,7 @@ export default function VariantA_CyberpunkTerminal({
             </div>
 
             {racesData && racesData.length > 0 ? (
-              <div className="flex flex-col gap-3.5">
+              <div className="flex flex-col gap-4 md:gap-5">
                 {racesData.slice(0, 5).map((race, idx) => (
                   <div
                     key={race.race_id || idx}
@@ -427,8 +427,8 @@ export default function VariantA_CyberpunkTerminal({
           </div>
 
           {/* Right Column: Blackbook Alerts Panel */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-6 shadow-xl space-y-5 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-4 gap-3">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-7 md:p-8 shadow-xl space-y-6 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-5 mb-2 gap-3">
               <div className="flex items-center gap-2.5">
                 <Bookmark className="w-5 h-5 text-cyan-400" />
                 <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
@@ -511,7 +511,7 @@ export default function VariantA_CyberpunkTerminal({
               </div>
             ) : (
               /* Empty State for Blackbook */
-              <div className="flex flex-col items-center justify-center py-10 px-6 text-center rounded-2xl bg-slate-950/40 border border-dashed border-cyan-500/30">
+              <div className="flex flex-col items-center justify-center py-12 px-6 text-center rounded-2xl bg-slate-950/40 border border-dashed border-cyan-500/30">
                 <div className="w-12 h-12 rounded-full bg-cyan-950/60 border border-cyan-500/40 flex items-center justify-center mb-3.5 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
                   <Bookmark className="w-6 h-6 text-cyan-400" />
                 </div>
@@ -532,8 +532,8 @@ export default function VariantA_CyberpunkTerminal({
         </div>
 
         {/* Bottom Full-Width Section: HIGH EV FEED with generous top spacing */}
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-6 md:p-8 mt-20 pt-10 border-t border-slate-800/80 shadow-2xl space-y-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-7 md:p-10 mt-24 pt-12 border-t border-slate-800/80 shadow-2xl space-y-8">
+          <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
               <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />
               HIGH EV FEED ({filteredOpps.length} Model Signals)
@@ -541,7 +541,7 @@ export default function VariantA_CyberpunkTerminal({
             <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
             {filteredOpps.map((opp, idx) => {
               let SportIcon = Zap;
               if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;

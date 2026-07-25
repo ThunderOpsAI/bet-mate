@@ -224,35 +224,28 @@ function RegisterForm() {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="startingBankroll">
-              Starting Bankroll ($)
-            </label>
-            <div className="input-with-icon" style={{ marginBottom: "0.5rem" }}>
-              <span className="input-icon-left">
-                <DollarSign size={18} />
+            <label className="form-label">Starting Bankroll</label>
+            <div
+              className="form-input"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0.5rem",
+                fontWeight: 700,
+                color: "var(--accent)",
+                backgroundColor: "rgba(6, 182, 212, 0.08)",
+                border: "1px solid rgba(6, 182, 212, 0.25)",
+                cursor: "not-allowed",
+                padding: "0.75rem 0.85rem",
+              }}
+            >
+              <DollarSign size={18} />
+              <span>
+                $10,000{" "}
+                <span style={{ fontWeight: 400, fontSize: "0.82rem", color: "var(--text-muted)", marginLeft: "0.5rem" }}>
+                  (Locked Starting Bankroll)
+                </span>
               </span>
-              <input
-                id="startingBankroll"
-                type="number"
-                min="10"
-                className="form-input has-left-icon"
-                value={startingBankroll}
-                onChange={(e) => setStartingBankroll(Number(e.target.value))}
-                disabled={submitting}
-              />
-            </div>
-            <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
-              {[1000, 2500, 5000, 10000].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  className={`badge ${startingBankroll === preset ? "badge-accent" : "badge-muted"}`}
-                  style={{ cursor: "pointer", border: "1px solid var(--border)", padding: "0.35rem 0.65rem", fontSize: "0.82rem" }}
-                  onClick={() => setStartingBankroll(preset)}
-                >
-                  ${preset.toLocaleString()}
-                </button>
-              ))}
             </div>
           </div>
 
