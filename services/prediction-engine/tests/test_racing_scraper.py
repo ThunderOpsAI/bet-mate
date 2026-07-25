@@ -412,3 +412,30 @@ def test_load_metro_allowlist_file_not_found(monkeypatch):
     res = scraper.load_metro_allowlist(force_reload=True)
     assert res == {}
 
+
+def test_fetch_live_races_paginates_beyond_single_page(monkeypatch):
+    calls = []
+
+    def fake_post(url, data=None, headers=None, timeout=None):
+        payload = scraper.json.loads(data)
+        calls.append(payload)
+        from_record = int(payload.get("from", 0))
+        if url.endswith("listMarketCatalogue/"):
+            if from_record == 0:
+                # Return page size (1000) mock items to trigger next page fetch
+                return _DummyLoginResponse([{"marketId": f"m_{i}", "marketName": f"R1 1200m", "event": {"venue": "Flemington"}} for i in range(1000)])
+            else:
+                # Return 2 items on second page
+                return _DummyLoginResponse([{"marketId": f"m_{1000+i}", "marketName": f"R1 1200m", "event": {"venue": "Caulfield"}} for i in range(2)])
+        elif url.endswith("listMarketBook/"):
+            return _DummyLoginResponse([])
+        raise ValueError(f"Unexpected url {url}")
+
+    monkeypatch.setattr(scraper.requests, "post", fake_post)
+    races = scraper._fetch_live_races(headers={"X-Authentication": "token"}, target_date=scraper.date(2026, 7, 2), allow_mock=False)
+
+    assert len(calls) >= 2
+    assert len(races) == 1002
+    assert calls[0]["from"] == "0"
+    assert calls[1]["from"] == "1000"
+

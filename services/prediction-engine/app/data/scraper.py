@@ -233,7 +233,7 @@ def fetch_today_races(run_date: Optional[str] = None, allow_mock: Optional[bool]
     final_races = []
     for race in races:
         prepared = _prepare_race_card(race, default_meeting_date=target_date_str)
-        if prepared.get("meeting_date") != target_date_str:
+        if prepared.get("meeting_date") and prepared.get("meeting_date") != target_date_str:
             continue
         if not _is_allowed_meeting(prepared):
             continue
@@ -372,41 +372,56 @@ def _fallback_races(target_date: date, allow_mock: bool, reason: str) -> list[di
 def _fetch_live_races(headers, target_date: date, allow_mock: bool = True):
     api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
     market_start_time = _betfair_market_time_window(target_date)
-    market_filter = {
-        "filter": {
-            "eventTypeIds": ["7"],
-            "marketCountries": ["AU"],
-            "marketTypeCodes": ["WIN"],
-            "marketStartTime": market_start_time,
-        },
-        "maxResults": "200",
-        "sort": "FIRST_TO_START",
-        "marketProjection": [
-            "EVENT",
-            "RUNNER_DESCRIPTION",
-            "MARKET_START_TIME",
-            "MARKET_DESCRIPTION",
-        ],
-    }
+    
+    all_markets = []
+    from_record = 0
+    page_size = 1000
 
-    response = requests.post(
-        api_url,
-        data=json.dumps(market_filter),
-        headers=headers,
-        timeout=15,
-    )
-    response.raise_for_status()
-    markets = response.json()
+    while True:
+        market_filter = {
+            "filter": {
+                "eventTypeIds": ["7"],
+                "marketCountries": ["AU"],
+                "marketTypeCodes": ["WIN"],
+                "marketStartTime": market_start_time,
+            },
+            "maxResults": str(page_size),
+            "from": str(from_record),
+            "sort": "FIRST_TO_START",
+            "marketProjection": [
+                "EVENT",
+                "RUNNER_DESCRIPTION",
+                "MARKET_START_TIME",
+                "MARKET_DESCRIPTION",
+            ],
+        }
 
-    if not markets:
+        response = requests.post(
+            api_url,
+            data=json.dumps(market_filter),
+            headers=headers,
+            timeout=15,
+        )
+        response.raise_for_status()
+        markets = response.json()
+
+        if not markets:
+            break
+
+        all_markets.extend(markets)
+        if len(markets) < page_size:
+            break
+        from_record += len(markets)
+
+    if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
         return _fallback_races(target_date, allow_mock, reason="no markets returned")
 
-    market_ids = [market["marketId"] for market in markets]
+    market_ids = [market["marketId"] for market in all_markets]
     prices = _fetch_prices(headers, market_ids)
 
     races = []
-    for market in markets:
+    for market in all_markets:
         event = market.get("event", {})
         venue_raw = event.get("venue", event.get("name", "Unknown"))
         market_name = market.get("marketName", "")
