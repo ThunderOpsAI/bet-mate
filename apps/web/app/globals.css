@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
 
 :root {
   /* Core palette — soft, cohesive modern dark theme */
@@ -42,6 +43,21 @@
   --transition-fast: 150ms ease;
   --transition: 250ms ease;
   --transition-slow: 400ms ease;
+}
+
+/* Explicit 2-column side-by-side grid */
+.cyberpunk-two-col-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.5rem;
+  width: 100%;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .cyberpunk-two-col-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 * {

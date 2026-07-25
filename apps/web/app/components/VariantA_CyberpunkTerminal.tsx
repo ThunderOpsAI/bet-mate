@@ -45,13 +45,13 @@ export default function VariantA_CyberpunkTerminal({
   }, [toastMsg]);
 
   const sportsList = [
-    { id: "all", label: "All Signal Feeds", count: 24 },
-    { id: "racing", label: "Racing Hub", count: 5, icon: Trophy },
-    { id: "afl", label: "AFL", count: 4, icon: Zap },
-    { id: "nrl", label: "NRL", count: 3, icon: Zap },
-    { id: "nba", label: "NBA", count: 6, icon: Flame },
-    { id: "soccer", label: "Soccer", count: 4, icon: Flame },
-    { id: "blackbook", label: "Blackbookers", count: 2, icon: Bookmark },
+    { id: "all", label: "All Signal Feeds", count: 24, emoji: "⚡" },
+    { id: "racing", label: "Racing Hub", count: 5, emoji: "🏇" },
+    { id: "afl", label: "AFL", count: 4, emoji: "🏉" },
+    { id: "nrl", label: "NRL", count: 3, emoji: "🏉" },
+    { id: "nba", label: "NBA", count: 6, emoji: "🏀" },
+    { id: "soccer", label: "Soccer", count: 4, emoji: "⚽" },
+    { id: "blackbook", label: "Blackbookers", count: 2, emoji: "📖" },
   ];
 
   const blackbookAlerts = [
@@ -84,8 +84,8 @@ export default function VariantA_CyberpunkTerminal({
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-black">
-      {/* Top Banner Live Ticker */}
-      <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center gap-6 overflow-x-auto scrollbar-none">
+      {/* Top Banner Live Ticker / Live Matrix Signal Feed */}
+      <div className="bg-slate-900 border-b border-slate-800 px-6 py-2 flex items-center gap-6 overflow-x-auto scrollbar-none">
         <div className="flex items-center gap-2 text-emerald-500 font-bold uppercase text-[11px] whitespace-nowrap shrink-0">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
           LIVE MATRIX
@@ -93,18 +93,25 @@ export default function VariantA_CyberpunkTerminal({
         
         <div className="flex items-center gap-4">
           {[
-            { id: 1, title: "R3 Eagle Farm", time: "3m 40s", tag: "+14.2% EV Alert", tagColor: "text-emerald-400" },
-            { id: 2, title: "R5 Randwick", time: "18m 15s", tag: "Blackbooker", tagColor: "text-cyan-400" },
-            { id: 3, title: "Lakers vs Bulls", time: "Q3 04:12", tag: "Model Upgrade", tagColor: "text-emerald-400" }
-          ].map((alert) => (
-            <div key={alert.id} className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 shadow-sm flex flex-col gap-1 shrink-0 min-w-[160px]">
-              <div className="flex justify-between items-center">
-                <strong className="text-white text-xs">{alert.title}</strong>
-                <span className="text-[10px] text-slate-400">{alert.time}</span>
+            { id: 1, title: "R3 Eagle Farm 9482", time: "3m 40s", tag: "+14.2% EV Alert 105", tagColor: "text-emerald-400" },
+            { id: 2, title: "R5 Randwick 8291", time: "18m 15s", tag: "Blackbooker 302", tagColor: "text-cyan-400" },
+            { id: 3, title: "Lakers vs Bulls 5930", time: "Q3 04:12", tag: "Model Upgrade 84", tagColor: "text-emerald-400" }
+          ].map((alert) => {
+            const cleanTitle = alert.title.replace(/\s+\d+$/g, "").trim();
+            const cleanTag = alert.tag.replace(/\s+\d+$/g, "").trim();
+            return (
+              <div
+                key={alert.id}
+                className="bg-slate-900 border border-slate-800 rounded-lg p-3 my-2 shadow-sm flex flex-col gap-1 shrink-0 min-w-[160px]"
+              >
+                <div className="flex justify-between items-center gap-2">
+                  <strong className="text-white text-xs">{cleanTitle}</strong>
+                  <span className="text-[10px] text-slate-400">{alert.time}</span>
+                </div>
+                <span className={`text-[11px] font-bold ${alert.tagColor}`}>{cleanTag}</span>
               </div>
-              <span className={`text-[11px] font-bold ${alert.tagColor}`}>{alert.tag}</span>
-            </div>
-          ))}
+            );
+          })}
         </div>
         
         <div className="ml-auto shrink-0 flex items-center gap-2">
@@ -147,39 +154,36 @@ export default function VariantA_CyberpunkTerminal({
           </div>
 
           {/* Quick Bankroll Barometer */}
-          <div className="flex flex-col lg:items-end gap-1 w-full lg:w-auto font-sans">
+          <div className="flex items-center gap-3 font-sans">
+            <span className="text-slate-500 text-2xl font-medium">$</span>
             <span className="text-xs text-slate-400 font-medium">Active Bankroll</span>
-            <div className="flex items-center gap-3">
-              <span className="text-slate-500 text-2xl font-medium">$</span>
-              <span className="text-4xl font-bold text-white tracking-tight">4,250.00</span>
-              <TrendingUp className="w-5 h-5 text-emerald-500" />
-            </div>
+            <span className="text-3xl font-bold text-slate-50">4,250.00</span>
+            <TrendingUp className="w-5 h-5 text-emerald-500" />
           </div>
         </div>
       </div>
 
       {/* Main Content Area */}
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <div className="max-w-7xl mx-auto p-8 space-y-12">
         {/* Sport Context Filter Bar */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-slate-800/80">
+        <div className="flex items-center gap-3 overflow-x-auto pb-4 scrollbar-none border-b border-slate-800/80 mb-4">
           {sportsList.map((sport) => {
-            const Icon = sport.icon;
             const active = selectedSportFilter === sport.id;
             return (
               <button
                 key={sport.id}
                 onClick={() => setSelectedSportFilter(sport.id)}
-                className={`flex justify-between items-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold whitespace-nowrap transition-all ${
+                className={`min-w-[135px] flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold whitespace-nowrap transition-all ${
                   active
-                    ? "bg-emerald-500/15 border-emerald-500 text-emerald-400 font-bold"
+                    ? "bg-emerald-500/15 border-emerald-500 text-emerald-400 font-bold shadow-[0_0_15px_rgba(16,185,129,0.15)]"
                     : "bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  {Icon && <Icon className="w-4 h-4" />}
+                  <span>{sport.emoji}</span>
                   <span>{sport.label}</span>
                 </div>
-                <span className="bg-white/10 text-xs px-2 py-0.5 rounded-full font-mono">
+                <span className="bg-white/10 text-cyan-400 text-xs px-2 py-0.5 rounded-full font-mono">
                   {sport.count}
                 </span>
               </button>
@@ -187,33 +191,33 @@ export default function VariantA_CyberpunkTerminal({
           })}
         </div>
 
-        {/* 2-Column Split: Left = Next 5 Racing (3/5 Grid Width) | Right = Blackbook Alerts (2/5 Grid Width) */}
-        <div className="grid grid-cols-1 xl:grid-cols-12 lg:grid-cols-12 md:grid-cols-1 gap-8 items-start">
-          {/* Left Column: Next 5 Racing Countdown (7 cols on LG) */}
-          <div className="xl:col-span-7 lg:col-span-7 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-              <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-                <Clock className="w-4 h-4 text-emerald-400" />
+        {/* 2-Column Grid: Next to Jump (Left) & Blackbook (Right) */}
+        <div className="cyberpunk-two-col-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-2 gap-8 w-full items-start">
+          {/* Left Column: Next 5 Racing Countdown */}
+          <div className="space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <h2 className="text-xl font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
+                <Clock className="w-5 h-5 text-emerald-400" />
                 Next to Jump (Thoroughbred & Greyhounds)
               </h2>
               <Link
                 href="/racing"
-                className="text-xs text-emerald-400 hover:underline flex items-center gap-1 font-semibold"
+                className="text-xs text-emerald-400 hover:underline flex items-center gap-1 font-semibold shrink-0"
               >
                 Race Hub <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-3.5">
               {racesData.slice(0, 5).map((race, idx) => (
                 <div
                   key={race.race_id || idx}
-                  className="bg-slate-800/80 rounded-lg p-3 border border-slate-700 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-750 transition-colors group cursor-pointer gap-4"
+                  className="bg-slate-800/80 rounded-xl p-4 border border-slate-700/80 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-750 transition-colors group cursor-pointer gap-4"
                 >
                   {/* Left Side: Race Details & Horse */}
                   <div className="flex flex-col gap-1.5 w-full sm:w-auto">
                     <div className="flex items-center gap-2.5">
-                      <span className="text-sm font-bold text-white">R{race.race_number} {race.venue}</span>
+                      <span className="text-base font-bold text-white">R{race.race_number} {race.venue}</span>
                       <span className="text-xs text-slate-400">{race.distance}m</span>
                       <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
                         {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
@@ -233,7 +237,7 @@ export default function VariantA_CyberpunkTerminal({
                     >
                       Race Card <ArrowUpRight className="w-3.5 h-3.5" />
                     </Link>
-                    <button className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded font-mono text-sm font-bold text-white transition-colors">
+                    <button className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-mono text-sm font-bold text-white transition-colors">
                       ${race.horses?.[0]?.betfair_back_price || "3.20"}
                     </button>
                   </div>
@@ -242,18 +246,18 @@ export default function VariantA_CyberpunkTerminal({
             </div>
           </div>
 
-          {/* Right Column: Blackbook Alerts Panel (5 cols on LG) */}
-          <div className="xl:col-span-5 lg:col-span-5 space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-              <div className="flex items-center gap-2">
-                <Bookmark className="w-4 h-4 text-cyan-400 animate-pulse" />
-                <h2 className="text-sm font-bold text-cyan-300 uppercase tracking-wider">
+          {/* Right Column: Blackbook Alerts Panel */}
+          <div className="space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <Bookmark className="w-5 h-5 text-cyan-400 animate-pulse" />
+                <h2 className="text-xl font-bold text-cyan-300 uppercase tracking-wider">
                   Blackbook Runners Today
                 </h2>
               </div>
               <Link
                 href="/blackbook"
-                className="text-xs text-cyan-400 hover:underline flex items-center gap-1 font-semibold"
+                className="text-xs text-cyan-400 hover:underline flex items-center gap-1 font-semibold shrink-0"
               >
                 Blackbook <ChevronRight className="w-3.5 h-3.5" />
               </Link>
@@ -267,7 +271,7 @@ export default function VariantA_CyberpunkTerminal({
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2.5">
-                      <span className="text-[15px] font-bold text-white group-hover:text-cyan-300 transition-colors">
+                      <span className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
                         {item.horse}
                       </span>
                       <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-2 py-0.5 rounded-md border border-slate-700/50">
@@ -309,29 +313,29 @@ export default function VariantA_CyberpunkTerminal({
         </div>
 
         {/* Bottom Full-Width Section: High-EV Value Feed */}
-        <div className="pt-4">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
+        <div className="pt-14 border-t border-slate-800/80 mt-16 space-y-6">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
               High EV Value Feed ({filteredOpps.length} Model Signals)
             </h2>
             <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             {filteredOpps.map((opp, idx) => {
               let SportIcon = Zap;
               if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;
               else if (opp.sport?.toLowerCase() === "nba") SportIcon = Flame;
               else if (opp.sport?.toLowerCase() === "soccer") SportIcon = Activity;
               else if (opp.sport?.toLowerCase() === "mma") SportIcon = ShieldCheck;
-              else if (opp.sport?.toLowerCase() === "golf") SportIcon = Flag; // Note: if Flag isn't imported, it might fail. Let's stick to Activity for unknown.
+              else if (opp.sport?.toLowerCase() === "golf") SportIcon = Flag;
               else SportIcon = Activity;
 
               return (
                 <div
                   key={opp.id || idx}
-                  className="relative bg-slate-900/40 backdrop-blur-sm border border-white/5 rounded-xl p-4 hover:bg-slate-800/60 hover:border-cyan-500/30 transition-all duration-200 hover:-translate-y-0.5 group flex flex-col justify-between overflow-hidden"
+                  className="relative bg-slate-900/40 backdrop-blur-sm border border-white/5 rounded-xl p-5 hover:bg-slate-800/60 hover:border-cyan-500/30 transition-all duration-200 hover:-translate-y-0.5 group flex flex-col justify-between overflow-hidden"
                 >
                   {/* Top Row (Metadata) */}
                   <div className="flex items-center justify-between mb-4">
@@ -352,7 +356,7 @@ export default function VariantA_CyberpunkTerminal({
                       <div className="text-[10px] text-slate-500 font-medium uppercase mb-1.5">
                         Model Selection
                       </div>
-                      <div className="text-xl font-black text-white font-sans leading-none group-hover:text-cyan-300 transition-colors">
+                      <div className="text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
                         {opp.selection}
                       </div>
                     </div>
