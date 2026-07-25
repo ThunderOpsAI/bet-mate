@@ -38,30 +38,7 @@ _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
-MOCK_RUNNER_NAMES = [
-    "Southern Crown",
-    "Midnight Signal",
-    "Velvet Charge",
-    "Golden Static",
-    "Harbour Light",
-    "Coastal Theory",
-    "Desert Anthem",
-    "Silver Borough",
-    "Quick Stepper",
-    "Sunline Echo",
-    "Orbit Parade",
-    "North Harbour",
-    "Rapid Current",
-    "Royal Ledger",
-]
-MOCK_JOCKEYS = [
-    "J. McNeil",
-    "D. Oliver",
-    "J. Kah",
-    "T. Clark",
-    "C. Williams",
-    "B. Melham",
-]
+
 
 
 def _login():
@@ -214,44 +191,29 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
     return _metro_allowlist_cache
 
 
-def fetch_today_races(run_date: Optional[str] = None, allow_mock: Optional[bool] = None):
+def fetch_today_races(run_date: Optional[str] = None):
     target_date = _resolve_run_date(run_date)
     target_date_str = target_date.isoformat()
-    should_allow_mock = _should_allow_mock(allow_mock)
     headers = _get_api_headers()
 
     if headers:
         try:
-            races = _fetch_live_races(headers, target_date, allow_mock=should_allow_mock)
+            races = _fetch_live_races(headers, target_date)
         except Exception as exc:
             print(f"[Betfair] Live fetch failed ({exc})")
-            races = _fallback_races(target_date, should_allow_mock, reason="live fetch failed")
+            races = []
     else:
-        reason = "authentication unavailable" if _betfair_credentials_present() else "missing credentials"
-        races = _fallback_races(target_date, should_allow_mock, reason=reason)
+        print("[Betfair] authentication unavailable")
+        races = []
 
     final_races = []
     for race in races:
         prepared = _prepare_race_card(race, default_meeting_date=target_date_str)
         if prepared.get("meeting_date") and prepared.get("meeting_date") != target_date_str:
             continue
-        if not _is_allowed_meeting(prepared):
-            continue
         final_races.append(_enrich_with_racing_australia(prepared))
 
     return final_races
-
-
-def _should_allow_mock(allow_mock: Optional[bool]) -> bool:
-    if allow_mock is not None:
-        return allow_mock
-    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    raw = os.getenv("BETMATE_ALLOW_MOCK_RACING", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    return True
 
 
 def _betfair_auth_mode() -> str:
@@ -361,15 +323,7 @@ def _betfair_certificate_status() -> str:
     )
 
 
-def _fallback_races(target_date: date, allow_mock: bool, reason: str) -> list[dict]:
-    if allow_mock:
-        print(f"[Betfair] {reason}, falling back to mock data")
-        return _generate_mock_races(target_date)
-    print(f"[Betfair] {reason}, returning no races because mock data is disabled")
-    return []
-
-
-def _fetch_live_races(headers, target_date: date, allow_mock: bool = True):
+def _fetch_live_races(headers, target_date: date):
     api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
     market_start_time = _betfair_market_time_window(target_date)
     
@@ -415,7 +369,7 @@ def _fetch_live_races(headers, target_date: date, allow_mock: bool = True):
 
     if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
-        return _fallback_races(target_date, allow_mock, reason="no markets returned")
+        return []
 
     market_ids = [market["marketId"] for market in all_markets]
     prices = _fetch_prices(headers, market_ids)
@@ -570,12 +524,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     }
 
 
-def _is_allowed_meeting(race: dict) -> bool:
-    entry = _lookup_allowlist_entry(race.get("venue", ""))
-    if not entry:
-        return True
-    weekday = _meeting_context_for_start_time(race.get("start_time") or None)["weekday"]
-    return weekday in set(entry.get("active_days", []))
+
 
 
 def _lookup_allowlist_entry(venue: str) -> Optional[dict]:
@@ -945,55 +894,5 @@ def _venue_lookup_keys(venue: str) -> list[str]:
     return keys
 
 
-def _generate_mock_races(target_date: Optional[date] = None):
-    active_date = target_date or today_melbourne()
-    rng = random.Random(f"mock-races:{active_date.isoformat()}")
-    venues = ["Flemington", "Randwick", "Caulfield", "Moonee Valley", "Eagle Farm", "Ascot"]
-    races = []
-
-    for venue_index, venue in enumerate(venues):
-        for race_num in range(1, rng.randint(3, 6)):
-            num_horses = rng.randint(8, 12)
-            horses = []
-            runner_names = rng.sample(MOCK_RUNNER_NAMES, k=min(num_horses, len(MOCK_RUNNER_NAMES)))
-            while len(runner_names) < num_horses:
-                runner_names.append(f"{rng.choice(MOCK_RUNNER_NAMES)} {len(runner_names) + 1}")
-
-            for horse_index in range(num_horses):
-                horses.append({
-                    "horse_id": f"h_{venue_index}_{race_num}_{horse_index + 1}",
-                    "name": runner_names[horse_index],
-                    "barrier": horse_index + 1,
-                    "weight": round(rng.uniform(54, 61), 1),
-                    "past_win_rate": round(rng.uniform(0.05, 0.4), 3),
-                    "jockey_win_rate": round(rng.uniform(0.05, 0.3), 3),
-                    "track_condition": rng.randint(1, 4),
-                    "days_since_last_race": rng.randint(7, 45),
-                    "betfair_back_price": round(rng.uniform(2.2, 16.0), 2),
-                    "betfair_implied_prob": 0,
-                    "jockey_name": rng.choice(MOCK_JOCKEYS),
-                    "meeting_type": _lookup_allowlist_entry(venue).get("meeting_type", "unknown") if _lookup_allowlist_entry(venue) else "unknown",
-                    "meeting_region": _lookup_allowlist_entry(venue).get("region", "") if _lookup_allowlist_entry(venue) else "",
-                    "meeting_date": active_date.isoformat(),
-                    "data_source": "mock",
-                })
-
-            for horse in horses:
-                horse["betfair_implied_prob"] = round(1 / horse["betfair_back_price"], 4)
-
-            races.append({
-                "race_id": f"r_{venue_index}_{race_num}",
-                "venue": venue,
-                "race_number": race_num,
-                "distance": rng.choice([1000, 1200, 1400, 1600, 2000]),
-                "start_time": "",
-                "market_name": f"R{race_num} {rng.choice([1000, 1200, 1400])}m",
-                "horses": horses,
-                "source": "mock",
-            })
-
-    return races
-
-
 def filter_allowed_races(races: Iterable[dict]) -> list[dict]:
-    return [_prepare_race_card(race) for race in races if _is_allowed_meeting(_prepare_race_card(race))]
+    return [_prepare_race_card(race) for race in races]
