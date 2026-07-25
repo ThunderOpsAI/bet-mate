@@ -100,11 +100,13 @@ function getPageTitle(path: string) {
   if (path === "/soccer") return "⚽ Soccer Predictions";
   if (path === "/golf") return "⛳ Golf Predictions";
   if (path === "/mma") return "🥊 MMA Predictions";
+  if (path === "/strategy") return "📊 Strategies";
   if (path.startsWith("/races")) return "Race Detail";
   if (path === "/bets/new") return "Log a Bet";
   if (path === "/bets") return "Bankroll";
   if (path === "/bankroll") return "Bankroll";
   if (path === "/analytics") return "Analytics";
+  if (path === "/blackbook") return "Black Book";
   if (path === "/how-it-works") return "How BetMate Works";
   if (path === "/settings") return "Settings";
   return "BetMate";

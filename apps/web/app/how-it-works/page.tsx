@@ -1,109 +1,49 @@
 import Link from "next/link";
-import { BookOpen, Brain, CircleHelp, ShieldCheck, Wallet } from "lucide-react";
-
-const GLOSSARY = [
-  ["Fair odds", "The price implied by BetMate's model probability before you compare it with the market."],
-  ["Calibration", "How closely the model's predicted percentages line up with what happens over time."],
-  ["Paper bet", "A tracked bet that never places money. It is for review, discipline, and learning."],
-  ["Market agreement", "Whether the available market signal broadly supports the model's read."],
-];
+import { Construction, Wrench, Sparkles, ArrowRight } from "lucide-react";
 
 export default function HowItWorksPage() {
   return (
-    <div className="how-it-works-page">
-      <section className="how-hero">
-        <div className="how-hero-copy">
-          <span className="eyebrow">BetMate explained</span>
-          <h1>What the engine does, what it does not do, and how to use it responsibly.</h1>
-          <p>
-            BetMate turns historical form, matchup context, and model calibration into
-            simple probability reads. It is built to support paper betting and better
-            decision-making, not blind trust.
-          </p>
-          <div className="how-hero-actions">
-            <Link href="/" className="btn btn-primary">
-              View predictions
-            </Link>
-            <Link href="/bets" className="btn btn-secondary">
-              Open bankroll
-            </Link>
-          </div>
+    <div className="hiw-page">
+      <section className="hiw-hero">
+        <div className="hiw-icon-wrap">
+          <Construction size={56} />
         </div>
-        <div className="how-diagram-card">
-          <div className="diagram-step">
-            <BookOpen size={18} />
-            <span>Nightly scrape collects fresh racing and game context</span>
-          </div>
-          <div className="diagram-step">
-            <Brain size={18} />
-            <span>Models recalculate probabilities and fair odds</span>
-          </div>
-          <div className="diagram-step">
-            <CircleHelp size={18} />
-            <span>Bob explains the drivers, caution flags, and confidence tone</span>
-          </div>
-          <div className="diagram-step">
-            <Wallet size={18} />
-            <span>You track paper bets, bankroll, and outcomes without placing anything</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="how-grid">
-        <article className="how-card">
-          <h2>Prediction engine</h2>
-          <p>
-            Each sport model estimates win probability from the features already exposed by
-            the backend. BetMate then converts that into fair odds so you can compare price
-            versus model expectation.
-          </p>
-        </article>
-        <article className="how-card">
-          <h2>Nightly scraping</h2>
-          <p>
-            Fresh event data is collected overnight in Australia so the app opens with a
-            current snapshot instead of waiting for slow first-load fetches.
-          </p>
-        </article>
-        <article className="how-card">
-          <h2>Weekly retraining</h2>
-          <p>
-            The models are retrained off-peak each week. More settled results improve
-            calibration over time, which is why newer seasons get sharper as the dataset grows.
-          </p>
-        </article>
-        <article className="how-card">
-          <h2>Why more data matters</h2>
-          <p>
-            Confidence labels are strongest when the model has depth, stable calibration, and
-            a market signal to compare against. Thin datasets should be treated more carefully.
-          </p>
-        </article>
-      </section>
-
-      <section className="how-card">
-        <h2>Glossary</h2>
-        <div className="glossary-list">
-          {GLOSSARY.map(([term, description]) => (
-            <div key={term} className="glossary-item">
-              <strong>{term}</strong>
-              <p>{description}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="how-card responsible-play-card">
-        <div className="responsible-play-head">
-          <ShieldCheck size={18} />
-          <h2>Responsible use</h2>
-        </div>
-        <p>
-          BetMate is designed around paper betting first. Use the slip to test ideas, review
-          confidence honestly, and avoid treating model output as certainty.
+        <h1>How It Works</h1>
+        <p className="hiw-subtitle">We&apos;re building something great</p>
+        <p className="hiw-description">
+          We&apos;re putting the finishing touches on a comprehensive guide to
+          BetMate&apos;s prediction engine, strategy tools, and paper betting
+          system. Check back soon.
         </p>
+      </section>
+
+      <section className="hiw-preview-grid">
+        <div className="hiw-preview-card">
+          <Sparkles size={28} className="hiw-card-icon" />
+          <h3>Prediction Engine Deep-Dive</h3>
+          <p>Learn how our ML models analyse form, odds, and context to surface value.</p>
+        </div>
+        <div className="hiw-preview-card">
+          <Wrench size={28} className="hiw-card-icon" />
+          <h3>Strategy Builder Guide</h3>
+          <p>Master the strategy card system and learn how profiles allocate bankroll.</p>
+        </div>
+        <div className="hiw-preview-card">
+          <Construction size={28} className="hiw-card-icon" />
+          <h3>Paper Betting 101</h3>
+          <p>Track and improve your decision-making without risking real money.</p>
+        </div>
+      </section>
+
+      <div className="hiw-cta">
+        <Link href="/" className="btn btn-primary">
+          Back to Dashboard <ArrowRight size={16} />
+        </Link>
+      </div>
+
+      <footer className="hiw-footer">
         <p>
-          If you need support, visit{" "}
+          18+ | If you need support, visit{" "}
           <a
             href="https://www.gamblinghelponline.org.au/"
             target="_blank"
@@ -113,7 +53,7 @@ export default function HowItWorksPage() {
           </a>
           .
         </p>
-      </section>
+      </footer>
     </div>
   );
 }

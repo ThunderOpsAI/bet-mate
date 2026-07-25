@@ -2549,27 +2549,6 @@ export default function DashboardPage() {
         </>
       )}
 
-      <section className="dashboard-ask-bob">
-        <div className="dashboard-ask-bob-art" aria-hidden="true">
-          <Image
-            src="/brand/betmate-bob-original.png"
-            alt=""
-            fill
-            sizes="220px"
-            className="dashboard-ask-bob-art-image"
-          />
-        </div>
-        <div className="dashboard-ask-bob-copy">
-          <span className="bob-home-kicker">
-            <Brain size={14} /> BetMate Bob
-          </span>
-          <h3>Ask Bob</h3>
-          <p>Get the plain-English read behind today&apos;s strategy card.</p>
-          <Link href="/strategy" className="btn btn-primary">
-            Ask Bob
-          </Link>
-        </div>
-      </section>
 
       <div className="disclaimer">
         ⚠️ <strong>Disclaimer:</strong> This app is for information and tracking

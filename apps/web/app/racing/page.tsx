@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type {
   BobExplanation,
   FeatureImpactItem,
@@ -14,6 +15,8 @@ import {
   BarChart3,
   Bell,
   BellOff,
+  CircleDot,
+  Flag,
 } from "lucide-react";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
@@ -133,8 +136,9 @@ function isRacePredictionEntry(
   return entry !== null;
 }
 
-async function fetchTodayRaces() {
-  const response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
+async function fetchTodayRaces(raceType: string = "T") {
+  const typeParam = raceType ? `?type=${raceType}` : "";
+  const response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}`, {
     cache: "no-store",
   });
   if (!response.ok) {
@@ -172,8 +176,11 @@ async function fetchRacePredictions(races: Race[]) {
   >;
 }
 
-export default function RacingPage() {
+function RacingPageContent() {
   const { token, user } = useAuth();
+  const searchParams = useSearchParams();
+  const raceType = searchParams.get("type") || "T";
+  const raceTypeLabel = raceType === "G" ? "Greyhound" : raceType === "H" ? "Harness" : "Thoroughbred";
   const [races, setRaces] = useState<Race[]>([]);
   const [predictions, setPredictions] = useState<Record<string, RacePrediction>>(
     {},
@@ -260,7 +267,7 @@ export default function RacingPage() {
 
     const { fixturesKey, predictionsKey } = getRacingCacheKeys();
 
-    const fixturesEntry = await refreshMlDataCache(fixturesKey, fetchTodayRaces, {
+    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType), {
       force: true,
     }).catch((error) => {
       refreshHadFailure = true;
@@ -359,7 +366,8 @@ export default function RacingPage() {
     return () => {
       isMountedRef.current = false;
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [raceType]);
 
   useEffect(() => {
     trackStaleCache("/racing", lastUpdated);
@@ -464,6 +472,34 @@ export default function RacingPage() {
       ) : (
         <>
 
+      {/* Racing Type Tabs */}
+      <div className="racing-type-tabs">
+        <a
+          href="/racing?type=T"
+          className={`racing-type-tab ${raceType === "T" ? "active" : ""}`}
+          data-type="T"
+        >
+          <Trophy size={16} />
+          Thoroughbred
+        </a>
+        <a
+          href="/racing?type=G"
+          className={`racing-type-tab ${raceType === "G" ? "active" : ""}`}
+          data-type="G"
+        >
+          <CircleDot size={16} />
+          Greyhounds
+        </a>
+        <a
+          href="/racing?type=H"
+          className={`racing-type-tab ${raceType === "H" ? "active" : ""}`}
+          data-type="H"
+        >
+          <Flag size={16} />
+          Harness
+        </a>
+      </div>
+
       <div className="filter-bar">
         <button
           className={`filter-chip ${selectedVenue === "all" ? "active" : ""}`}
@@ -487,7 +523,7 @@ export default function RacingPage() {
       </ErrorBoundary>
 
       <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>🏇 Main Race Predictions ({venues.length} venues)</h3>
+        <h3>{raceType === "G" ? "🐕" : raceType === "H" ? "🏎️" : "🏇"} {raceTypeLabel} Predictions ({venues.length} venues)</h3>
       </div>
       <p className="muted-copy" style={{ marginBottom: "1rem" }}>
         Main-race prediction cards stay focused on Melbourne, Sydney, Brisbane,
@@ -1059,4 +1095,21 @@ function formatMarketPrice(horse?: HorseData): string {
   }
 
   return `$${horse.betfair_back_price.toFixed(2)}`;
+}
+
+export default function RacingPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dashboard-loading">
+          <div className="loading-pulse">
+            <Trophy size={48} />
+            <p>Loading racing snapshot...</p>
+          </div>
+        </div>
+      }
+    >
+      <RacingPageContent />
+    </Suspense>
+  );
 }

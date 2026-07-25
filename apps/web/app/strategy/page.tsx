@@ -155,9 +155,9 @@ export default function StrategyPage() {
                       {supportsStrategyCopy(bet) ? (
                         <PaperBetAction
                           variant="phase1"
-                          label="Copy To Bankroll"
-                          loggedLabel="Copied To Bankroll"
-                          cancelLabel="Remove"
+                          label="Copy to bet slip"
+                          loggedLabel="Copied to bet slip"
+                          cancelLabel="Remove from slip"
                           fullWidth
                           bet={{
                             sport: bet.sport,
@@ -180,7 +180,7 @@ export default function StrategyPage() {
                           }}
                         />
                       ) : (
-                        <div className="badge badge-muted">Multi bets stay visible here and in analytics, but they are not copyable to bankroll yet.</div>
+                        <div className="badge badge-muted">Multi bets stay visible here and in analytics, but they are not copyable to the bet slip yet.</div>
                       )}
                     </div>
                   ))}
