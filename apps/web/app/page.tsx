@@ -1568,148 +1568,16 @@ export default function DashboardPage() {
           </div>
 
           {activeCategory === "racing" ? (
-            <>
-              <ErrorBoundary sectionName="Dashboard opportunities">
-                <div className="dashboard-opportunities-grid">
-                  <BestRacingOpportunities opportunities={racingOpportunities} compact />
-                </div>
-              </ErrorBoundary>
-
-              <div className="section-header">
-                <h3>🏇 Main Racing Predictions ({new Set(races.map((r) => r.venue)).size} venues)</h3>
-                <Link href="/racing" className="btn btn-sm btn-secondary">
-                  View All <ChevronRight size={14} />
-                </Link>
-              </div>
-              <ErrorBoundary sectionName="Dashboard racing predictions">
-                {mainRacePredictionRaces.length === 0 ? (
-                  <div className="card">
-                    <p className="muted-copy">
-                      No approved main-race prediction cards are attached right now. The
-                      full Australian race board is still available on the Racing page.
-                    </p>
-                  </div>
-                ) : (
-                <div className="predictions-grid">
-                  {mainRacePredictionRaces.slice(0, 3).map((race) => {
-                    const prediction = racePredictions[race.race_id];
-                    const top3 = prediction?.predictions?.slice(0, 3) ?? [];
-                    const confidenceSignal = prediction
-                      ? getConfidenceSignal(prediction.ai_insights_context)
-                      : null;
-                    const urgencySignal = getUrgencySignal({
-                      startTime: race.start_time,
-                      eventDate: race.meeting_date,
-                    });
-
-                    return (
-                      <div
-                        key={race.race_id}
-                        className="prediction-card"
-                        onClick={() => router.push("/racing")}
-                      >
-                        <div className="prediction-card-header">
-                          <div>
-                            <span className="prediction-venue">{race.venue}</span>
-                            <span className="prediction-race">Race {race.race_number}</span>
-                            <div className="prediction-card-signals" style={{ marginTop: "0.4rem" }}>
-                              {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                              {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                            </div>
-                            {race.meeting_region || race.meeting_type ? (
-                              <div className="context-chip" style={{ marginTop: "0.4rem" }}>
-                                {[race.meeting_region, race.meeting_type]
-                                  .filter(Boolean)
-                                  .join(" • ")}
-                              </div>
-                            ) : null}
-                          </div>
-                          <span className="badge badge-accent">{race.distance}m</span>
-                        </div>
-                        <div className="prediction-picks">
-                          {top3.map((pick, index) => {
-                            const horse = race.horses.find(
-                              (candidate) => candidate.horse_id === pick.horse_id,
-                            );
-                            const edgePercent = getEdgePercent(
-                              pick.fair_odds,
-                              horse?.betfair_back_price,
-                            );
-
-                            return (
-                              <div key={pick.horse_id} className="prediction-pick-row">
-                              <div className="prediction-pick-left">
-                                <span className={`pick-rank rank-${index + 1}`}>
-                                  {index + 1}
-                                </span>
-                                <span className="prediction-horse-name">{pick.name}</span>
-                              </div>
-                              <div className="prediction-pick-right">
-                                <span className="prediction-prob">
-                                  {pick.win_probability}%
-                                </span>
-                                <span className="prediction-odds">${pick.fair_odds}</span>
-                                {edgePercent ? (
-                                  <span className="value-badge positive">
-                                    Edge +{edgePercent.toFixed(0)}%
-                                  </span>
-                                ) : null}
-                                <button
-                                  type="button"
-                                  className="why-pick-button"
-                                  onClick={(event) => {
-                                    event.stopPropagation();
-                                    setActiveExplanation(
-                                      buildBobExplanation({
-                                        sport: "racing",
-                                        selectionName: pick.name,
-                                        probability: pick.win_probability,
-                                        fairOdds: pick.fair_odds,
-                                        featureImpact: prediction?.feature_impact,
-                                        aiInsightsContext: prediction?.ai_insights_context,
-                                        modelMetadata: prediction?.model_metadata,
-                                      }),
-                                    );
-                                  }}
-                                >
-                                  Why this pick?
-                                </button>
-                                <div onClick={(event) => event.stopPropagation()}>
-                                  <PaperBetAction
-                                    bet={{
-                                      sport: "racing",
-                                      event_id: race.race_id,
-                                      event_name: `${race.venue} R${race.race_number}`,
-                                      selection_id: pick.horse_id,
-                                      selection: pick.name,
-                                      odds: horse?.betfair_back_price ?? pick.fair_odds,
-                                      bet_type: "win",
-                                      stake: 10,
-                                      odds_source: horse?.betfair_back_price
-                                        ? "market"
-                                        : "model_fair",
-                                      current_odds: horse?.betfair_back_price ?? pick.fair_odds,
-                                      can_compare_odds: Boolean(
-                                        horse?.betfair_back_price &&
-                                          horse.betfair_back_price > 1,
-                                      ),
-                                      event_start_time: race.start_time,
-                                      event_date: race.meeting_date,
-                                    }}
-                                  />
-                                </div>
-                              </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                )}
-              </ErrorBoundary>
-            </>
+            <div className="card text-center" style={{ padding: "2.5rem 1.5rem" }}>
+              <Trophy size={48} style={{ color: "var(--accent)", marginBottom: "1rem" }} />
+              <h3>🏇 Racing Dashboard</h3>
+              <p className="muted-copy" style={{ maxWidth: "540px", margin: "0.5rem auto 1.5rem" }}>
+                All Australian horse racing cards, best opportunities, and AI predictions are hosted on the main Racing page.
+              </p>
+              <Link href="/racing" className="btn btn-primary" style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem" }}>
+                Go to Racing Page <ChevronRight size={16} />
+              </Link>
+            </div>
           ) : (
             <>
               <div className="stats-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))" }}>

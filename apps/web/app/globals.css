@@ -1,35 +1,35 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 :root {
-  /* Core palette — light-mode dashboard */
-  --bg-primary: #f3f4f6;
-  --bg-secondary: #111827;
-  --bg-card: rgba(255, 255, 255, 0.92);
-  --bg-card-hover: rgba(241, 245, 249, 0.95);
-  --bg-glass: rgba(0, 0, 0, 0.03);
-  --bg-input: rgba(0, 0, 0, 0.05);
+  /* Core palette — soft, cohesive modern dark theme */
+  --bg-primary: #1e222d;
+  --bg-secondary: #272c3a;
+  --bg-card: rgba(39, 44, 58, 0.92);
+  --bg-card-hover: rgba(49, 55, 72, 0.95);
+  --bg-glass: rgba(255, 255, 255, 0.05);
+  --bg-input: rgba(255, 255, 255, 0.07);
 
-  --border: rgba(0, 0, 0, 0.1);
+  --border: rgba(255, 255, 255, 0.09);
   --border-focus: rgba(99, 102, 241, 0.5);
 
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #64748b;
-  --text-dim: #94a3b8;
+  --text-primary: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
 
   /* Accent colors */
   --accent: #6366f1;
   --accent-hover: #4f46e5;
-  --accent-glow: rgba(99, 102, 241, 0.12);
+  --accent-glow: rgba(99, 102, 241, 0.18);
 
   --green: #10b981;
-  --green-bg: rgba(16, 185, 129, 0.1);
+  --green-bg: rgba(16, 185, 129, 0.15);
   --red: #ef4444;
-  --red-bg: rgba(239, 68, 68, 0.1);
+  --red-bg: rgba(239, 68, 68, 0.15);
   --yellow: #f59e0b;
-  --yellow-bg: rgba(245, 158, 11, 0.1);
+  --yellow-bg: rgba(245, 158, 11, 0.15);
   --blue: #3b82f6;
-  --blue-bg: rgba(59, 130, 246, 0.1);
+  --blue-bg: rgba(59, 130, 246, 0.15);
 
   /* Layout */
   --sidebar-width: 240px;
@@ -58,7 +58,7 @@ html {
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-  background: #f3f4f6;
+  background: var(--bg-primary);
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.6;
