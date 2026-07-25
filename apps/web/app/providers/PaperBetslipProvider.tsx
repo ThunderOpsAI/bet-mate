@@ -71,6 +71,8 @@ interface PaperBetslipContextType {
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
 
+import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
+
 export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
   const [bets, setBets] = useState<PaperBet[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
@@ -281,6 +283,14 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         const createdBets = Array.isArray(data?.bets) ? data.bets : [];
         const successCount = data?.count ?? createdBets.length ?? count;
         const failedCount = count - successCount;
+
+        trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
+          totalBets: count,
+          successCount,
+          failedCount,
+          totalStake: bets.reduce((sum, b) => sum + (b.stake || 0), 0),
+          sports: Array.from(new Set(bets.map((b) => b.sport))),
+        });
 
         if (failedCount <= 0) {
           betsRef.current = [];

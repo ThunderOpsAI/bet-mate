@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
-import { Save, SlidersHorizontal, User, RefreshCw } from "lucide-react";
+import { Save, SlidersHorizontal, User, RefreshCw, LogOut } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
@@ -26,7 +26,7 @@ type JamesRuleSet = {
 };
 
 function SettingsContent() {
-  const { user, token, refreshUser } = useAuth();
+  const { user, token, refreshUser, logout } = useAuth();
   const [username, setUsername] = useState(user?.username ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
   const [loading, setLoading] = useState(false);
@@ -174,7 +174,14 @@ function SettingsContent() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>Account Info</h4>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+          <h4 style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>Account Info</h4>
+          {user && user.id !== "guest" && (
+            <button type="button" className="btn btn-danger btn-sm" onClick={logout}>
+              <LogOut size={14} /> Sign Out
+            </button>
+          )}
+        </div>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
           User ID: <code style={{ fontSize: "0.8rem", background: "var(--bg-glass)", padding: "0.15rem 0.4rem", borderRadius: 4 }}>{user?.id}</code>
         </p>

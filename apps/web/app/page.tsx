@@ -1447,15 +1447,7 @@ function DashboardContent() {
     refreshFailed,
   });
 
-  const defaultMockRaces = [
-    { race_id: "demo-1", venue: "Flemington", race_number: 7, distance: 1200, meeting_type: "metro", horses: [{ horse_id: "h1", name: "Imperatriz", betfair_back_price: 2.40 }, { horse_id: "h2", name: "Asfoora", betfair_back_price: 4.80 }] },
-    { race_id: "demo-2", venue: "Randwick", race_number: 5, distance: 1400, meeting_type: "metro", horses: [{ horse_id: "h3", name: "Think About It", betfair_back_price: 3.10 }] },
-    { race_id: "demo-3", venue: "Eagle Farm", race_number: 3, distance: 1600, meeting_type: "metro", horses: [{ horse_id: "h4", name: "Antino", betfair_back_price: 2.80 }] },
-    { race_id: "demo-4", venue: "Caulfield", race_number: 4, distance: 1100, meeting_type: "metro", horses: [{ horse_id: "h5", name: "Giga Kick", betfair_back_price: 3.50 }] },
-    { race_id: "demo-5", venue: "Moonee Valley", race_number: 6, distance: 2040, meeting_type: "metro", horses: [{ horse_id: "h6", name: "Mr Brightside", betfair_back_price: 2.10 }] },
-  ];
-
-  const activeRaces = races.length > 0 ? races : defaultMockRaces;
+  const activeRaces = races;
 
   const mockOpportunities = [
     { id: "opp-1", sport: "AFL", event: "Collingwood vs Carlton", selection: "Collingwood -6.5", fairOdds: 1.75, marketOdds: 2.10, edge: 20.0, bookie: "Sportsbet" },

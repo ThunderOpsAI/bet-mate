@@ -15,6 +15,7 @@ import { ML_API } from "../lib/mlApi";
 import { useAuth } from "../providers/AuthProvider";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
+import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
 type BlackbookConfig = {
   runner: string;
@@ -98,6 +99,9 @@ export default function BlackbookPage() {
     if (!user || user.id === "guest" || !token) return;
 
     setConfigs((current) => current.filter((item) => item.runner !== runner));
+    trackEvent(ANALYTICS_EVENTS.REMOVED_FROM_BLACKBOOK, {
+      runner,
+    });
 
     try {
       await fetch(`${ML_API}/blackbook/${encodeURIComponent(runner)}/auto-bet`, {
@@ -117,6 +121,14 @@ export default function BlackbookPage() {
 
     setSaving(true);
     setMessage("");
+
+    trackEvent(ANALYTICS_EVENTS.ADDED_TO_BLACKBOOK, {
+      runner: draft.runner.trim(),
+      sport: draft.sport,
+      bet_type: draft.bet_type,
+      stake: draft.stake,
+      probability_threshold: draft.probability_threshold,
+    });
 
     try {
       const response = await fetch(
