@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 interface SocialProfileModalProps {
   open: boolean;
   onClose: () => void;
-  provider: "Google" | "Apple";
+  provider?: "Google";
   email: string;
   returnUrl?: string;
 }
@@ -16,7 +16,7 @@ interface SocialProfileModalProps {
 export default function SocialProfileModal({
   open,
   onClose,
-  provider,
+  provider = "Google",
   email,
   returnUrl = "/",
 }: SocialProfileModalProps) {

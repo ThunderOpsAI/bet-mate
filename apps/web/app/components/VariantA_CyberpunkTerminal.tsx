@@ -412,9 +412,9 @@ export default function VariantA_CyberpunkTerminal({
                 <div className="w-14 h-14 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center mb-4 text-slate-400 shadow-inner">
                   <Clock className="w-7 h-7 text-slate-400 animate-pulse" />
                 </div>
-                <h3 className="text-base font-bold text-slate-200">Awaiting next meeting</h3>
+                <h3 className="text-base font-bold text-slate-200">No Races Currently</h3>
                 <p className="text-xs text-slate-400 mt-1.5 max-w-sm leading-relaxed">
-                  No live races are currently scheduled to jump. Upcoming meetings will automatically appear here.
+                  Upcoming meetings will automatically appear here once racing starts.
                 </p>
                 <Link
                   href="/racing"
