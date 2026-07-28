@@ -313,10 +313,10 @@ export default function VariantA_CyberpunkTerminal({
       </div>
 
       {/* Main Content Area with generous section spacing */}
-      <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-20 md:space-y-28">
+      <div className="max-w-7xl mx-auto p-8 md:p-12 space-y-28 md:space-y-36">
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
-        <div className="space-y-6 mb-20 mt-10 md:mt-14 pt-6 md:pt-8 border-t border-slate-800/40">
-          <div className="flex items-center justify-between mb-6 pb-2">
+        <div className="space-y-8 mb-28 mt-14 md:mt-20 pt-10 md:pt-12 border-t border-slate-800/40">
+          <div className="flex items-center justify-between mb-8 pb-4">
             <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
               SIGNAL FEEDS
@@ -353,9 +353,9 @@ export default function VariantA_CyberpunkTerminal({
         </div>
 
         {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) with distinct top margin below Signal Feeds */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-14 w-full items-start mt-20 md:mt-24 pt-8 md:pt-10 mb-28">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-14 md:gap-20 w-full items-start mt-4 pt-10 md:pt-14 mb-32">
           {/* Left Column: Next Racing Card */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-7 md:p-9 shadow-xl space-y-6">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-8 md:p-10 shadow-xl space-y-8">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-8 mb-8">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
@@ -427,7 +427,7 @@ export default function VariantA_CyberpunkTerminal({
           </div>
 
           {/* Right Column: Blackbook Alerts Panel */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-7 md:p-9 shadow-xl space-y-6 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-8 md:p-10 shadow-xl space-y-8 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-8 mb-8 gap-4">
               <div className="flex items-center gap-2.5">
                 <Bookmark className="w-5 h-5 text-cyan-400" />
@@ -437,7 +437,7 @@ export default function VariantA_CyberpunkTerminal({
               </div>
               <button
                 onClick={() => setIsSearchModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full leading-normal transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
+                className="inline-flex items-center gap-1.5 px-6 py-3 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full leading-relaxed transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 Click to add to Blackbook
@@ -532,7 +532,7 @@ export default function VariantA_CyberpunkTerminal({
         </div>
 
         {/* Bottom Full-Width Section: HIGH EV FEED with distinct top margin & Betfair-style breathing room */}
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-7 md:p-10 mt-28 md:mt-36 pt-14 border-t border-slate-800/80 shadow-2xl space-y-8">
+        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-8 md:p-12 mt-4 pt-16 border-t border-slate-800/80 shadow-2xl space-y-10">
           <div className="flex items-center justify-between mb-10 pb-6 border-b border-slate-800/60">
             <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
               <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />
@@ -541,7 +541,7 @@ export default function VariantA_CyberpunkTerminal({
             <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-10 md:gap-14 pt-4">
             {filteredOpps.map((opp, idx) => {
               let SportIcon = Zap;
               if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;
