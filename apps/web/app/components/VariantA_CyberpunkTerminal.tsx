@@ -322,14 +322,14 @@ export default function VariantA_CyberpunkTerminal({
               SIGNAL FEEDS
             </h2>
           </div>
-          <div className="flex items-center gap-4 overflow-x-auto pb-6 pt-3 scrollbar-none mb-8 md:mb-12">
+          <div className="flex items-center gap-5 overflow-x-auto pb-8 pt-5 scrollbar-none mb-10 md:mb-14">
             {sportsList.map((sport) => {
               const active = selectedSportFilter === sport.id;
               return (
                 <button
                   key={sport.id}
                   onClick={() => setSelectedSportFilter(sport.id)}
-                  className={`group flex items-center justify-between gap-4 px-4 py-2.5 rounded-full border text-sm font-semibold leading-normal whitespace-nowrap transition-all duration-200 ${
+                  className={`group flex items-center justify-between gap-4 px-6 py-3.5 rounded-full border text-sm font-semibold leading-relaxed whitespace-nowrap transition-all duration-200 ${
                     active
                       ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
                       : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
@@ -356,7 +356,7 @@ export default function VariantA_CyberpunkTerminal({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-14 w-full items-start mt-20 md:mt-24 pt-8 md:pt-10 mb-28">
           {/* Left Column: Next Racing Card */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-7 md:p-9 shadow-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-6 mb-6">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-8 mb-8">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -428,7 +428,7 @@ export default function VariantA_CyberpunkTerminal({
 
           {/* Right Column: Blackbook Alerts Panel */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-7 md:p-9 shadow-xl space-y-6 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-6 mb-6 gap-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-8 mb-8 gap-4">
               <div className="flex items-center gap-2.5">
                 <Bookmark className="w-5 h-5 text-cyan-400" />
                 <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
@@ -475,7 +475,7 @@ export default function VariantA_CyberpunkTerminal({
                             <span>{typeLabel}</span>
                           </span>
                         </div>
-                        <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-4 py-2 leading-normal rounded-full border border-slate-700">
+                        <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-6 py-3 leading-relaxed rounded-full border border-slate-700">
                           {item.odds || "Market"}
                         </span>
                       </div>
@@ -533,7 +533,7 @@ export default function VariantA_CyberpunkTerminal({
 
         {/* Bottom Full-Width Section: HIGH EV FEED with distinct top margin & Betfair-style breathing room */}
         <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-7 md:p-10 mt-28 md:mt-36 pt-14 border-t border-slate-800/80 shadow-2xl space-y-8">
-          <div className="flex items-center justify-between mb-8 pb-3 border-b border-slate-800/60">
+          <div className="flex items-center justify-between mb-10 pb-6 border-b border-slate-800/60">
             <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
               <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />
               HIGH EV FEED ({filteredOpps.length} Model Signals)
