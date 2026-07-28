@@ -276,7 +276,7 @@ export default function VariantA_CyberpunkTerminal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-white uppercase flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-white uppercase flex items-center gap-2 mb-4">
                   BETMATE COMMAND CENTER
                 </h1>
               </div>
@@ -317,7 +317,7 @@ export default function VariantA_CyberpunkTerminal({
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
         <div className="space-y-6 mb-20 mt-10 md:mt-14 pt-6 md:pt-8 border-t border-slate-800/40">
           <div className="flex items-center justify-between mb-4 pb-1">
-            <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
+            <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2 mb-4">
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
               SIGNAL FEEDS
             </h2>
@@ -329,7 +329,7 @@ export default function VariantA_CyberpunkTerminal({
                 <button
                   key={sport.id}
                   onClick={() => setSelectedSportFilter(sport.id)}
-                  className={`group flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
+                  className={`group flex items-center justify-between gap-4 px-4 py-2.5 rounded-full border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
                     active
                       ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
                       : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
@@ -357,7 +357,7 @@ export default function VariantA_CyberpunkTerminal({
           {/* Left Column: Next Racing Card */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-7 md:p-9 shadow-xl space-y-6">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-5 mb-5">
-              <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
+              <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5 mb-2">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
               </h2>
@@ -381,7 +381,7 @@ export default function VariantA_CyberpunkTerminal({
                       <div className="flex items-center gap-2.5">
                         <span className="text-base font-bold text-white">R{race.race_number} {race.venue}</span>
                         <span className="text-xs text-slate-400">{race.distance}m</span>
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono">
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 font-mono">
                           {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
                         </span>
                       </div>
@@ -431,13 +431,13 @@ export default function VariantA_CyberpunkTerminal({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-5 mb-4 gap-3">
               <div className="flex items-center gap-2.5">
                 <Bookmark className="w-5 h-5 text-cyan-400" />
-                <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
+                <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider mb-2">
                   Blackbook Runners Today
                 </h2>
               </div>
               <button
                 onClick={() => setIsSearchModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-xl transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
               >
                 <Plus className="w-4 h-4" />
                 Click to add to Blackbook
@@ -470,12 +470,12 @@ export default function VariantA_CyberpunkTerminal({
                           <span className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
                             {item.runner}
                           </span>
-                          <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-2 py-0.5 rounded-md border border-slate-700/50 flex items-center gap-1">
+                          <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-3 py-1 rounded-full border border-slate-700/50 flex items-center gap-1">
                             <span>{typeEmoji}</span>
                             <span>{typeLabel}</span>
                           </span>
                         </div>
-                        <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-700">
+                        <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-3.5 py-1.5 rounded-full border border-slate-700">
                           {item.odds || "Market"}
                         </span>
                       </div>
@@ -500,7 +500,7 @@ export default function VariantA_CyberpunkTerminal({
                             });
                             setToastMsg(`Added ${item.runner} to Betslip!`);
                           }}
-                          className="px-3.5 py-1.5 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 text-xs font-bold rounded-lg transition-all duration-200"
+                          className="px-3.5 py-1.5 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 text-xs font-bold rounded-full transition-all duration-200"
                         >
                           Quick Bet
                         </button>
@@ -521,7 +521,7 @@ export default function VariantA_CyberpunkTerminal({
                 </p>
                 <button
                   onClick={() => setIsSearchModalOpen(true)}
-                  className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-500/20 hover:bg-cyan-500 hover:text-black text-cyan-300 border border-cyan-500/50 text-xs font-bold rounded-xl transition-all duration-200 shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+                  className="mt-5 inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-500/20 hover:bg-cyan-500 hover:text-black text-cyan-300 border border-cyan-500/50 text-xs font-bold rounded-full transition-all duration-200 shadow-[0_0_20px_rgba(6,182,212,0.2)]"
                 >
                   <Plus className="w-4 h-4" />
                   Click to add to Blackbook
@@ -534,7 +534,7 @@ export default function VariantA_CyberpunkTerminal({
         {/* Bottom Full-Width Section: HIGH EV FEED with distinct top margin & Betfair-style breathing room */}
         <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-7 md:p-10 mt-28 md:mt-36 pt-14 border-t border-slate-800/80 shadow-2xl space-y-8">
           <div className="flex items-center justify-between mb-8 pb-3 border-b border-slate-800/60">
-            <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
+            <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5 mb-4">
               <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />
               HIGH EV FEED ({filteredOpps.length} Model Signals)
             </h2>
@@ -560,7 +560,7 @@ export default function VariantA_CyberpunkTerminal({
                   <div className="flex items-center justify-between mb-3 pb-2 border-b border-slate-800/40">
                     <div className="flex items-center gap-2 text-slate-400">
                       <SportIcon className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-2.5 py-1 rounded border border-slate-700/60">
+                      <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-3 py-1 rounded-full border border-slate-700/60">
                         {opp.sport} • {opp.event}
                       </span>
                     </div>
@@ -582,13 +582,13 @@ export default function VariantA_CyberpunkTerminal({
                     
                     {/* The Edge / EV Pill */}
                     <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="inline-flex items-center px-3.5 py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-lg border border-emerald-500/30 text-sm shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                      <span className="inline-flex items-center px-3.5 py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-full border border-emerald-500/30 text-sm shadow-[0_0_15px_rgba(16,185,129,0.15)]">
                         +{opp.edge}% EV
                       </span>
                       <div className="flex items-center gap-2 mt-2.5 text-[11px] font-mono text-slate-400">
                         <span>Fair: ${opp.fairOdds?.toFixed(2) || "2.10"}</span>
                         <span className="text-slate-600">|</span>
-                        <span className="text-slate-200 font-bold bg-slate-800 px-2 py-0.5 rounded">
+                        <span className="text-slate-200 font-bold bg-slate-800 px-3 py-1 rounded-full">
                           ${opp.marketOdds?.toFixed(2) || "2.40"}
                         </span>
                       </div>
@@ -609,7 +609,7 @@ export default function VariantA_CyberpunkTerminal({
                         onOpenPaperBet(opp);
                         setToastMsg(`Added ${opp.selection} to Betslip!`);
                       }}
-                      className="px-6 py-2.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/50 text-xs font-bold rounded-lg transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                      className="px-6 py-2.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/50 text-xs font-bold rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
                     >
                       Quick Add
                     </button>
@@ -676,7 +676,7 @@ export default function VariantA_CyberpunkTerminal({
                   <button
                     key={typeItem.id}
                     onClick={() => setSelectedTypeFilter(typeItem.id as any)}
-                    className={`px-3 py-1.5 rounded-lg border font-semibold whitespace-nowrap transition ${
+                    className={`px-3.5 py-1.5 rounded-full border font-semibold whitespace-nowrap transition ${
                       selectedTypeFilter === typeItem.id
                         ? "bg-cyan-500/20 border-cyan-500 text-cyan-300"
                         : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
@@ -697,7 +697,7 @@ export default function VariantA_CyberpunkTerminal({
                     <span className="text-sm text-slate-200 font-medium">
                       Add custom entity: <strong className="text-cyan-300">"{searchQuery.trim()}"</strong>
                     </span>
-                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">Custom Watch</span>
+                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">Custom Watch</span>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     <span className="text-slate-400">Select type:</span>
@@ -705,7 +705,7 @@ export default function VariantA_CyberpunkTerminal({
                       <button
                         key={t}
                         onClick={() => handleAddBlackbookItem(searchQuery.trim(), t)}
-                        className="px-3 py-1 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 font-bold rounded-lg transition"
+                        className="px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 font-bold rounded-full transition"
                       >
                         + {t.toUpperCase()}
                       </button>
@@ -742,7 +742,7 @@ export default function VariantA_CyberpunkTerminal({
                           <span className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors">
                             {preset.name}
                           </span>
-                          <span className="text-[10px] font-mono bg-slate-800 text-cyan-300 px-2 py-0.5 rounded border border-slate-700">
+                          <span className="text-[10px] font-mono bg-slate-800 text-cyan-300 px-3 py-1 rounded-full border border-slate-700">
                             {categoryLabel}
                           </span>
                         </div>
@@ -751,7 +751,7 @@ export default function VariantA_CyberpunkTerminal({
                     </div>
                     <button
                       onClick={() => handleAddBlackbookItem(preset.name, preset.type)}
-                      className="px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-lg transition shrink-0"
+                      className="px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full transition shrink-0"
                     >
                       + Add
                     </button>
