@@ -44,6 +44,7 @@ import app.data.soccer_scraper as soccer_scraper
 import app.data.golf_scraper as golf_scraper
 import app.data.mma_scraper as mma_scraper
 import app.storage as storage
+from app.data.betfair_sports_odds import get_cached_sport_odds, match_event_odds, match_golfer_odds
 
 # CORS — configurable for deployment; defaults to localhost dev
 _cors_env = os.getenv("BETMATE_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
@@ -843,6 +844,12 @@ def predict_afl(game: TeamGame):
         away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
         home_probability = round(result['home_win_prob'] * 100, 2)
         away_probability = round(result['away_win_prob'] * 100, 2)
+        
+        # Fetch live Betfair market odds
+        betfair_cache = get_cached_sport_odds("afl")
+        market_odds_home, market_odds_away = match_event_odds(
+            "afl", game.home_team, game.away_team, betfair_cache
+        )
         storage.log_prediction_batch(
             sport="afl",
             event_id=game.game_id,
@@ -870,7 +877,9 @@ def predict_afl(game: TeamGame):
                 "home_win_probability": home_probability,
                 "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
-                "fair_odds_away": away_odds
+                "fair_odds_away": away_odds,
+                "market_odds_home": market_odds_home,
+                "market_odds_away": market_odds_away
             },
             "feature_impact": importances,
             "ai_insights_context": f"AFL ML model found {max(importances, key=importances.get)} to be the deciding factor.",
@@ -905,6 +914,12 @@ def predict_nba(game: TeamGame):
         away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
         home_probability = round(result['home_win_prob'] * 100, 2)
         away_probability = round(result['away_win_prob'] * 100, 2)
+        
+        # Fetch live Betfair market odds
+        betfair_cache = get_cached_sport_odds("nba")
+        market_odds_home, market_odds_away = match_event_odds(
+            "nba", game.home_team, game.away_team, betfair_cache
+        )
         storage.log_prediction_batch(
             sport="nba",
             event_id=game.game_id,
@@ -932,7 +947,9 @@ def predict_nba(game: TeamGame):
                 "home_win_probability": home_probability,
                 "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
-                "fair_odds_away": away_odds
+                "fair_odds_away": away_odds,
+                "market_odds_home": market_odds_home,
+                "market_odds_away": market_odds_away
             },
             "feature_impact": importances,
             "ai_insights_context": f"NBA ML strongly correlated {max(importances, key=importances.get)} to the outcome.",
@@ -982,6 +999,12 @@ def predict_nrl(game: TeamGame):
         home_probability = round(result['home_win_prob'] * 100, 2)
         away_probability = round(result['away_win_prob'] * 100, 2)
         
+        # Fetch live Betfair market odds
+        betfair_cache = get_cached_sport_odds("nrl")
+        market_odds_home, market_odds_away = match_event_odds(
+            "nrl", game.home_team, game.away_team, betfair_cache
+        )
+        
         storage.log_prediction_batch(
             sport="nrl",
             event_id=game.game_id,
@@ -1001,7 +1024,9 @@ def predict_nrl(game: TeamGame):
                 "home_win_probability": home_probability,
                 "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
-                "fair_odds_away": away_odds
+                "fair_odds_away": away_odds,
+                "market_odds_home": market_odds_home,
+                "market_odds_away": market_odds_away
             },
             "feature_impact": importances,
             "ai_insights_context": f"NRL ML model analyzed recent points diff and team form to determine decisions.",
@@ -1036,6 +1061,12 @@ def predict_soccer(game: TeamGame):
         home_probability = round(result['home_win_prob'] * 100, 2)
         away_probability = round(result['away_win_prob'] * 100, 2)
         
+        # Fetch live Betfair market odds
+        betfair_cache = get_cached_sport_odds("soccer")
+        market_odds_home, market_odds_away = match_event_odds(
+            "soccer", game.home_team, game.away_team, betfair_cache
+        )
+        
         storage.log_prediction_batch(
             sport="soccer",
             event_id=game.game_id,
@@ -1055,7 +1086,9 @@ def predict_soccer(game: TeamGame):
                 "home_win_probability": home_probability,
                 "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
-                "fair_odds_away": away_odds
+                "fair_odds_away": away_odds,
+                "market_odds_home": market_odds_home,
+                "market_odds_away": market_odds_away
             },
             "feature_impact": importances,
             "ai_insights_context": f"Soccer ML model evaluated expected goals difference and historical matchup factors.",
@@ -1087,9 +1120,12 @@ def predict_golf(tournament: GolfTournamentInput):
         feature_keys = result.get('feature_names', ['recent_finishes', 'course_history', 'driving_accuracy', 'putting_average', 'live_odds_signal'])
         importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
         
+        betfair_cache = get_cached_sport_odds("golf")
+        
         # Log all player predictions in a single batch
         log_predictions = []
         for pick in result["predictions"]:
+            pick["market_odds"] = match_golfer_odds(pick["name"], betfair_cache)
             log_predictions.append({
                 "selection": pick["name"],
                 "probability": pick["win_probability"],
@@ -1140,6 +1176,12 @@ def predict_mma(game: TeamGame):
         home_probability = round(result['home_win_prob'] * 100, 2)
         away_probability = round(result['away_win_prob'] * 100, 2)
         
+        # Fetch live Betfair market odds
+        betfair_cache = get_cached_sport_odds("mma")
+        market_odds_home, market_odds_away = match_event_odds(
+            "mma", game.home_team, game.away_team, betfair_cache
+        )
+        
         storage.log_prediction_batch(
             sport="mma",
             event_id=game.game_id,
@@ -1159,7 +1201,9 @@ def predict_mma(game: TeamGame):
                 "home_win_probability": home_probability,
                 "away_win_probability": away_probability,
                 "fair_odds_home": home_odds,
-                "fair_odds_away": away_odds
+                "fair_odds_away": away_odds,
+                "market_odds_home": market_odds_home,
+                "market_odds_away": market_odds_away
             },
             "feature_impact": importances,
             "ai_insights_context": f"MMA model analyzed striking accuracy and reach advantage differentials.",

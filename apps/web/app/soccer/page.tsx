@@ -75,6 +75,8 @@ type SoccerPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
     fair_odds_draw?: number;
+    market_odds_home?: number | null;
+    market_odds_away?: number | null;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?:
@@ -390,7 +392,14 @@ export default function SoccerPage() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/soccer",
-          note: "Live market prices are not attached here yet, so this section ranks model leans.",
+          marketOdds: (selectionName === game.home_team)
+            ? prediction.predictions.market_odds_home ?? undefined
+            : (selectionName === game.away_team)
+              ? prediction.predictions.market_odds_away ?? undefined
+              : undefined,
+          note: ((selectionName === game.home_team) ? prediction.predictions.market_odds_home : (selectionName === game.away_team) ? prediction.predictions.market_odds_away : null)
+            ? undefined
+            : "Live market prices are not attached here yet, so this section stays honest by ranking model leans instead of claiming a price edge.",
         },
       ];
     }),
@@ -488,6 +497,9 @@ export default function SoccerPage() {
                             Fair: ${prediction.predictions.fair_odds_home.toFixed(2)}
                           </span>
                         ) : null}
+                        {prediction?.predictions.market_odds_home ? (
+                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_home.toFixed(2)}</span>
+                        ) : null}
                         {prediction ? (
                           <PaperBetAction
                             variant="phase1"
@@ -501,12 +513,12 @@ export default function SoccerPage() {
                               event_id: game.game_id,
                               event_name: `${game.home_team} vs ${game.away_team}`,
                               selection: game.home_team,
-                              odds: prediction.predictions.fair_odds_home,
+                              odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
                               bet_type: "head_to_head",
                               stake: 10,
-                              odds_source: "model_fair",
-                              current_odds: prediction.predictions.fair_odds_home,
-                              can_compare_odds: false,
+                              odds_source: prediction.predictions.market_odds_home ? "market" : "model_fair",
+                              current_odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
+                              can_compare_odds: Boolean(prediction.predictions.market_odds_home && prediction.predictions.market_odds_home > 1),
                               event_start_time: game.date,
                               is_closed: gameComplete > 0 && gameComplete < 100,
                             }}
@@ -556,6 +568,9 @@ export default function SoccerPage() {
                             Fair: ${prediction.predictions.fair_odds_away.toFixed(2)}
                           </span>
                         ) : null}
+                        {prediction?.predictions.market_odds_away ? (
+                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_away.toFixed(2)}</span>
+                        ) : null}
                         {prediction ? (
                           <PaperBetAction
                             variant="phase1"
@@ -569,12 +584,12 @@ export default function SoccerPage() {
                               event_id: game.game_id,
                               event_name: `${game.home_team} vs ${game.away_team}`,
                               selection: game.away_team,
-                              odds: prediction.predictions.fair_odds_away,
+                              odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
                               bet_type: "head_to_head",
                               stake: 10,
-                              odds_source: "model_fair",
-                              current_odds: prediction.predictions.fair_odds_away,
-                              can_compare_odds: false,
+                              odds_source: prediction.predictions.market_odds_away ? "market" : "model_fair",
+                              current_odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
+                              can_compare_odds: Boolean(prediction.predictions.market_odds_away && prediction.predictions.market_odds_away > 1),
                               event_start_time: game.date,
                               is_closed: gameComplete > 0 && gameComplete < 100,
                             }}

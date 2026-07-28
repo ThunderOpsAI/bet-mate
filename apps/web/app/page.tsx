@@ -124,6 +124,8 @@ type AFLPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?:
@@ -154,6 +156,8 @@ type NBAPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?:
@@ -188,6 +192,8 @@ type NRLPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -217,6 +223,9 @@ type SoccerPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
     fair_odds_draw?: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
+    market_odds_draw?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -245,6 +254,7 @@ type GolfPrediction = {
     name: string;
     win_probability: number;
     fair_odds: number;
+    market_odds?: number;
   }>;
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -271,6 +281,8 @@ type MMAPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -1238,6 +1250,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1245,8 +1260,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/afl",
-          note:
-            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
         },
       ];
     }),
@@ -1273,13 +1286,14 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
           }),
           href: "/nba",
-          note:
-            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
         },
       ];
     }),
@@ -1306,6 +1320,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1313,7 +1330,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/nrl",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
@@ -1333,15 +1349,18 @@ function DashboardContent() {
       let selectionName = game.home_team;
       let probability = homePct;
       let fairOdds = prediction.predictions.fair_odds_home;
+      let marketOdds = prediction.predictions.market_odds_home ?? undefined;
 
       if (awayPct > homePct && awayPct > drawPct) {
         selectionName = game.away_team;
         probability = awayPct;
         fairOdds = prediction.predictions.fair_odds_away;
+        marketOdds = prediction.predictions.market_odds_away ?? undefined;
       } else if (drawPct > homePct && drawPct > awayPct) {
         selectionName = "Draw";
         probability = drawPct;
         fairOdds = prediction.predictions.fair_odds_draw ?? 3.0;
+        marketOdds = prediction.predictions.market_odds_draw ?? undefined;
       }
 
       return [
@@ -1352,6 +1371,7 @@ function DashboardContent() {
           eventLabel: `${game.home_team} vs ${game.away_team}`,
           probability,
           fairOdds,
+          marketOdds,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1359,7 +1379,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/soccer",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
@@ -1384,7 +1403,7 @@ function DashboardContent() {
           eventLabel: tournament.name,
           probability: pick.win_probability,
           fairOdds: pick.fair_odds,
-          marketOdds: player?.betfair_back_price ?? null,
+          marketOdds: pick.market_odds ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: tournament.start_time,
@@ -1417,6 +1436,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1424,7 +1446,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/mma",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
