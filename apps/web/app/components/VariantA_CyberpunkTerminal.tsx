@@ -378,20 +378,19 @@ export default function VariantA_CyberpunkTerminal({
         {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full items-stretch">
           {/* Left Column: Next Racing Card (Fixed 5 Items) */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col justify-between h-full min-h-[500px]">
-            <div>
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4">
-                <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
-                  <Clock className="w-5 h-5 text-emerald-400" />
-                  Next Racing
-                </h2>
-                <Link
-                  href="/racing"
-                  className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold transition-colors"
-                >
-                  Race Hub <ChevronRight className="w-3.5 h-3.5" />
-                </Link>
-              </div>
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col h-full">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 shrink-0">
+              <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
+                <Clock className="w-5 h-5 text-emerald-400" />
+                Next Racing
+              </h2>
+              <Link
+                href="/racing"
+                className="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-semibold transition-colors"
+              >
+                Race Hub <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
 
               {isLoading ? (
                 <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-slate-950/40 border border-dashed border-slate-800 flex-1">
@@ -399,14 +398,14 @@ export default function VariantA_CyberpunkTerminal({
                   <p className="text-xs text-slate-400 font-medium">Connecting to live race feeds...</p>
                 </div>
               ) : (
-                <div className="flex flex-col gap-3.5 pt-1">
+                <div className="flex-1 flex flex-col gap-3.5 pt-1">
                   {Array.from({ length: 5 }).map((_, idx) => {
                     const race = racesData?.[idx];
                     if (race) {
                       return (
                         <div
                           key={race.race_id || idx}
-                          className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4"
+                          className="bg-slate-800/60 rounded-xl p-5 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4 flex-1"
                         >
                           {/* Left Side: Race Details & Horse */}
                           <div className="flex flex-col gap-1.5 w-full sm:w-auto">
@@ -443,7 +442,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={`empty-race-${idx}`}
-                          className="bg-slate-900/40 rounded-xl p-4 border border-dashed border-slate-800 flex items-center justify-center min-h-[76px]"
+                          className="bg-slate-900/40 rounded-xl p-5 border border-dashed border-slate-800 flex items-center justify-center flex-1 min-h-[88px]"
                         >
                           <span className="text-xs text-slate-500">No upcoming races scheduled</span>
                         </div>
@@ -452,31 +451,30 @@ export default function VariantA_CyberpunkTerminal({
                   })}
                 </div>
               )}
-            </div>
           </div>
 
-          {/* Right Column: Stacked [Next Blackbooker (2) + HIGH EV FEED (3) = 5 Items Total] */}
-          <div className="flex flex-col gap-6 md:gap-8 h-full justify-between">
-            {/* Next Blackbooker Section (Strictly Capped at 2 Items) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-5 md:p-6 shadow-xl space-y-4 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-3 mb-2 gap-4">
-                <div className="flex items-center gap-2.5">
-                  <Bookmark className="w-5 h-5 text-cyan-400" />
+          {/* Right Column: Stacked [Next Blackbooker (1) + HIGH EV FEED (3) = 4 Items Total] */}
+          <div className="flex flex-col gap-4 h-full">
+            {/* Next Blackbooker Section (Strictly 1 Item) */}
+            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Bookmark className="w-4 h-4 text-cyan-400" />
                   <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
                     Next Blackbooker
                   </h2>
                 </div>
                 <button
                   onClick={() => setIsSearchModalOpen(true)}
-                  className="inline-flex items-center gap-1.5 px-5 py-2.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full leading-relaxed transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-[10px] font-bold rounded-full leading-relaxed transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="w-3.5 h-3.5" />
                   Add to Blackbook
                 </button>
               </div>
 
-              <div className="space-y-3.5 pt-1">
-                {Array.from({ length: 2 }).map((_, idx) => {
+              <div className="flex-1 flex flex-col justify-center">
+                {Array.from({ length: 1 }).map((_, idx) => {
                   const item = blackbookRunners[idx];
                   if (item) {
                     let typeLabel = "HORSE";
@@ -495,7 +493,7 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-4.5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px]"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px] flex flex-col justify-center"
                       >
                         <div className="flex items-center justify-between mb-2">
                           <div className="flex items-center gap-2.5">
@@ -543,7 +541,7 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={`empty-bb-${idx}`}
-                        className="bg-slate-900/40 border border-dashed border-cyan-500/20 p-4.5 rounded-2xl flex items-center justify-center min-h-[142px]"
+                        className="bg-slate-900/40 border border-dashed border-cyan-500/20 p-5 rounded-2xl flex items-center justify-center min-h-[142px] flex-1"
                       >
                          <span className="text-xs text-slate-500">Blackbook slot available</span>
                       </div>
@@ -554,9 +552,9 @@ export default function VariantA_CyberpunkTerminal({
             </div>
 
             {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
-                <h2 className="text-base font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex-1 flex flex-col">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3">
+                <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                   HIGH EV FEED
                 </h2>
@@ -569,7 +567,7 @@ export default function VariantA_CyberpunkTerminal({
                   <p className="text-xs text-slate-400 font-medium">Fetching EV model signals...</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-4 pt-1">
+                <div className="flex-1 flex flex-col gap-3.5">
                   {Array.from({ length: 3 }).map((_, idx) => {
                     const opp = filteredOpps[idx];
                     if (opp) {
@@ -584,7 +582,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg space-y-4 min-h-[141px]"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[120px]"
                         >
                           {/* Top Row (Metadata) */}
                           <div className="flex items-center justify-between pb-2 border-b border-slate-800/40">
@@ -654,7 +652,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={`empty-ev-${idx}`}
-                          className="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-5 flex items-center justify-center min-h-[141px]"
+                          className="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-5 flex items-center justify-center flex-1 min-h-[120px]"
                         >
                            <span className="text-xs text-slate-500">No active games today</span>
                         </div>

@@ -47,7 +47,6 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
     <ul className="sidebar-nav">
       <li>
         <Link href="/" className={pathname === "/" ? "active" : ""} onClick={onClose}>
-          <Home size={18} />
           Dashboard
         </Link>
       </li>
@@ -55,7 +54,6 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
       {/* Racing Accordion */}
       <li className="sidebar-section-title accordion-header" onClick={() => toggleSection("racing")}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Trophy size={18} />
           <span>Racing</span>
         </div>
         {expanded.racing ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -86,7 +84,6 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
       {/* Sport Accordion */}
       <li className="sidebar-section-title accordion-header" onClick={() => toggleSection("sport")}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Zap size={18} />
           <span>Sport</span>
         </div>
         {expanded.sport ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -135,7 +132,6 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
       {/* Tools Accordion */}
       <li className="sidebar-section-title accordion-header" onClick={() => toggleSection("tools")}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <Bot size={18} />
           <span>Tools</span>
         </div>
         {expanded.tools ? <ChevronUp size={16} /> : <ChevronDown size={16} />}

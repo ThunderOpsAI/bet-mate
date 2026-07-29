@@ -122,14 +122,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
 function getPageTitle(path: string) {
   if (path === "/") return "Dashboard";
-  if (path === "/racing") return "🏇 Racing Predictions";
-  if (path === "/afl") return "🏈 AFL Predictions";
-  if (path === "/nba") return "🏀 NBA Predictions";
-  if (path === "/nrl") return "🛡️ NRL Predictions";
-  if (path === "/soccer") return "⚽ Soccer Predictions";
-  if (path === "/golf") return "⛳ Golf Predictions";
-  if (path === "/mma") return "🥊 MMA Predictions";
-  if (path === "/strategy") return "📊 Strategies";
+  if (path === "/racing") return "Racing Predictions";
+  if (path === "/afl") return "AFL Predictions";
+  if (path === "/nba") return "NBA Predictions";
+  if (path === "/nrl") return "NRL Predictions";
+  if (path === "/soccer") return "Soccer Predictions";
+  if (path === "/golf") return "Golf Predictions";
+  if (path === "/mma") return "MMA Predictions";
+  if (path === "/strategy") return "Strategies";
   if (path.startsWith("/races")) return "Race Detail";
   if (path === "/bets/new") return "Log a Bet";
   if (path === "/bets") return "Bankroll";
