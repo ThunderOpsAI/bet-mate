@@ -1470,16 +1470,30 @@ function DashboardContent() {
 
   const activeRaces = races;
 
-  const mockOpportunities = [
-    { id: "opp-1", sport: "AFL", event: "Collingwood vs Carlton", selection: "Collingwood -6.5", fairOdds: 1.75, marketOdds: 2.10, edge: 20.0, bookie: "Sportsbet" },
-    { id: "opp-2", sport: "NBA", event: "Lakers vs Celtics", selection: "Over 224.5 Points", fairOdds: 1.80, marketOdds: 2.05, edge: 13.8, bookie: "Betfair" },
-    { id: "opp-3", sport: "NRL", event: "Penrith vs Broncos", selection: "Penrith H2H", fairOdds: 1.50, marketOdds: 1.72, edge: 14.6, bookie: "Ladbrokes" },
-    { id: "opp-4", sport: "Racing", event: "Flemington Race 7", selection: "Imperatriz", fairOdds: 2.00, marketOdds: 2.40, edge: 20.0, bookie: "TAB" },
-    { id: "opp-5", sport: "Soccer", event: "Man City vs Arsenal", selection: "Man City Win", fairOdds: 1.65, marketOdds: 1.95, edge: 18.2, bookie: "Betfair" },
-  ];
+  const allRealOpportunities = rankOpportunities([
+    ...racingOpportunities,
+    ...aflOpportunities,
+    ...nbaOpportunities,
+    ...nrlOpportunities,
+    ...soccerOpportunities,
+    ...golfOpportunities,
+    ...mmaOpportunities,
+  ]).map((opp) => {
+    const edgeVal = getEdgePercent(opp.fairOdds, opp.marketOdds);
+    return {
+      id: opp.id,
+      sport: opp.sport.toUpperCase(),
+      event: opp.eventLabel,
+      selection: opp.selectionName,
+      fairOdds: opp.fairOdds,
+      marketOdds: opp.marketOdds ?? undefined,
+      edge: edgeVal !== null ? Number(edgeVal.toFixed(1)) : undefined,
+      bookie: opp.marketOdds ? "Betfair" : undefined,
+    };
+  });
 
   const handleOpenPaperBet = (opp: any) => {
-    // Alert removed as toast notification is already shown by VariantA_CyberpunkTerminal
+    // Toast notification handles feedback
   };
 
   const handleOpenBobModal = (ctx: any) => {
@@ -1491,7 +1505,7 @@ function DashboardContent() {
         probability: 0.62,
         fairOdds: 1.61,
         featureImpact: [],
-        aiInsightsContext: { notes: [`Value signal triggered with ${ctx.edge} edge.`] },
+        aiInsightsContext: { notes: [`Value signal triggered with ${ctx.edge || 0}% edge.`] },
       })
     );
   };
@@ -1506,7 +1520,8 @@ function DashboardContent() {
 
       <VariantA_CyberpunkTerminal
         racesData={activeRaces}
-        allOpportunities={mockOpportunities}
+        allOpportunities={allRealOpportunities}
+        isLoading={loading}
         onOpenPaperBet={handleOpenPaperBet}
         onOpenBobModal={handleOpenBobModal}
       />
