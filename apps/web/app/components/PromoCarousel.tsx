@@ -6,19 +6,19 @@ import Link from "next/link";
 const BANNERS = [
   {
     id: 1,
-    src: "/banners/banner_1.png",
+    src: "/placeholders/banner1.jpg",
     alt: "Banner 1 - Strategies",
-    href: "/strategy",
+    href: "/strategies",
   },
   {
     id: 2,
-    src: "/banners/banner_2.png",
+    src: "/placeholders/banner2.jpg",
     alt: "Banner 2 - Strategies",
-    href: "/strategy",
+    href: "/strategies",
   },
   {
     id: 3,
-    src: "/banners/banner_3.png",
+    src: "/placeholders/banner3.jpg",
     alt: "Banner 3 - Ask Bob",
     href: "/bob",
   },
@@ -35,7 +35,7 @@ export default function PromoCarousel() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-3xl h-16 sm:h-20 md:h-24 mx-auto rounded-lg overflow-hidden bg-slate-900 border border-slate-800 shadow-md flex items-center justify-center">
+    <div className="relative w-full max-w-3xl h-10 md:h-12 mx-auto rounded-lg overflow-hidden bg-slate-900 border border-slate-800 shadow-md flex items-center justify-center">
       {BANNERS.map((banner, idx) => {
         const isActive = idx === currentIndex;
         return (
@@ -47,13 +47,14 @@ export default function PromoCarousel() {
           >
             <Link href={banner.href} className="w-full h-full block">
               <div className="w-full h-full relative bg-slate-800 flex items-center justify-center text-slate-500 font-medium text-sm">
-                <span className="absolute z-10 bg-slate-950/80 px-3 py-1 rounded-md hidden">{banner.alt}</span>
-                {/* Real banner image */}
+                <span className="absolute z-10 bg-slate-950/80 px-3 py-1 rounded-md">{banner.alt}</span>
+                {/* Fallback placeholder */}
                 <Image
                   src={banner.src}
                   alt={banner.alt}
                   fill
-                  className="object-cover"
+                  className="object-cover opacity-50"
+                  unoptimized
                 />
               </div>
             </Link>

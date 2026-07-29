@@ -670,14 +670,15 @@ export default function VariantA_CyberpunkTerminal({
           {/* Banner 6: Play Store Promo */}
           <Link href="#" className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg block">
             <div className="w-full h-full relative flex items-center justify-center">
-              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md hidden">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
                 Banner 6 - Play Store Promo
               </span>
               <Image
-                src="/banners/banner_6.png"
+                src="/placeholders/banner6.jpg"
                 alt="Banner 6 - Play Store Promo"
                 fill
-                className="object-cover"
+                className="object-cover opacity-50"
+                unoptimized
               />
             </div>
           </Link>
@@ -685,14 +686,15 @@ export default function VariantA_CyberpunkTerminal({
           {/* Banner 7: Static Promo */}
           <div className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg">
             <div className="w-full h-full relative flex items-center justify-center">
-              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md hidden">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
                 Banner 7 - Static Promo
               </span>
               <Image
-                src="/banners/banner_7.png"
+                src="/placeholders/banner7.jpg"
                 alt="Banner 7 - Static Promo"
                 fill
-                className="object-cover"
+                className="object-cover opacity-50"
+                unoptimized
               />
             </div>
           </div>
