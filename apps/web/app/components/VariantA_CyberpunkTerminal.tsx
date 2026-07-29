@@ -375,9 +375,9 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Blackbook + HIGH EV FEED] Column (Right) */}
+        {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full items-stretch">
-          {/* Left Column: Next Racing Card */}
+          {/* Left Column: Next Racing Card (Fixed 5 Items) */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col justify-between h-full min-h-[500px]">
             <div>
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4">
@@ -399,7 +399,7 @@ export default function VariantA_CyberpunkTerminal({
                   <p className="text-xs text-slate-400 font-medium">Connecting to live race feeds...</p>
                 </div>
               ) : racesData && racesData.length > 0 ? (
-                <div className="flex flex-col gap-4 pt-1">
+                <div className="flex flex-col gap-3.5 pt-1">
                   {racesData.slice(0, 5).map((race, idx) => (
                     <div
                       key={race.race_id || idx}
@@ -443,7 +443,7 @@ export default function VariantA_CyberpunkTerminal({
                   <div className="w-14 h-14 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center mb-4 text-slate-400 shadow-inner">
                     <Clock className="w-7 h-7 text-slate-400 animate-pulse" />
                   </div>
-                  <h3 className="text-base font-bold text-slate-200">No racing scheduled for today</h3>
+                  <h3 className="text-base font-bold text-slate-200">No more races Today</h3>
                   <p className="text-xs text-slate-400 mt-2 max-w-sm leading-relaxed">
                     Upcoming meetings will automatically appear here once racing starts.
                   </p>
@@ -458,15 +458,15 @@ export default function VariantA_CyberpunkTerminal({
             </div>
           </div>
 
-          {/* Right Column: Stacked [Blackbook Entry + HIGH EV FEED] */}
+          {/* Right Column: Stacked [Next Blackbooker (2) + HIGH EV FEED (3) = 5 Items Total] */}
           <div className="flex flex-col gap-6 md:gap-8 h-full justify-between">
-            {/* Blackbook Entry Section */}
+            {/* Next Blackbooker Section (Strictly Capped at 2 Items) */}
             <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-5 md:p-6 shadow-xl space-y-4 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-3 mb-2 gap-4">
                 <div className="flex items-center gap-2.5">
                   <Bookmark className="w-5 h-5 text-cyan-400" />
                   <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
-                    Blackbook Entry
+                    Next Blackbooker
                   </h2>
                 </div>
                 <button
@@ -480,7 +480,7 @@ export default function VariantA_CyberpunkTerminal({
 
               {blackbookRunners.length > 0 ? (
                 <div className="space-y-3.5 pt-1">
-                  {blackbookRunners.map((item) => {
+                  {blackbookRunners.slice(0, 2).map((item) => {
                     let typeLabel = "HORSE";
                     let typeEmoji = "🏇";
                     if (item.type === "dog") {
@@ -564,12 +564,12 @@ export default function VariantA_CyberpunkTerminal({
               )}
             </div>
 
-            {/* HIGH EV FEED Section (Stacked directly UNDER Blackbook Entry) */}
+            {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
             <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl space-y-4">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800/60">
                 <h2 className="text-base font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
-                  HIGH EV FEED ({filteredOpps.length})
+                  HIGH EV FEED ({Math.min(filteredOpps.length, 3)})
                 </h2>
                 <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
               </div>
@@ -581,7 +581,7 @@ export default function VariantA_CyberpunkTerminal({
                 </div>
               ) : filteredOpps.length > 0 ? (
                 <div className="grid grid-cols-1 gap-4 pt-1">
-                  {filteredOpps.map((opp, idx) => {
+                  {filteredOpps.slice(0, 3).map((opp, idx) => {
                     let SportIcon = Zap;
                     if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;
                     else if (opp.sport?.toLowerCase() === "nba") SportIcon = Flame;
