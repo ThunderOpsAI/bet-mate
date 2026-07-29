@@ -199,6 +199,24 @@ def fetch_today_races(run_date: Optional[str] = None):
     if headers:
         try:
             races = _fetch_live_races(headers, target_date)
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code in (400, 401):
+                print(f"[Betfair] Session expired or invalid ({exc.response.status_code}). Retrying...")
+                global _session_token
+                _session_token = None
+                headers = _get_api_headers()
+                if headers:
+                    try:
+                        races = _fetch_live_races(headers, target_date)
+                    except Exception as retry_exc:
+                        print(f"[Betfair] Retry live fetch failed ({retry_exc})")
+                        races = []
+                else:
+                    print("[Betfair] Authentication unavailable on retry")
+                    races = []
+            else:
+                print(f"[Betfair] Live fetch HTTP error ({exc})")
+                races = []
         except Exception as exc:
             print(f"[Betfair] Live fetch failed ({exc})")
             races = []
