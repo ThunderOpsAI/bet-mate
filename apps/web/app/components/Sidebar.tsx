@@ -244,10 +244,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               </Link>
             )}
           </div>
-          <div className="engine-status">
-            <span className="live-dot" />
-            <span>ML Engine Active</span>
-          </div>
+
           <p style={{ marginTop: "0.75rem" }}>18+ | Gamble Responsibly</p>
         </div>
       </aside>

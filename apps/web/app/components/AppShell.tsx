@@ -44,14 +44,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               />
               <h2>{getPageTitle(pathname)}</h2>
             </div>
-            <div className="header-live-badge header-live-badge-inline">
-              <span className="live-dot" /> ML Engine Live
-            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <div className="header-live-badge header-live-badge-desktop">
-              <span className="live-dot" /> ML Engine Live
-            </div>
             {!isGuest ? (
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <Link href="/settings" className="user-badge" title="Profile Settings">
