@@ -8,6 +8,7 @@ import Sidebar from "./Sidebar";
 import PaperBetslip from "./PaperBetslip";
 import OnboardingTour from "./OnboardingTour";
 import AskBobBubble from "./AskBobBubble";
+import PromoCarousel from "./PromoCarousel";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -45,6 +46,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <h2>{getPageTitle(pathname)}</h2>
             </div>
           </div>
+          
+          <div className="flex-1 mx-4 hidden md:block">
+            <PromoCarousel />
+          </div>
+
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
             {!isGuest ? (
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>

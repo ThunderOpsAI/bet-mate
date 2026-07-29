@@ -664,6 +664,39 @@ export default function VariantA_CyberpunkTerminal({
             </div>
           </div>
         </div>
+
+        {/* Static Promo Banners (6 & 7) */}
+        <div className="flex flex-col gap-4 w-full mt-4">
+          {/* Banner 6: Play Store Promo */}
+          <Link href="#" className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg block">
+            <div className="w-full h-full relative flex items-center justify-center">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md hidden">
+                Banner 6 - Play Store Promo
+              </span>
+              <Image
+                src="/banners/banner_6.png"
+                alt="Banner 6 - Play Store Promo"
+                fill
+                className="object-cover"
+              />
+            </div>
+          </Link>
+          
+          {/* Banner 7: Static Promo */}
+          <div className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg">
+            <div className="w-full h-full relative flex items-center justify-center">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md hidden">
+                Banner 7 - Static Promo
+              </span>
+              <Image
+                src="/banners/banner_7.png"
+                alt="Banner 7 - Static Promo"
+                fill
+                className="object-cover"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Blackbook Search Modal */}
