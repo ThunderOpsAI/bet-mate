@@ -355,8 +355,8 @@ export default function VariantA_CyberpunkTerminal({
         {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-12 w-full items-start">
           {/* Left Column: Next Racing Card */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-6 md:p-8 shadow-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-8 mb-8">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl px-6 py-3 md:px-8 md:py-4 shadow-xl space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4 mb-4">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -427,8 +427,8 @@ export default function VariantA_CyberpunkTerminal({
           </div>
 
           {/* Right Column: Blackbook Alerts Panel */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-6 md:p-8 shadow-xl space-y-6 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-8 mb-8 gap-4">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl px-6 py-3 md:px-8 md:py-4 shadow-xl space-y-3 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-4 mb-4 gap-4">
               <div className="flex items-center gap-2.5">
                 <Bookmark className="w-5 h-5 text-cyan-400" />
                 <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
