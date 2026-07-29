@@ -224,12 +224,17 @@ def fetch_today_races(run_date: Optional[str] = None):
         print("[Betfair] authentication unavailable")
         races = []
 
-    final_races = []
+    from concurrent.futures import ThreadPoolExecutor
+    
+    prepared_races = []
     for race in races:
         prepared = _prepare_race_card(race, default_meeting_date=target_date_str)
         if prepared.get("meeting_date") and prepared.get("meeting_date") != target_date_str:
             continue
-        final_races.append(_enrich_with_racing_australia(prepared))
+        prepared_races.append(prepared)
+        
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        final_races = list(executor.map(_enrich_with_racing_australia, prepared_races))
 
     return final_races
 
@@ -612,6 +617,9 @@ def _enrich_with_racing_australia(race: dict) -> dict:
     }
 
 
+from functools import lru_cache
+
+@lru_cache(maxsize=128)
 def _fetch_racing_australia_acceptances(meeting_date: str, state: str, venue: str) -> list[dict]:
     date_key = datetime.fromisoformat(meeting_date).strftime("%Y%b%d").upper()
     url = f"{RA_BASE_URL}?key={date_key}%2C{state.upper()}%2C{venue.upper().replace(' ', '+')}"

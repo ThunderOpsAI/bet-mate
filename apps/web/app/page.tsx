@@ -1479,7 +1479,7 @@ function DashboardContent() {
   ];
 
   const handleOpenPaperBet = (opp: any) => {
-    alert(`Added ${opp.selection || opp.runner} ($${opp.marketOdds || opp.odds}) to Betslip!`);
+    // Alert removed as toast notification is already shown by VariantA_CyberpunkTerminal
   };
 
   const handleOpenBobModal = (ctx: any) => {
