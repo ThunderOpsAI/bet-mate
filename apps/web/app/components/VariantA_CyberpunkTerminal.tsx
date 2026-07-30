@@ -382,8 +382,8 @@ export default function VariantA_CyberpunkTerminal({
         {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-10 w-full items-stretch">
           {/* Left Column: Next Racing Card (Fixed 5 Items) */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-2.5 md:p-6 shadow-xl flex flex-col h-full">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 px-3 md:px-0 pt-1 shrink-0">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl flex flex-col h-full">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 px-1 md:px-0 pt-1 shrink-0">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -409,7 +409,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={race.race_id || idx}
-                          className="bg-slate-800/60 rounded-xl p-3 md:p-5 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
+                          className="bg-slate-800/60 rounded-xl p-4 md:p-5 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
                         >
                           {/* Left Side: Race Details & Horse */}
                           <div className="flex flex-col gap-1 w-full sm:w-auto overflow-hidden">
@@ -460,8 +460,8 @@ export default function VariantA_CyberpunkTerminal({
           {/* Right Column: Stacked [Next Blackbooker (1) + HIGH EV FEED (3) = 4 Items Total] */}
           <div className="flex flex-col gap-4 h-full w-full">
             {/* Next Blackbooker Section (Strictly 1 Item) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-2.5 md:p-6 shadow-xl flex flex-col">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 px-3 md:px-0 pt-1">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-4 md:p-6 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 px-1 md:px-0 pt-1">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-cyan-400" />
                   <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
@@ -497,7 +497,7 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-3 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-4 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
                       >
                         <div className="flex items-center justify-between mb-2 w-full overflow-hidden gap-2">
                           <div className="flex items-center gap-2 flex-wrap overflow-hidden">
@@ -556,8 +556,8 @@ export default function VariantA_CyberpunkTerminal({
             </div>
 
             {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-2.5 md:p-6 shadow-xl flex-1 flex flex-col">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3 px-3 md:px-0 pt-1">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl flex-1 flex flex-col">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3 px-1 md:px-0 pt-1">
                 <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                   HIGH EV FEED
@@ -586,7 +586,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-3 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-4 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
                         >
                           {/* Top Row (Metadata) */}
                           <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 w-full overflow-hidden">
@@ -669,41 +669,22 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* Static Promo Banners (6 & 7) */}
-        <div className="flex flex-col gap-4 w-full mt-4">
-          {/* Banner 6: Play Store Promo */}
-          <Link href="#" className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg block">
-            <div className="w-full h-full relative flex items-center justify-center">
-              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
-                Banner 6 - Play Store Promo
-              </span>
-              <Image
-                src="/placeholders/banner6.jpg"
-                alt="Banner 6 - Play Store Promo"
-                fill
-                sizes="(max-width: 768px) 100vw, 50vw"
-                className="object-cover opacity-50"
-                unoptimized
-              />
-            </div>
+        {/* Footer: App Store Badge + Gamble Responsibly */}
+        <div className="flex flex-col sm:flex-row items-center gap-4 w-full mt-6 pt-4 border-t border-slate-800/60">
+          {/* Banner 6: App Store Promo (compact) */}
+          <Link href="#" className="relative w-full sm:w-48 h-16 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-md block shrink-0">
+            <Image
+              src="/banners/banner_6.png"
+              alt="Download BetMate App"
+              fill
+              sizes="192px"
+              className="object-cover"
+              unoptimized
+            />
           </Link>
-          
-          {/* Banner 7: Static Promo */}
-          <div className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg">
-            <div className="w-full h-full relative flex items-center justify-center">
-              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
-                Banner 7 - Static Promo
-              </span>
-              <Image
-                src="/placeholders/banner7.jpg"
-                alt="Banner 7 - Static Promo"
-                fill
-                sizes="(max-width: 768px) 100vw, 50vw"
-                className="object-cover opacity-50"
-                unoptimized
-              />
-            </div>
-          </div>
+          <p className="text-[11px] text-slate-500 text-center sm:text-left leading-relaxed">
+            18+ | Gamble Responsibly. If you or someone you know has a gambling problem, call <strong className="text-slate-400">Gambling Help Online 1800 858 858</strong>. Think of the people who need your support.
+          </p>
         </div>
       </div>
 

@@ -49,6 +49,7 @@ import {
   getUrgencySignal,
 } from "./lib/predictionSignals";
 import {
+  ML_DATA_CACHE_RETRY_MS,
   getMlCacheDateKey,
   getMlDataCacheKey,
   getMlDataCacheMetadata,
@@ -839,64 +840,57 @@ function DashboardContent() {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh racing fixtures:", error);
         scheduleMlDataCacheRetry(keys.racingFixturesKey);
-        return readMlDataCache<RaceSummary[]>(keys.racingFixturesKey);
+        return { data: [] as RaceSummary[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.aflFixturesKey, fetchUpcomingAflGames, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh AFL fixtures:", error);
         scheduleMlDataCacheRetry(keys.aflFixturesKey);
-        return readMlDataCache<AFLGame[]>(keys.aflFixturesKey);
+        return { data: [] as AFLGame[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.nbaFixturesKey, fetchTodayNbaGames, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh NBA fixtures:", error);
         scheduleMlDataCacheRetry(keys.nbaFixturesKey);
-        return readMlDataCache<NBAGame[]>(keys.nbaFixturesKey);
+        return { data: [] as NBAGame[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.nrlFixturesKey, fetchUpcomingNrlGames, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh NRL fixtures:", error);
         scheduleMlDataCacheRetry(keys.nrlFixturesKey);
-        return readMlDataCache<NRLGame[]>(keys.nrlFixturesKey);
+        return { data: [] as NRLGame[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.soccerFixturesKey, fetchTodaySoccerGames, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh Soccer fixtures:", error);
         scheduleMlDataCacheRetry(keys.soccerFixturesKey);
-        return readMlDataCache<SoccerGame[]>(keys.soccerFixturesKey);
+        return { data: [] as SoccerGame[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.golfFixturesKey, fetchTodayGolfTournaments, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh Golf fixtures:", error);
         scheduleMlDataCacheRetry(keys.golfFixturesKey);
-        return readMlDataCache<GolfTournament[]>(keys.golfFixturesKey);
+        return { data: [] as GolfTournament[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
       refreshMlDataCache(keys.mmaFixturesKey, fetchTodayMmaGames, {
         force: true,
       }).catch((error) => {
         refreshHadFailure = true;
-        usedCacheFallback = true;
         console.error("Failed to refresh MMA fixtures:", error);
         scheduleMlDataCacheRetry(keys.mmaFixturesKey);
-        return readMlDataCache<MMAMatchup[]>(keys.mmaFixturesKey);
+        return { data: [] as MMAMatchup[], lastUpdated: Date.now(), nextRefreshAt: Date.now() + ML_DATA_CACHE_RETRY_MS, ttlMs: ML_DATA_CACHE_RETRY_MS };
       }),
     ]);
 

@@ -203,6 +203,23 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             <SidebarNavList onClose={onClose} />
           </Suspense>
         </nav>
+
+        {/* Sidebar Promo Banner */}
+        <div className="px-3 py-2">
+          <Link href="/racing" onClick={onClose} className="block">
+            <div className="relative w-full aspect-[3/5] rounded-lg overflow-hidden border border-slate-700/50 shadow-md hover:border-emerald-500/40 transition-all duration-200">
+              <Image
+                src="/banners/banner_7.png"
+                alt="Saturday Racing Carnival – Enhanced Odds"
+                fill
+                sizes="220px"
+                className="object-cover"
+                unoptimized
+              />
+            </div>
+          </Link>
+        </div>
+
         <div className="sidebar-footer">
           <div style={{ marginBottom: "0.85rem", paddingBottom: "0.85rem", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
             {!isGuest ? (

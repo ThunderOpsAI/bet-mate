@@ -6,21 +6,21 @@ import Link from "next/link";
 const BANNERS = [
   {
     id: 1,
-    src: "/placeholders/banner1.jpg",
-    alt: "Banner 1 - Strategies",
-    href: "/strategies",
+    src: "/banners/banner_1.png",
+    alt: "AI Form Guide Pro – Get ML Insights",
+    href: "/racing",
   },
   {
     id: 2,
-    src: "/placeholders/banner2.jpg",
-    alt: "Banner 2 - Strategies",
-    href: "/strategies",
+    src: "/banners/banner_2.png",
+    alt: "ML-Driven Final Picks – See Predictions",
+    href: "/afl",
   },
   {
     id: 3,
-    src: "/placeholders/banner3.jpg",
-    alt: "Banner 3 - Ask Bob",
-    href: "/bob",
+    src: "/banners/banner_3.png",
+    alt: "BetmateBob's Best Bets – Level Up Your Form Guide",
+    href: "/strategy",
   },
 ];
 
@@ -46,15 +46,13 @@ export default function PromoCarousel() {
             }`}
           >
             <Link href={banner.href} className="w-full h-full block">
-              <div className="w-full h-full relative bg-slate-800 flex items-center justify-center text-slate-500 font-medium text-sm">
-                <span className="absolute z-10 bg-slate-950/80 px-3 py-1 rounded-md">{banner.alt}</span>
-                {/* Fallback placeholder */}
+              <div className="w-full h-full relative">
                 <Image
                   src={banner.src}
                   alt={banner.alt}
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
-                  className="object-cover opacity-50"
+                  className="object-cover"
                   priority
                   unoptimized
                 />
