@@ -336,7 +336,7 @@ export default function VariantA_CyberpunkTerminal({
       </div>
 
       {/* Main Content Area with generous section spacing */}
-      <div className="max-w-7xl mx-auto px-3 py-6 md:p-8 flex flex-col gap-6 md:gap-8">
+      <div className="max-w-7xl mx-auto px-1.5 py-4 md:px-8 md:py-8 flex flex-col gap-6 md:gap-8">
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
         <div className="pt-8 border-t border-slate-800/40 flex flex-col gap-6">
           <div className="flex items-center justify-between">
@@ -376,9 +376,9 @@ export default function VariantA_CyberpunkTerminal({
         </div>
 
         {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full items-stretch">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-10 w-full items-stretch">
           {/* Left Column: Next Racing Card (Fixed 5 Items) */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-3 md:p-6 shadow-xl flex flex-col h-full">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-2.5 md:p-6 shadow-xl flex flex-col h-full">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 shrink-0">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
@@ -405,33 +405,33 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={race.race_id || idx}
-                          className="bg-slate-800/60 rounded-xl p-3 md:p-5 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4 flex-1 w-full"
+                          className="bg-slate-800/60 rounded-xl p-2.5 md:p-5 border border-slate-700/60 flex items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
                         >
                           {/* Left Side: Race Details & Horse */}
-                          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
-                            <div className="flex items-center gap-2.5">
-                              <span className="text-sm md:text-base font-bold text-white">R{race.race_number} {race.venue}</span>
-                              <span className="text-[11px] md:text-xs text-slate-400">{race.distance}m</span>
-                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 leading-normal rounded-full border border-emerald-500/20 font-mono">
+                          <div className="flex flex-col gap-1 w-full sm:w-auto overflow-hidden">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-white truncate">R{race.race_number} {race.venue}</span>
+                              <span className="text-[11px] text-slate-400 truncate">{race.distance}m</span>
+                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 leading-normal rounded-md border border-emerald-500/20 font-mono whitespace-nowrap hidden sm:inline-block">
                                 {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
                               </span>
                             </div>
-                            <div className="text-xs md:text-sm text-slate-300 font-medium flex items-center gap-2 mt-1">
-                              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                              {race.horses?.[0]?.name || "Top Favorite"}
+                            <div className="text-xs md:text-sm text-slate-300 font-medium flex items-center gap-1.5 mt-0.5 truncate">
+                              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
+                              <span className="truncate">{race.horses?.[0]?.name || "Top Favorite"}</span>
                             </div>
                           </div>
                           
                           {/* Right Side: Clickable Odds Button */}
-                          <div className="flex items-center justify-between w-full sm:w-auto sm:justify-end gap-4">
+                          <div className="flex items-center justify-end shrink-0 gap-2">
                             <Link
                               href={`/races/${race.race_id || "demo"}`}
-                              className="text-slate-400 hover:text-white font-medium text-xs flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
+                              className="text-slate-400 hover:text-white font-medium text-[10px] hidden sm:flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
                             >
-                              Race Card <ArrowUpRight className="w-3.5 h-3.5" />
+                              Card <ArrowUpRight className="w-3 h-3" />
                             </Link>
                             {race.horses?.[0]?.betfair_back_price ? (
-                              <button className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-mono text-sm font-bold text-white transition-colors">
+                              <button className="bg-slate-700 hover:bg-slate-600 h-8 w-14 sm:w-16 flex items-center justify-center rounded-md font-mono text-xs font-bold text-white transition-colors shrink-0">
                                 ${race.horses[0].betfair_back_price.toFixed(2)}
                               </button>
                             ) : null}
@@ -456,7 +456,7 @@ export default function VariantA_CyberpunkTerminal({
           {/* Right Column: Stacked [Next Blackbooker (1) + HIGH EV FEED (3) = 4 Items Total] */}
           <div className="flex flex-col gap-4 h-full w-full">
             {/* Next Blackbooker Section (Strictly 1 Item) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-3 md:p-6 shadow-xl flex flex-col">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-2.5 md:p-6 shadow-xl flex flex-col">
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-cyan-400" />
@@ -493,19 +493,19 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-3 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px] flex flex-col justify-center w-full"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-2.5 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
                       >
-                        <div className="flex items-center justify-between mb-2 w-full">
-                          <div className="flex items-center gap-2.5 flex-wrap">
-                            <span className="text-sm md:text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                        <div className="flex items-center justify-between mb-2 w-full overflow-hidden gap-2">
+                          <div className="flex items-center gap-2 flex-wrap overflow-hidden">
+                            <span className="text-sm md:text-base font-bold text-white group-hover:text-cyan-300 transition-colors truncate">
                               {item.runner}
                             </span>
-                            <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-3 py-1 leading-normal rounded-full border border-slate-700/50 flex items-center gap-1">
+                            <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-2 py-0.5 leading-normal rounded-md border border-slate-700/50 flex items-center gap-1 shrink-0">
                               <span>{typeEmoji}</span>
-                              <span>{typeLabel}</span>
+                              <span className="hidden sm:inline">{typeLabel}</span>
                             </span>
                           </div>
-                          <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-4 py-2 leading-relaxed rounded-full border border-slate-700">
+                          <span className="bg-slate-700 h-8 w-14 sm:w-16 flex items-center justify-center rounded-md font-mono text-xs font-bold text-white shrink-0">
                             {item.odds || "Market"}
                           </span>
                         </div>
@@ -514,11 +514,11 @@ export default function VariantA_CyberpunkTerminal({
                           {item.note || `Watching ${item.runner} across all upcoming meetings.`}
                         </p>
 
-                        <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/80 text-xs font-mono">
-                          <div className="flex items-center gap-2">
-                            <span className="text-emerald-400 font-bold">{item.edge || "+14.0% EV"}</span>
-                            <span className="text-slate-600">|</span>
-                            <span className="text-cyan-400 font-semibold">{item.venue || "Next Up"}</span>
+                        <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/80 text-[11px] font-mono">
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="text-emerald-400 font-bold shrink-0">{item.edge || "+14.0% EV"}</span>
+                            <span className="text-slate-600 shrink-0">|</span>
+                            <span className="text-cyan-400 font-semibold truncate">{item.venue || "Next Up"}</span>
                           </div>
                           <button
                             onClick={() => {
@@ -530,7 +530,7 @@ export default function VariantA_CyberpunkTerminal({
                               });
                               setToastMsg(`Added ${item.runner} to Betslip!`);
                             }}
-                            className="px-3.5 py-1.5 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 text-xs font-bold rounded-full leading-normal transition-all duration-200"
+                            className="bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 h-7 px-3 flex items-center justify-center text-xs font-bold rounded-md transition-all duration-200 shrink-0"
                           >
                             Quick Bet
                           </button>
@@ -552,7 +552,7 @@ export default function VariantA_CyberpunkTerminal({
             </div>
 
             {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-3 md:p-6 shadow-xl flex-1 flex flex-col">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-2.5 md:p-6 shadow-xl flex-1 flex flex-col">
               <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3">
                 <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
@@ -582,13 +582,13 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-3 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[120px] w-full"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-2.5 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
                         >
                           {/* Top Row (Metadata) */}
-                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/40">
-                            <div className="flex items-center gap-2 text-slate-400">
-                              <SportIcon className="w-3.5 h-3.5 text-emerald-400" />
-                              <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-3 py-1 leading-normal rounded-full border border-slate-700/60">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 w-full overflow-hidden">
+                            <div className="flex items-center gap-2 text-slate-400 truncate">
+                              <SportIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                              <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-2 py-0.5 leading-normal rounded-md border border-slate-700/60 truncate">
                                 {opp.sport} • {opp.event}
                               </span>
                             </div>
@@ -598,32 +598,32 @@ export default function VariantA_CyberpunkTerminal({
                           </div>
 
                           {/* Main Row */}
-                          <div className="flex items-end justify-between z-10 relative">
-                            <div className="flex-1 pr-3 space-y-1">
-                              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                          <div className="flex items-center justify-between z-10 relative pt-2 gap-2">
+                            <div className="flex-1 overflow-hidden space-y-0.5">
+                              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
                                 MODEL SELECTION
                               </div>
-                              <div className="text-sm md:text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
+                              <div className="text-sm font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors truncate">
                                 {opp.selection}
                               </div>
                             </div>
                             
-                            {/* EV Pill */}
-                            <div className="flex flex-col items-end flex-shrink-0">
-                              <span className="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-full leading-normal border border-emerald-500/30 text-[10px] md:text-xs shadow-[0_0_15px_rgba(16,185,129,0.15)]">
-                                {opp.edge ? `+${opp.edge}% EV` : "Model Signal"}
-                              </span>
-                              <div className="flex items-center gap-1.5 mt-2 text-[10px] font-mono text-slate-400">
-                                <span>Fair: ${opp.fairOdds?.toFixed(2) || "2.10"}</span>
-                                {opp.marketOdds ? (
-                                  <>
-                                    <span className="text-slate-600">|</span>
-                                    <span className="text-slate-200 font-bold bg-slate-800 px-2 py-0.5 rounded">
-                                      ${opp.marketOdds.toFixed(2)}
-                                    </span>
-                                  </>
-                                ) : null}
-                              </div>
+                            {/* Odds / EV Button Right Side */}
+                            <div className="flex flex-col items-end flex-shrink-0 justify-center">
+                              {opp.marketOdds ? (
+                                <button className="bg-slate-700 hover:bg-slate-600 h-8 w-14 sm:w-16 flex items-center justify-center rounded-md font-mono text-xs font-bold text-white transition-colors">
+                                  ${opp.marketOdds.toFixed(2)}
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center justify-center h-8 px-2 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-md border border-emerald-500/30 text-[10px]">
+                                  {opp.edge ? `+${opp.edge}%` : "SIG"}
+                                </span>
+                              )}
+                              {opp.marketOdds && opp.edge ? (
+                                <div className="text-[10px] font-mono text-emerald-400 mt-1 font-bold">
+                                  +{opp.edge}% EV
+                                </div>
+                              ) : null}
                             </div>
                           </div>
 
