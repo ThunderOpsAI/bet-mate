@@ -16,10 +16,17 @@ export const metadata: Metadata = {
   description: "XGBoost ML-powered predictions for racing, AFL, and NBA. Explainable AI insights, fair odds calculations, and feature importance analysis.",
 };
 
+export const viewport = { 
+  width: 'device-width', 
+  initialScale: 1, 
+  maximumScale: 1, 
+  userScalable: false 
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={inter.className}>
-      <body>
+      <body className="overflow-x-hidden">
         <AnalyticsProvider />
         <QueryProvider>
           <AuthProvider>
