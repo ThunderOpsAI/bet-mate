@@ -277,7 +277,7 @@ function RegisterForm() {
                 required
               />
               <span>
-                I accept the <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Terms &amp; Conditions</a> and <a href="#" onClick={(e) => e.preventDefault()} style={{ color: "var(--accent)", textDecoration: "underline" }}>Privacy Policy</a> <span style={{ color: "var(--red)" }}>*</span>
+                I confirm I am 18 years or older and agree to the <Link href="/terms-and-conditions" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>Terms and Conditions</Link> and <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>Privacy Policy</Link> <span style={{ color: "var(--red)" }}>*</span>
               </span>
             </label>
 

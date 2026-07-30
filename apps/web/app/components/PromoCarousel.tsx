@@ -53,7 +53,9 @@ export default function PromoCarousel() {
                   src={banner.src}
                   alt={banner.alt}
                   fill
+                  sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-cover opacity-50"
+                  priority
                   unoptimized
                 />
               </div>

@@ -5,10 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { Menu, LogIn, LogOut, User as UserIcon, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import Sidebar from "./Sidebar";
-import PaperBetslip from "./PaperBetslip";
-import OnboardingTour from "./OnboardingTour";
-import AskBobBubble from "./AskBobBubble";
+import dynamic from "next/dynamic";
 import PromoCarousel from "./PromoCarousel";
+
+const PaperBetslip = dynamic(() => import("./PaperBetslip"), { ssr: false });
+const AskBobBubble = dynamic(() => import("./AskBobBubble"), { ssr: false });
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -26,7 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <OnboardingTour />
+
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-area">
         <header className="top-header">

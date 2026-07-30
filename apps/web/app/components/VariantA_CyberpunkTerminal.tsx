@@ -677,6 +677,7 @@ export default function VariantA_CyberpunkTerminal({
                 src="/placeholders/banner6.jpg"
                 alt="Banner 6 - Play Store Promo"
                 fill
+                sizes="(max-width: 768px) 100vw, 50vw"
                 className="object-cover opacity-50"
                 unoptimized
               />
@@ -693,6 +694,7 @@ export default function VariantA_CyberpunkTerminal({
                 src="/placeholders/banner7.jpg"
                 alt="Banner 7 - Static Promo"
                 fill
+                sizes="(max-width: 768px) 100vw, 50vw"
                 className="object-cover opacity-50"
                 unoptimized
               />
