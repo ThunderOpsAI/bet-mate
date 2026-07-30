@@ -202,6 +202,7 @@ export default function VariantA_CyberpunkTerminal({
   const getSportCount = (sportId: string) => {
     if (sportId === "all") return (allOpportunities?.length || 0) + (racesData?.length || 0);
     if (sportId === "racing") return (racesData?.length || 0) + (allOpportunities?.filter((o) => o.sport?.toLowerCase() === "racing").length || 0);
+    if (sportId === "sports") return allOpportunities?.filter((o) => ["afl", "nrl", "nba", "soccer", "mma", "golf"].includes(o.sport?.toLowerCase())).length || 0;
     if (sportId === "blackbook") return blackbookRunners.length;
     return allOpportunities?.filter((o) => o.sport?.toLowerCase() === sportId.toLowerCase()).length || 0;
   };
@@ -209,11 +210,8 @@ export default function VariantA_CyberpunkTerminal({
   const sportsList = [
     { id: "all", label: "All Signal Feeds", emoji: "⚡" },
     { id: "racing", label: "Racing Hub", emoji: "🏇" },
-    { id: "afl", label: "AFL", emoji: "🏉" },
-    { id: "nrl", label: "NRL", emoji: "🏉" },
-    { id: "nba", label: "NBA", emoji: "🏀" },
-    { id: "soccer", label: "Soccer", emoji: "⚽" },
-    { id: "blackbook", label: "Blackbookers", emoji: "📖" },
+    { id: "sports", label: "Sports Hub", emoji: "⚽" },
+    { id: "blackbook", label: "Blackbook", emoji: "🔖" },
   ].map((sport) => ({
     ...sport,
     count: getSportCount(sport.id),
@@ -222,9 +220,13 @@ export default function VariantA_CyberpunkTerminal({
   const filteredOpps =
     selectedSportFilter === "all"
       ? allOpportunities
-      : allOpportunities.filter(
-          (o) => o.sport?.toLowerCase() === selectedSportFilter.toLowerCase()
-        );
+      : selectedSportFilter === "sports"
+        ? allOpportunities.filter((o) =>
+            ["afl", "nrl", "nba", "soccer", "mma", "golf"].includes(o.sport?.toLowerCase())
+          )
+        : allOpportunities.filter(
+            (o) => o.sport?.toLowerCase() === selectedSportFilter.toLowerCase()
+          );
 
   // Filter preset entities in search modal
   const filteredSearchPresets = PRESET_ENTITIES.filter((item) => {
@@ -237,13 +239,13 @@ export default function VariantA_CyberpunkTerminal({
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-black">
       {/* Top Banner Live Ticker / Live Matrix Signal Feed */}
-      <div className="bg-slate-900 border-b border-slate-800 px-6 py-2 flex items-center gap-6 overflow-x-auto scrollbar-none">
+      <div className="w-full max-w-full bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-2 flex items-center gap-6 overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="flex items-center gap-2 text-emerald-500 font-bold uppercase text-[11px] whitespace-nowrap shrink-0">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
           LIVE MATRIX
         </div>
         
-        <div className="flex items-center gap-4 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-4 overflow-x-auto no-scrollbar flex-nowrap whitespace-nowrap min-w-0">
           {racesData && racesData.length > 0 ? (
             racesData.slice(0, 3).map((race, idx) => (
               <div
@@ -336,7 +338,7 @@ export default function VariantA_CyberpunkTerminal({
       </div>
 
       {/* Main Content Area with generous section spacing */}
-      <div className="max-w-7xl mx-auto px-1.5 py-4 md:px-8 md:py-8 flex flex-col gap-6 md:gap-8">
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 md:py-8 flex flex-col gap-6 md:gap-8">
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
         <div className="pt-8 border-t border-slate-800/40 flex flex-col gap-6">
           <div className="flex items-center justify-between">
@@ -345,33 +347,35 @@ export default function VariantA_CyberpunkTerminal({
               SIGNAL FEEDS
             </h2>
           </div>
-          <div className="flex items-center gap-5 overflow-x-auto pb-4 scrollbar-none">
-            {sportsList.map((sport) => {
-              const active = selectedSportFilter === sport.id;
-              return (
-                <button
-                  key={sport.id}
-                  onClick={() => setSelectedSportFilter(sport.id)}
-                  className={`group flex items-center justify-between gap-4 px-6 py-3.5 rounded-full border text-sm font-semibold leading-relaxed whitespace-nowrap transition-all duration-200 ${
-                    active
-                      ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
-                      : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
-                  }`}
-                >
-                  <div className="flex items-center gap-3.5">
-                    {/* Circular Emoji Badge */}
-                    <span className="w-9 h-9 rounded-full bg-slate-800/90 border border-slate-700/60 flex items-center justify-center text-base p-1.5 shrink-0 shadow-inner group-hover:scale-105 transition-transform">
+          <div className="w-full overflow-x-auto no-scrollbar scroll-smooth py-2" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap min-w-max">
+              {sportsList.map((sport) => {
+                const active = selectedSportFilter === sport.id;
+                return (
+                  <button
+                    key={sport.id}
+                    onClick={() => setSelectedSportFilter(sport.id)}
+                    className={`flex-shrink-0 inline-flex items-center gap-3 px-5 py-3 rounded-full border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
+                      active
+                        ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
+                        : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
+                    }`}
+                  >
+                    {/* Emoji Badge */}
+                    <span className="w-8 h-8 rounded-full bg-slate-800/90 border border-slate-700/60 flex items-center justify-center text-base shrink-0 shadow-inner">
                       {sport.emoji}
                     </span>
                     <span>{sport.label}</span>
-                  </div>
-                  {/* Circular/Pill Count Badge with generous padding & border ring */}
-                  <span className="min-w-[38px] h-auto min-h-fit px-4 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-bold border border-emerald-500/40 ring-1 ring-emerald-500/25 flex items-center justify-center leading-normal text-center shadow-md ml-2">
-                    {sport.count}
-                  </span>
-                </button>
-              );
-            })}
+                    {/* Count Badge — only on All Signal Feeds */}
+                    {sport.id === "all" && (
+                      <span className="min-w-[28px] px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-bold border border-emerald-500/40 ring-1 ring-emerald-500/25 flex items-center justify-center leading-normal text-center shadow-md">
+                        {sport.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
