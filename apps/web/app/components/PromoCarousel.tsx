@@ -35,7 +35,7 @@ export default function PromoCarousel() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-3xl h-10 md:h-12 mx-auto rounded-lg overflow-hidden bg-slate-900 border border-slate-800 shadow-md flex items-center justify-center">
+    <div className="relative w-full max-w-4xl aspect-[21/6] mx-auto rounded-xl overflow-hidden bg-slate-900 border border-slate-800 shadow-md flex items-center justify-center">
       {BANNERS.map((banner, idx) => {
         const isActive = idx === currentIndex;
         return (

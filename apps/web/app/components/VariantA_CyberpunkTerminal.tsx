@@ -383,7 +383,7 @@ export default function VariantA_CyberpunkTerminal({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-10 w-full items-stretch">
           {/* Left Column: Next Racing Card (Fixed 5 Items) */}
           <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl flex flex-col h-full">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 px-1 md:px-0 pt-1 shrink-0">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 px-2 md:px-2 pt-1 shrink-0">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -409,7 +409,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={race.race_id || idx}
-                          className="bg-slate-800/60 rounded-xl p-4 md:p-5 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
+                          className="bg-slate-800/60 rounded-xl px-4 py-3 md:px-5 md:py-4 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
                         >
                           {/* Left Side: Race Details & Horse */}
                           <div className="flex flex-col gap-1 w-full sm:w-auto overflow-hidden">
@@ -461,7 +461,7 @@ export default function VariantA_CyberpunkTerminal({
           <div className="flex flex-col gap-4 h-full w-full">
             {/* Next Blackbooker Section (Strictly 1 Item) */}
             <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-4 md:p-6 shadow-xl flex flex-col">
-              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 px-1 md:px-0 pt-1">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3 px-2 md:px-2 pt-1">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-cyan-400" />
                   <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
@@ -497,7 +497,7 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-4 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 px-4 py-4 md:px-6 md:py-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
                       >
                         <div className="flex items-center justify-between mb-2 w-full overflow-hidden gap-2">
                           <div className="flex items-center gap-2 flex-wrap overflow-hidden">
@@ -557,7 +557,7 @@ export default function VariantA_CyberpunkTerminal({
 
             {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
             <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-4 md:p-6 shadow-xl flex-1 flex flex-col">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3 px-1 md:px-0 pt-1">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3 px-2 md:px-2 pt-1">
                 <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
                   HIGH EV FEED
@@ -586,7 +586,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-4 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 md:px-5 md:py-4 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
                         >
                           {/* Top Row (Metadata) */}
                           <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 w-full overflow-hidden">
