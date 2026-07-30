@@ -237,7 +237,7 @@ export default function VariantA_CyberpunkTerminal({
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-black">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden bg-slate-950 text-slate-100 font-sans selection:bg-emerald-500 selection:text-black">
       {/* Top Banner Live Ticker / Live Matrix Signal Feed */}
       <div className="w-full max-w-full bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-2 flex items-center gap-6 overflow-x-auto no-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
         <div className="flex items-center gap-2 text-emerald-500 font-bold uppercase text-[11px] whitespace-nowrap shrink-0">
