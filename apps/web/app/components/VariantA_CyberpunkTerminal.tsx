@@ -336,7 +336,7 @@ export default function VariantA_CyberpunkTerminal({
       </div>
 
       {/* Main Content Area with generous section spacing */}
-      <div className="max-w-7xl mx-auto p-6 md:p-8 flex flex-col gap-6 md:gap-8">
+      <div className="max-w-7xl mx-auto px-3 py-6 md:p-8 flex flex-col gap-6 md:gap-8">
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
         <div className="pt-8 border-t border-slate-800/40 flex flex-col gap-6">
           <div className="flex items-center justify-between">
@@ -378,7 +378,7 @@ export default function VariantA_CyberpunkTerminal({
         {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full items-stretch">
           {/* Left Column: Next Racing Card (Fixed 5 Items) */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col h-full">
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-3 md:p-6 shadow-xl flex flex-col h-full">
             <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 shrink-0">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
@@ -405,18 +405,18 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={race.race_id || idx}
-                          className="bg-slate-800/60 rounded-xl p-5 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4 flex-1"
+                          className="bg-slate-800/60 rounded-xl p-3 md:p-5 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4 flex-1 w-full"
                         >
                           {/* Left Side: Race Details & Horse */}
                           <div className="flex flex-col gap-1.5 w-full sm:w-auto">
                             <div className="flex items-center gap-2.5">
-                              <span className="text-base font-bold text-white">R{race.race_number} {race.venue}</span>
-                              <span className="text-xs text-slate-400">{race.distance}m</span>
+                              <span className="text-sm md:text-base font-bold text-white">R{race.race_number} {race.venue}</span>
+                              <span className="text-[11px] md:text-xs text-slate-400">{race.distance}m</span>
                               <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 leading-normal rounded-full border border-emerald-500/20 font-mono">
                                 {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
                               </span>
                             </div>
-                            <div className="text-sm text-slate-300 font-medium flex items-center gap-2 mt-1">
+                            <div className="text-xs md:text-sm text-slate-300 font-medium flex items-center gap-2 mt-1">
                               <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
                               {race.horses?.[0]?.name || "Top Favorite"}
                             </div>
@@ -454,9 +454,9 @@ export default function VariantA_CyberpunkTerminal({
           </div>
 
           {/* Right Column: Stacked [Next Blackbooker (1) + HIGH EV FEED (3) = 4 Items Total] */}
-          <div className="flex flex-col gap-4 h-full">
+          <div className="flex flex-col gap-4 h-full w-full">
             {/* Next Blackbooker Section (Strictly 1 Item) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-3 md:p-6 shadow-xl flex flex-col">
               <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3">
                 <div className="flex items-center gap-2">
                   <Bookmark className="w-4 h-4 text-cyan-400" />
@@ -493,11 +493,11 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px] flex flex-col justify-center"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-3 md:p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px] flex flex-col justify-center w-full"
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2.5">
-                            <span className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                        <div className="flex items-center justify-between mb-2 w-full">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-sm md:text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
                               {item.runner}
                             </span>
                             <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-3 py-1 leading-normal rounded-full border border-slate-700/50 flex items-center gap-1">
@@ -510,7 +510,7 @@ export default function VariantA_CyberpunkTerminal({
                           </span>
                         </div>
 
-                        <p className="text-[12px] text-slate-400 italic mb-2.5 leading-relaxed">
+                        <p className="text-[11px] md:text-[12px] text-slate-400 italic mb-2.5 leading-relaxed">
                           {item.note || `Watching ${item.runner} across all upcoming meetings.`}
                         </p>
 
@@ -552,7 +552,7 @@ export default function VariantA_CyberpunkTerminal({
             </div>
 
             {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
-            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex-1 flex flex-col">
+            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-3 md:p-6 shadow-xl flex-1 flex flex-col">
               <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3">
                 <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
@@ -582,7 +582,7 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[120px]"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-3 md:p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[120px] w-full"
                         >
                           {/* Top Row (Metadata) */}
                           <div className="flex items-center justify-between pb-2 border-b border-slate-800/40">
@@ -603,14 +603,14 @@ export default function VariantA_CyberpunkTerminal({
                               <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
                                 MODEL SELECTION
                               </div>
-                              <div className="text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
+                              <div className="text-sm md:text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
                                 {opp.selection}
                               </div>
                             </div>
                             
                             {/* EV Pill */}
                             <div className="flex flex-col items-end flex-shrink-0">
-                              <span className="inline-flex items-center px-3 py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-full leading-normal border border-emerald-500/30 text-xs shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                              <span className="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-full leading-normal border border-emerald-500/30 text-[10px] md:text-xs shadow-[0_0_15px_rgba(16,185,129,0.15)]">
                                 {opp.edge ? `+${opp.edge}% EV` : "Model Signal"}
                               </span>
                               <div className="flex items-center gap-1.5 mt-2 text-[10px] font-mono text-slate-400">
