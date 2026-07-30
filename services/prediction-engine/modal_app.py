@@ -121,6 +121,7 @@ def _run_logged_job(name: str, job: Callable[[], Dict[str, object]]) -> Dict[str
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     timeout=60 * 15,
 )
 @modal.asgi_app()
@@ -134,6 +135,7 @@ def web():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     schedule=modal.Cron("0 5 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 20,
 )
@@ -160,6 +162,7 @@ def nightly_strategy_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     schedule=modal.Cron("0 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 10,
 )
@@ -255,6 +258,7 @@ def race_data_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     schedule=modal.Cron("15 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )
@@ -279,6 +283,7 @@ def afl_model_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     schedule=modal.Cron("30 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )
@@ -303,6 +308,7 @@ def nba_model_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
+    region="ap-southeast-2",
     schedule=modal.Cron("0 6 * * 0", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )

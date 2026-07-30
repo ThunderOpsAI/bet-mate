@@ -61,6 +61,7 @@ type PlayerPrediction = {
   name: string;
   win_probability: number;
   fair_odds: number;
+  market_odds?: number | null;
 };
 
 type GolfPrediction = {
@@ -328,7 +329,7 @@ export default function GolfPage() {
           eventLabel: tournament.name,
           probability: pick.win_probability,
           fairOdds: pick.fair_odds,
-          marketOdds: player?.betfair_back_price ?? null,
+          marketOdds: pick.market_odds ?? player?.betfair_back_price ?? undefined,
           confidenceSignal,
           urgencySignal,
           href: "/golf",
@@ -449,7 +450,8 @@ export default function GolfPage() {
                                 const player = tournament.players.find(
                                   (candidate) => candidate.player_id === pick.player_id,
                                 );
-                                const edge = getEdgePercent(pick.fair_odds, player?.betfair_back_price);
+                                const marketPrice = pick.market_odds ?? player?.betfair_back_price;
+                                const edge = getEdgePercent(pick.fair_odds, marketPrice);
 
                                 return (
                                   <tr key={pick.player_id}>
@@ -459,7 +461,7 @@ export default function GolfPage() {
                                     </td>
                                     <td style={{ textAlign: "right" }}>${pick.fair_odds.toFixed(2)}</td>
                                     <td style={{ textAlign: "right" }}>
-                                      {player?.betfair_back_price ? `$${player.betfair_back_price.toFixed(2)}` : "—"}
+                                      {marketPrice ? `$${marketPrice.toFixed(2)}` : "—"}
                                     </td>
                                     <td style={{ textAlign: "right" }}>
                                       {edge && edge > 0 ? (
@@ -493,12 +495,12 @@ export default function GolfPage() {
                                             event_id: tournament.tournament_id,
                                             event_name: tournament.name,
                                             selection: pick.name,
-                                            odds: player?.betfair_back_price ?? pick.fair_odds,
+                                            odds: marketPrice ?? pick.fair_odds,
                                             bet_type: "win",
                                             stake: 10,
-                                            odds_source: player?.betfair_back_price ? "market" : "model_fair",
-                                            current_odds: player?.betfair_back_price ?? pick.fair_odds,
-                                            can_compare_odds: Boolean(player?.betfair_back_price),
+                                            odds_source: marketPrice ? "market" : "model_fair",
+                                            current_odds: marketPrice ?? pick.fair_odds,
+                                            can_compare_odds: Boolean(marketPrice && marketPrice > 1),
                                             event_start_time: tournament.start_time,
                                           }}
                                         />

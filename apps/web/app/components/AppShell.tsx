@@ -5,9 +5,11 @@ import Image from "next/image";
 import Link from "next/link";
 import { Menu, LogIn, LogOut, User as UserIcon, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import Sidebar from "./Sidebar";
-import PaperBetslip from "./PaperBetslip";
-import OnboardingTour from "./OnboardingTour";
-import AskBobBubble from "./AskBobBubble";
+import dynamic from "next/dynamic";
+import PromoCarousel from "./PromoCarousel";
+
+const PaperBetslip = dynamic(() => import("./PaperBetslip"), { ssr: false });
+const AskBobBubble = dynamic(() => import("./AskBobBubble"), { ssr: false });
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -25,7 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <OnboardingTour />
+
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="main-area">
         <header className="top-header">
@@ -44,14 +46,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               />
               <h2>{getPageTitle(pathname)}</h2>
             </div>
-            <div className="header-live-badge header-live-badge-inline">
-              <span className="live-dot" /> ML Engine Live
-            </div>
           </div>
+          
+          <div className="flex-1 mx-4 hidden md:block">
+            <PromoCarousel />
+          </div>
+
           <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <div className="header-live-badge header-live-badge-desktop">
-              <span className="live-dot" /> ML Engine Live
-            </div>
             {!isGuest ? (
               <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
                 <Link href="/settings" className="user-badge" title="Profile Settings">
@@ -128,14 +129,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
 function getPageTitle(path: string) {
   if (path === "/") return "Dashboard";
-  if (path === "/racing") return "🏇 Racing Predictions";
-  if (path === "/afl") return "🏈 AFL Predictions";
-  if (path === "/nba") return "🏀 NBA Predictions";
-  if (path === "/nrl") return "🛡️ NRL Predictions";
-  if (path === "/soccer") return "⚽ Soccer Predictions";
-  if (path === "/golf") return "⛳ Golf Predictions";
-  if (path === "/mma") return "🥊 MMA Predictions";
-  if (path === "/strategy") return "📊 Strategies";
+  if (path === "/racing") return "Racing Predictions";
+  if (path === "/afl") return "AFL Predictions";
+  if (path === "/nba") return "NBA Predictions";
+  if (path === "/nrl") return "NRL Predictions";
+  if (path === "/soccer") return "Soccer Predictions";
+  if (path === "/golf") return "Golf Predictions";
+  if (path === "/mma") return "MMA Predictions";
+  if (path === "/strategy") return "Strategies";
   if (path.startsWith("/races")) return "Race Detail";
   if (path === "/bets/new") return "Log a Bet";
   if (path === "/bets") return "Bankroll";

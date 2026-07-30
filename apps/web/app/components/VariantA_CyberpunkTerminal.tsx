@@ -30,6 +30,7 @@ import { ML_API } from "../lib/mlApi";
 interface VariantProps {
   racesData: any[];
   allOpportunities: any[];
+  isLoading?: boolean;
   onOpenPaperBet: (bet: any) => void;
   onOpenBobModal: (ctx: any) => void;
 }
@@ -84,8 +85,9 @@ const PRESET_ENTITIES: Array<{
 ];
 
 export default function VariantA_CyberpunkTerminal({
-  racesData,
-  allOpportunities,
+  racesData = [],
+  allOpportunities = [],
+  isLoading = false,
   onOpenPaperBet,
   onOpenBobModal,
 }: VariantProps) {
@@ -197,15 +199,25 @@ export default function VariantA_CyberpunkTerminal({
     setSearchQuery("");
   };
 
+  const getSportCount = (sportId: string) => {
+    if (sportId === "all") return (allOpportunities?.length || 0) + (racesData?.length || 0);
+    if (sportId === "racing") return (racesData?.length || 0) + (allOpportunities?.filter((o) => o.sport?.toLowerCase() === "racing").length || 0);
+    if (sportId === "blackbook") return blackbookRunners.length;
+    return allOpportunities?.filter((o) => o.sport?.toLowerCase() === sportId.toLowerCase()).length || 0;
+  };
+
   const sportsList = [
-    { id: "all", label: "All Signal Feeds", count: 24, emoji: "⚡" },
-    { id: "racing", label: "Racing Hub", count: 5, emoji: "🏇" },
-    { id: "afl", label: "AFL", count: 4, emoji: "🏉" },
-    { id: "nrl", label: "NRL", count: 3, emoji: "🏉" },
-    { id: "nba", label: "NBA", count: 6, emoji: "🏀" },
-    { id: "soccer", label: "Soccer", count: 4, emoji: "⚽" },
-    { id: "blackbook", label: "Blackbookers", count: blackbookRunners.length, emoji: "📖" },
-  ];
+    { id: "all", label: "All Signal Feeds", emoji: "⚡" },
+    { id: "racing", label: "Racing Hub", emoji: "🏇" },
+    { id: "afl", label: "AFL", emoji: "🏉" },
+    { id: "nrl", label: "NRL", emoji: "🏉" },
+    { id: "nba", label: "NBA", emoji: "🏀" },
+    { id: "soccer", label: "Soccer", emoji: "⚽" },
+    { id: "blackbook", label: "Blackbookers", emoji: "📖" },
+  ].map((sport) => ({
+    ...sport,
+    count: getSportCount(sport.id),
+  }));
 
   const filteredOpps =
     selectedSportFilter === "all"
@@ -231,30 +243,41 @@ export default function VariantA_CyberpunkTerminal({
           LIVE MATRIX
         </div>
         
-        <div className="flex items-center gap-4">
-          {[
-            { id: 1, title: "R3 Eagle Farm", time: "3m 40s", tag: "+14.2% EV Alert", tagColor: "text-emerald-400" },
-            { id: 2, title: "R5 Randwick", time: "18m 15s", tag: "Blackbooker Alert", tagColor: "text-cyan-400" },
-            { id: 3, title: "Lakers vs Bulls", time: "Q3 04:12", tag: "Model Upgrade", tagColor: "text-emerald-400" }
-          ].map((alert) => (
-            <div
-              key={alert.id}
-              className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 my-1 shadow-sm flex items-center gap-3 shrink-0 min-w-[200px]"
-            >
-              <div className="flex flex-col gap-0.5">
-                <strong className="text-white text-xs">{alert.title}</strong>
-                <span className="text-[10px] text-slate-400">{alert.time}</span>
+        <div className="flex items-center gap-4 overflow-x-auto scrollbar-none">
+          {racesData && racesData.length > 0 ? (
+            racesData.slice(0, 3).map((race, idx) => (
+              <div
+                key={race.race_id || idx}
+                className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 my-1 shadow-sm flex items-center gap-3 shrink-0 min-w-[200px]"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <strong className="text-white text-xs">R{race.race_number} {race.venue}</strong>
+                  <span className="text-[10px] text-slate-400">{race.distance}m</span>
+                </div>
+                <span className="text-[11px] font-bold ml-auto text-emerald-400">Next to Jump</span>
               </div>
-              <span className={`text-[11px] font-bold ml-auto ${alert.tagColor}`}>{alert.tag}</span>
+            ))
+          ) : allOpportunities && allOpportunities.length > 0 ? (
+            allOpportunities.slice(0, 3).map((opp, idx) => (
+              <div
+                key={opp.id || idx}
+                className="bg-slate-900 border border-slate-800 rounded-lg p-2.5 my-1 shadow-sm flex items-center gap-3 shrink-0 min-w-[200px]"
+              >
+                <div className="flex flex-col gap-0.5">
+                  <strong className="text-white text-xs">{opp.selection}</strong>
+                  <span className="text-[10px] text-slate-400">{opp.event}</span>
+                </div>
+                <span className="text-[11px] font-bold ml-auto text-emerald-400">
+                  {opp.edge ? `+${opp.edge}% EV` : "Model Signal"}
+                </span>
+              </div>
+            ))
+          ) : (
+            <div className="bg-slate-900/60 border border-slate-800/80 rounded-lg px-3 py-1.5 text-xs text-slate-400 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+              <span>All feeds synced • Waiting for upcoming events</span>
             </div>
-          ))}
-        </div>
-        
-        <div className="ml-auto shrink-0 flex items-center gap-2">
-          <span className="bg-emerald-500/10 text-emerald-400 px-3 py-1 rounded text-[11px] font-mono border border-emerald-500/30 flex items-center gap-1.5">
-            <Activity className="w-3 h-3 text-emerald-400 animate-pulse" />
-            ML Engine v2.4
-          </span>
+          )}
         </div>
       </div>
 
@@ -276,7 +299,7 @@ export default function VariantA_CyberpunkTerminal({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-white uppercase flex items-center gap-2">
+                <h1 className="text-xl font-black tracking-tight text-white uppercase flex items-center gap-2 mb-6">
                   BETMATE COMMAND CENTER
                 </h1>
               </div>
@@ -313,23 +336,23 @@ export default function VariantA_CyberpunkTerminal({
       </div>
 
       {/* Main Content Area with generous section spacing */}
-      <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-16 md:space-y-20">
-        {/* Signal Feeds Horizontal Selector with extra spacing */}
-        <div className="space-y-5 mb-14 mt-4 pt-2">
-          <div className="flex items-center justify-between mb-2">
+      <div className="max-w-7xl mx-auto p-6 md:p-8 flex flex-col gap-6 md:gap-8">
+        {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
+        <div className="pt-8 border-t border-slate-800/40 flex flex-col gap-6">
+          <div className="flex items-center justify-between">
             <h2 className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase flex items-center gap-2">
               <Zap className="w-3.5 h-3.5 text-emerald-400" />
               SIGNAL FEEDS
             </h2>
           </div>
-          <div className="flex items-center gap-4 overflow-x-auto pb-4 pt-2 scrollbar-none">
+          <div className="flex items-center gap-5 overflow-x-auto pb-4 scrollbar-none">
             {sportsList.map((sport) => {
               const active = selectedSportFilter === sport.id;
               return (
                 <button
                   key={sport.id}
                   onClick={() => setSelectedSportFilter(sport.id)}
-                  className={`group flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl border text-sm font-semibold whitespace-nowrap transition-all duration-200 ${
+                  className={`group flex items-center justify-between gap-4 px-6 py-3.5 rounded-full border text-sm font-semibold leading-relaxed whitespace-nowrap transition-all duration-200 ${
                     active
                       ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 font-bold shadow-[0_0_20px_rgba(16,185,129,0.18)]"
                       : "bg-slate-900/80 border-slate-800/90 text-slate-300 hover:border-slate-700 hover:bg-slate-800/70"
@@ -343,7 +366,7 @@ export default function VariantA_CyberpunkTerminal({
                     <span>{sport.label}</span>
                   </div>
                   {/* Circular/Pill Count Badge with generous padding & border ring */}
-                  <span className="min-w-[38px] h-7 px-3.5 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-bold border border-emerald-500/40 ring-1 ring-emerald-500/25 flex items-center justify-center leading-none text-center shadow-md ml-2">
+                  <span className="min-w-[38px] h-auto min-h-fit px-4 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-mono font-bold border border-emerald-500/40 ring-1 ring-emerald-500/25 flex items-center justify-center leading-normal text-center shadow-md ml-2">
                     {sport.count}
                   </span>
                 </button>
@@ -352,11 +375,11 @@ export default function VariantA_CyberpunkTerminal({
           </div>
         </div>
 
-        {/* 2-Column Grid: Next Racing Card (Left) & Blackbook Card (Right) with generous top/bottom margin */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-12 w-full items-start mt-10 mb-20">
-          {/* Left Column: Next Racing Card */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-7 md:p-8 shadow-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-5 mb-2">
+        {/* 2-Column Grid: Next Racing Column (Left) & Stacked [Next Blackbooker + HIGH EV FEED] Column (Right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 md:gap-10 w-full items-stretch">
+          {/* Left Column: Next Racing Card (Fixed 5 Items) */}
+          <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col h-full">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3.5 mb-4 shrink-0">
               <h2 className="text-lg font-bold text-white uppercase tracking-wider flex items-center gap-2.5">
                 <Clock className="w-5 h-5 text-emerald-400" />
                 Next Racing
@@ -369,254 +392,313 @@ export default function VariantA_CyberpunkTerminal({
               </Link>
             </div>
 
-            {racesData && racesData.length > 0 ? (
-              <div className="flex flex-col gap-4 md:gap-5">
-                {racesData.slice(0, 5).map((race, idx) => (
-                  <div
-                    key={race.race_id || idx}
-                    className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4"
-                  >
-                    {/* Left Side: Race Details & Horse */}
-                    <div className="flex flex-col gap-1.5 w-full sm:w-auto">
-                      <div className="flex items-center gap-2.5">
-                        <span className="text-base font-bold text-white">R{race.race_number} {race.venue}</span>
-                        <span className="text-xs text-slate-400">{race.distance}m</span>
-                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono">
-                          {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
-                        </span>
-                      </div>
-                      <div className="text-sm text-slate-300 font-medium flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
-                        {race.horses?.[0]?.name || "Top Favorite"}
-                      </div>
-                    </div>
-                    
-                    {/* Right Side: Clickable Odds Button */}
-                    <div className="flex items-center justify-between w-full sm:w-auto sm:justify-end gap-4">
-                      <Link
-                        href={`/races/${race.race_id || "demo"}`}
-                        className="text-slate-400 hover:text-white font-medium text-xs flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
-                      >
-                        Race Card <ArrowUpRight className="w-3.5 h-3.5" />
-                      </Link>
-                      <button className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-mono text-sm font-bold text-white transition-colors">
-                        ${race.horses?.[0]?.betfair_back_price?.toFixed(2) || "3.20"}
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              /* Dynamic Empty State when no live races exist */
-              <div className="flex flex-col items-center justify-center py-12 px-6 text-center rounded-2xl bg-slate-950/40 border border-dashed border-slate-800">
-                <div className="w-14 h-14 rounded-full bg-slate-900/80 border border-slate-800 flex items-center justify-center mb-4 text-slate-400 shadow-inner">
-                  <Clock className="w-7 h-7 text-slate-400 animate-pulse" />
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-slate-950/40 border border-dashed border-slate-800 flex-1">
+                  <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mb-3" />
+                  <p className="text-xs text-slate-400 font-medium">Connecting to live race feeds...</p>
                 </div>
-                <h3 className="text-base font-bold text-slate-200">Awaiting next meeting</h3>
-                <p className="text-xs text-slate-400 mt-1.5 max-w-sm leading-relaxed">
-                  No live races are currently scheduled to jump. Upcoming meetings will automatically appear here.
-                </p>
-                <Link
-                  href="/racing"
-                  className="mt-5 px-5 py-2.5 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-xs font-semibold rounded-xl border border-emerald-500/30 transition-all duration-200"
-                >
-                  Open Race Hub
-                </Link>
-              </div>
-            )}
+              ) : (
+                <div className="flex-1 flex flex-col gap-3.5 pt-1">
+                  {Array.from({ length: 5 }).map((_, idx) => {
+                    const race = racesData?.[idx];
+                    if (race) {
+                      return (
+                        <div
+                          key={race.race_id || idx}
+                          className="bg-slate-800/60 rounded-xl p-5 border border-slate-700/60 flex flex-col sm:flex-row items-start sm:items-center justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-4 flex-1"
+                        >
+                          {/* Left Side: Race Details & Horse */}
+                          <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-base font-bold text-white">R{race.race_number} {race.venue}</span>
+                              <span className="text-xs text-slate-400">{race.distance}m</span>
+                              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-3 py-1 leading-normal rounded-full border border-emerald-500/20 font-mono">
+                                {idx === 0 ? "2m 14s" : `${(idx + 1) * 8}m`}
+                              </span>
+                            </div>
+                            <div className="text-sm text-slate-300 font-medium flex items-center gap-2 mt-1">
+                              <span className="w-2 h-2 rounded-full bg-cyan-400"></span>
+                              {race.horses?.[0]?.name || "Top Favorite"}
+                            </div>
+                          </div>
+                          
+                          {/* Right Side: Clickable Odds Button */}
+                          <div className="flex items-center justify-between w-full sm:w-auto sm:justify-end gap-4">
+                            <Link
+                              href={`/races/${race.race_id || "demo"}`}
+                              className="text-slate-400 hover:text-white font-medium text-xs flex items-center gap-1 group-hover:translate-x-0.5 transition-transform"
+                            >
+                              Race Card <ArrowUpRight className="w-3.5 h-3.5" />
+                            </Link>
+                            {race.horses?.[0]?.betfair_back_price ? (
+                              <button className="bg-slate-700 hover:bg-slate-600 px-4 py-2 rounded-lg font-mono text-sm font-bold text-white transition-colors">
+                                ${race.horses[0].betfair_back_price.toFixed(2)}
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div
+                          key={`empty-race-${idx}`}
+                          className="bg-slate-900/40 rounded-xl p-5 border border-dashed border-slate-800 flex items-center justify-center flex-1 min-h-[88px]"
+                        >
+                          <span className="text-xs text-slate-500">No upcoming races scheduled</span>
+                        </div>
+                      );
+                    }
+                  })}
+                </div>
+              )}
           </div>
 
-          {/* Right Column: Blackbook Alerts Panel */}
-          <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-7 md:p-8 shadow-xl space-y-6 shadow-[0_0_30px_rgba(6,182,212,0.06)]">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-5 mb-2 gap-3">
-              <div className="flex items-center gap-2.5">
-                <Bookmark className="w-5 h-5 text-cyan-400" />
-                <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
-                  Blackbook Runners Today
-                </h2>
-              </div>
-              <button
-                onClick={() => setIsSearchModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-xl transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
-              >
-                <Plus className="w-4 h-4" />
-                Click to add to Blackbook
-              </button>
-            </div>
-
-            {blackbookRunners.length > 0 ? (
-              <div className="space-y-4">
-                {blackbookRunners.map((item) => {
-                  let typeLabel = "HORSE";
-                  let typeEmoji = "🏇";
-                  if (item.type === "dog") {
-                    typeLabel = "GREYHOUND";
-                    typeEmoji = "🐶";
-                  } else if (item.type === "jockey") {
-                    typeLabel = "JOCKEY";
-                    typeEmoji = "🏇";
-                  } else if (item.type === "trainer") {
-                    typeLabel = "TRAINER";
-                    typeEmoji = "👔";
-                  }
-
-                  return (
-                    <div
-                      key={item.id}
-                      className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-4.5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg"
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
-                            {item.runner}
-                          </span>
-                          <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-2 py-0.5 rounded-md border border-slate-700/50 flex items-center gap-1">
-                            <span>{typeEmoji}</span>
-                            <span>{typeLabel}</span>
-                          </span>
-                        </div>
-                        <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-700">
-                          {item.odds || "Market"}
-                        </span>
-                      </div>
-
-                      <p className="text-[12px] text-slate-400 italic mb-3 leading-relaxed">
-                        {item.note || `Watching ${item.runner} across all upcoming meetings.`}
-                      </p>
-
-                      <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/80 text-xs font-mono">
-                        <div className="flex items-center gap-2">
-                          <span className="text-emerald-400 font-bold">{item.edge || "+14.0% EV"}</span>
-                          <span className="text-slate-600">|</span>
-                          <span className="text-cyan-400 font-semibold">{item.venue || "Next Up"}</span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            onOpenPaperBet({
-                              runner: item.runner,
-                              event: item.venue || "Blackbook Watch",
-                              odds: item.odds || "$2.40",
-                              edge: item.edge || "+14.0%",
-                            });
-                            setToastMsg(`Added ${item.runner} to Betslip!`);
-                          }}
-                          className="px-3.5 py-1.5 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 text-xs font-bold rounded-lg transition-all duration-200"
-                        >
-                          Quick Bet
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              /* Empty State for Blackbook */
-              <div className="flex flex-col items-center justify-center py-12 px-6 text-center rounded-2xl bg-slate-950/40 border border-dashed border-cyan-500/30">
-                <div className="w-12 h-12 rounded-full bg-cyan-950/60 border border-cyan-500/40 flex items-center justify-center mb-3.5 text-cyan-400 shadow-[0_0_15px_rgba(6,182,212,0.15)]">
-                  <Bookmark className="w-6 h-6 text-cyan-400" />
+          {/* Right Column: Stacked [Next Blackbooker (1) + HIGH EV FEED (3) = 4 Items Total] */}
+          <div className="flex flex-col gap-4 h-full">
+            {/* Next Blackbooker Section (Strictly 1 Item) */}
+            <div className="bg-slate-900/70 backdrop-blur-md border border-cyan-500/20 rounded-2xl p-5 md:p-6 shadow-xl flex flex-col">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Bookmark className="w-4 h-4 text-cyan-400" />
+                  <h2 className="text-lg font-bold text-cyan-300 uppercase tracking-wider">
+                    Next Blackbooker
+                  </h2>
                 </div>
-                <h3 className="text-base font-bold text-slate-200">Your Blackbook is empty</h3>
-                <p className="text-xs text-slate-400 mt-1.5 max-w-xs leading-relaxed">
-                  Track your favorite jockeys, trainers, horses, and dogs for real-time race alerts.
-                </p>
                 <button
                   onClick={() => setIsSearchModalOpen(true)}
-                  className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-cyan-500/20 hover:bg-cyan-500 hover:text-black text-cyan-300 border border-cyan-500/50 text-xs font-bold rounded-xl transition-all duration-200 shadow-[0_0_20px_rgba(6,182,212,0.2)]"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-[10px] font-bold rounded-full leading-relaxed transition-all duration-200 shadow-[0_0_15px_rgba(6,182,212,0.15)] shrink-0"
                 >
-                  <Plus className="w-4 h-4" />
-                  Click to add to Blackbook
+                  <Plus className="w-3.5 h-3.5" />
+                  Add to Blackbook
                 </button>
               </div>
-            )}
+
+              <div className="flex-1 flex flex-col justify-center">
+                {Array.from({ length: 1 }).map((_, idx) => {
+                  const item = blackbookRunners[idx];
+                  if (item) {
+                    let typeLabel = "HORSE";
+                    let typeEmoji = "🏇";
+                    if (item.type === "dog") {
+                      typeLabel = "GREYHOUND";
+                      typeEmoji = "🐶";
+                    } else if (item.type === "jockey") {
+                      typeLabel = "JOCKEY";
+                      typeEmoji = "🏇";
+                    } else if (item.type === "trainer") {
+                      typeLabel = "TRAINER";
+                      typeEmoji = "👔";
+                    }
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 p-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[142px] flex flex-col justify-center"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-base font-bold text-white group-hover:text-cyan-300 transition-colors">
+                              {item.runner}
+                            </span>
+                            <span className="text-[10px] font-mono tracking-widest bg-slate-800/80 text-cyan-200 px-3 py-1 leading-normal rounded-full border border-slate-700/50 flex items-center gap-1">
+                              <span>{typeEmoji}</span>
+                              <span>{typeLabel}</span>
+                            </span>
+                          </div>
+                          <span className="text-xs font-extrabold text-white font-mono tracking-tight bg-slate-950 px-4 py-2 leading-relaxed rounded-full border border-slate-700">
+                            {item.odds || "Market"}
+                          </span>
+                        </div>
+
+                        <p className="text-[12px] text-slate-400 italic mb-2.5 leading-relaxed">
+                          {item.note || `Watching ${item.runner} across all upcoming meetings.`}
+                        </p>
+
+                        <div className="flex items-center justify-between pt-2.5 border-t border-slate-800/80 text-xs font-mono">
+                          <div className="flex items-center gap-2">
+                            <span className="text-emerald-400 font-bold">{item.edge || "+14.0% EV"}</span>
+                            <span className="text-slate-600">|</span>
+                            <span className="text-cyan-400 font-semibold">{item.venue || "Next Up"}</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              onOpenPaperBet({
+                                runner: item.runner,
+                                event: item.venue || "Blackbook Watch",
+                                odds: item.odds || "$2.40",
+                                edge: item.edge || "+14.0%",
+                              });
+                              setToastMsg(`Added ${item.runner} to Betslip!`);
+                            }}
+                            className="px-3.5 py-1.5 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500 hover:text-black border border-cyan-500/50 text-xs font-bold rounded-full leading-normal transition-all duration-200"
+                          >
+                            Quick Bet
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  } else {
+                    return (
+                      <div
+                        key={`empty-bb-${idx}`}
+                        className="bg-slate-900/40 border border-dashed border-cyan-500/20 p-5 rounded-2xl flex items-center justify-center min-h-[142px] flex-1"
+                      >
+                         <span className="text-xs text-slate-500">Blackbook slot available</span>
+                      </div>
+                    );
+                  }
+                })}
+              </div>
+            </div>
+
+            {/* HIGH EV FEED Section (Strictly Capped at 3 Items) */}
+            <div className="bg-slate-900/70 backdrop-blur-md border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl flex-1 flex flex-col">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/60 mb-3">
+                <h2 className="text-lg font-extrabold text-white uppercase tracking-wider flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-emerald-400" />
+                  HIGH EV FEED
+                </h2>
+                <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
+              </div>
+
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 px-4 text-center rounded-xl bg-slate-950/40 border border-dashed border-slate-800 flex-1">
+                  <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin mb-3" />
+                  <p className="text-xs text-slate-400 font-medium">Fetching EV model signals...</p>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col gap-3.5">
+                  {Array.from({ length: 3 }).map((_, idx) => {
+                    const opp = filteredOpps[idx];
+                    if (opp) {
+                      let SportIcon = Zap;
+                      if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;
+                      else if (opp.sport?.toLowerCase() === "nba") SportIcon = Flame;
+                      else if (opp.sport?.toLowerCase() === "soccer") SportIcon = Activity;
+                      else if (opp.sport?.toLowerCase() === "mma") SportIcon = ShieldCheck;
+                      else if (opp.sport?.toLowerCase() === "golf") SportIcon = Flag;
+                      else SportIcon = Activity;
+
+                      return (
+                        <div
+                          key={opp.id || idx}
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[120px]"
+                        >
+                          {/* Top Row (Metadata) */}
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/40">
+                            <div className="flex items-center gap-2 text-slate-400">
+                              <SportIcon className="w-3.5 h-3.5 text-emerald-400" />
+                              <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-3 py-1 leading-normal rounded-full border border-slate-700/60">
+                                {opp.sport} • {opp.event}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-500 font-mono tracking-tight">
+                              JUST NOW
+                            </span>
+                          </div>
+
+                          {/* Main Row */}
+                          <div className="flex items-end justify-between z-10 relative">
+                            <div className="flex-1 pr-3 space-y-1">
+                              <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                                MODEL SELECTION
+                              </div>
+                              <div className="text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
+                                {opp.selection}
+                              </div>
+                            </div>
+                            
+                            {/* EV Pill */}
+                            <div className="flex flex-col items-end flex-shrink-0">
+                              <span className="inline-flex items-center px-3 py-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-full leading-normal border border-emerald-500/30 text-xs shadow-[0_0_15px_rgba(16,185,129,0.15)]">
+                                {opp.edge ? `+${opp.edge}% EV` : "Model Signal"}
+                              </span>
+                              <div className="flex items-center gap-1.5 mt-2 text-[10px] font-mono text-slate-400">
+                                <span>Fair: ${opp.fairOdds?.toFixed(2) || "2.10"}</span>
+                                {opp.marketOdds ? (
+                                  <>
+                                    <span className="text-slate-600">|</span>
+                                    <span className="text-slate-200 font-bold bg-slate-800 px-2 py-0.5 rounded">
+                                      ${opp.marketOdds.toFixed(2)}
+                                    </span>
+                                  </>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800/60 hidden">
+                            <button
+                              onClick={() => onOpenBobModal({ event: opp.event, selection: opp.selection, edge: opp.edge })}
+                              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 transition border border-slate-700/80"
+                              title="Ask Bob AI Explanation"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                onOpenPaperBet(opp);
+                                setToastMsg(`Added ${opp.selection} to Betslip!`);
+                              }}
+                              className="px-4 py-1.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/50 text-xs font-bold rounded-full leading-normal transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                            >
+                              Quick Add
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      return (
+                        <div
+                          key={`empty-ev-${idx}`}
+                          className="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-5 flex items-center justify-center flex-1 min-h-[120px]"
+                        >
+                           <span className="text-xs text-slate-500">No active games today</span>
+                        </div>
+                      );
+                    }
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Bottom Full-Width Section: HIGH EV FEED with generous top spacing */}
-        <div className="bg-slate-900/50 backdrop-blur-md border border-slate-800/80 rounded-2xl p-7 md:p-10 mt-24 pt-12 border-t border-slate-800/80 shadow-2xl space-y-8">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-extrabold text-white uppercase tracking-wider flex items-center gap-2.5">
-              <TrendingUp className="w-5.5 h-5.5 text-emerald-400" />
-              HIGH EV FEED ({filteredOpps.length} Model Signals)
-            </h2>
-            <span className="text-xs text-slate-400 font-mono">Ranked by EV %</span>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-10">
-            {filteredOpps.map((opp, idx) => {
-              let SportIcon = Zap;
-              if (opp.sport?.toLowerCase() === "racing") SportIcon = Trophy;
-              else if (opp.sport?.toLowerCase() === "nba") SportIcon = Flame;
-              else if (opp.sport?.toLowerCase() === "soccer") SportIcon = Activity;
-              else if (opp.sport?.toLowerCase() === "mma") SportIcon = ShieldCheck;
-              else if (opp.sport?.toLowerCase() === "golf") SportIcon = Flag;
-              else SportIcon = Activity;
-
-              return (
-                <div
-                  key={opp.id || idx}
-                  className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl p-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 hover:-translate-y-0.5 group flex flex-col justify-between overflow-hidden shadow-lg"
-                >
-                  {/* Top Row (Metadata) */}
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2 text-slate-400">
-                      <SportIcon className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/60">
-                        {opp.sport} • {opp.event}
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-slate-500 font-mono tracking-tight">
-                      JUST NOW
-                    </span>
-                  </div>
-
-                  {/* Main Row (The Play & The Edge) */}
-                  <div className="flex items-end justify-between mt-2 z-10 relative">
-                    <div className="flex-1 pr-4">
-                      <div className="text-[10px] text-slate-500 font-medium uppercase mb-1.5">
-                        Model Selection
-                      </div>
-                      <div className="text-base font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors">
-                        {opp.selection}
-                      </div>
-                    </div>
-                    
-                    {/* The Edge / EV Pill */}
-                    <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="inline-flex items-center px-3 py-1 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-lg border border-emerald-500/30 text-sm shadow-[0_0_15px_rgba(16,185,129,0.15)]">
-                        +{opp.edge}% EV
-                      </span>
-                      <div className="flex items-center gap-2 mt-2 text-[11px] font-mono text-slate-400">
-                        <span>Fair: ${opp.fairOdds?.toFixed(2) || "2.10"}</span>
-                        <span className="text-slate-600">|</span>
-                        <span className="text-slate-200 font-bold bg-slate-800 px-1.5 rounded">
-                          ${opp.marketOdds?.toFixed(2) || "2.40"}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Actionability - Hidden until hover */}
-                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-[#0b0e17] via-slate-900/95 to-transparent translate-y-full group-hover:translate-y-0 transition-transform duration-300 flex items-center justify-end gap-3 z-20">
-                    <button
-                      onClick={() => onOpenBobModal({ event: opp.event, selection: opp.selection, edge: opp.edge })}
-                      className="p-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 transition border border-slate-700/80"
-                      title="Ask Bob AI Explanation"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        onOpenPaperBet(opp);
-                        setToastMsg(`Added ${opp.selection} to Betslip!`);
-                      }}
-                      className="px-6 py-2.5 bg-emerald-500/20 hover:bg-emerald-500 text-emerald-400 hover:text-black border border-emerald-500/50 text-xs font-bold rounded-lg transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.2)]"
-                    >
-                      Quick Add
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {/* Static Promo Banners (6 & 7) */}
+        <div className="flex flex-col gap-4 w-full mt-4">
+          {/* Banner 6: Play Store Promo */}
+          <Link href="#" className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg block">
+            <div className="w-full h-full relative flex items-center justify-center">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
+                Banner 6 - Play Store Promo
+              </span>
+              <Image
+                src="/placeholders/banner6.jpg"
+                alt="Banner 6 - Play Store Promo"
+                fill
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="object-cover opacity-50"
+                unoptimized
+              />
+            </div>
+          </Link>
+          
+          {/* Banner 7: Static Promo */}
+          <div className="w-full relative h-32 md:h-40 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-lg">
+            <div className="w-full h-full relative flex items-center justify-center">
+              <span className="absolute z-10 bg-slate-950/80 text-slate-500 font-medium text-sm px-3 py-1 rounded-md">
+                Banner 7 - Static Promo
+              </span>
+              <Image
+                src="/placeholders/banner7.jpg"
+                alt="Banner 7 - Static Promo"
+                fill
+                sizes="(max-width: 768px) 100vw, 50vw"
+                className="object-cover opacity-50"
+                unoptimized
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -676,7 +758,7 @@ export default function VariantA_CyberpunkTerminal({
                   <button
                     key={typeItem.id}
                     onClick={() => setSelectedTypeFilter(typeItem.id as any)}
-                    className={`px-3 py-1.5 rounded-lg border font-semibold whitespace-nowrap transition ${
+                    className={`px-4 py-2 rounded-full border font-semibold leading-normal whitespace-nowrap transition ${
                       selectedTypeFilter === typeItem.id
                         ? "bg-cyan-500/20 border-cyan-500 text-cyan-300"
                         : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
@@ -697,7 +779,7 @@ export default function VariantA_CyberpunkTerminal({
                     <span className="text-sm text-slate-200 font-medium">
                       Add custom entity: <strong className="text-cyan-300">"{searchQuery.trim()}"</strong>
                     </span>
-                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20">Custom Watch</span>
+                    <span className="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-4 py-1.5 leading-normal rounded-full border border-cyan-500/20">Custom Watch</span>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     <span className="text-slate-400">Select type:</span>
@@ -705,7 +787,7 @@ export default function VariantA_CyberpunkTerminal({
                       <button
                         key={t}
                         onClick={() => handleAddBlackbookItem(searchQuery.trim(), t)}
-                        className="px-3 py-1 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 font-bold rounded-lg transition"
+                        className="px-4 py-2 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 font-bold rounded-full leading-normal transition"
                       >
                         + {t.toUpperCase()}
                       </button>
@@ -742,7 +824,7 @@ export default function VariantA_CyberpunkTerminal({
                           <span className="text-sm font-bold text-white group-hover:text-cyan-300 transition-colors">
                             {preset.name}
                           </span>
-                          <span className="text-[10px] font-mono bg-slate-800 text-cyan-300 px-2 py-0.5 rounded border border-slate-700">
+                          <span className="text-[10px] font-mono bg-slate-800 text-cyan-300 px-4 py-1.5 leading-normal rounded-full border border-slate-700">
                             {categoryLabel}
                           </span>
                         </div>
@@ -751,7 +833,7 @@ export default function VariantA_CyberpunkTerminal({
                     </div>
                     <button
                       onClick={() => handleAddBlackbookItem(preset.name, preset.type)}
-                      className="px-3 py-1.5 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-lg transition shrink-0"
+                      className="px-4 py-2 bg-cyan-500/15 hover:bg-cyan-500 hover:text-black border border-cyan-500/40 text-cyan-300 text-xs font-bold rounded-full leading-normal transition shrink-0"
                     >
                       + Add
                     </button>

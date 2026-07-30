@@ -1,4 +1,7 @@
+import { Inter } from "next/font/google";
 import "./globals.css";
+
+const inter = Inter({ subsets: ["latin"] });
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { QueryProvider } from "./providers/QueryProvider";
@@ -15,7 +18,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.className}>
       <body>
         <AnalyticsProvider />
         <QueryProvider>

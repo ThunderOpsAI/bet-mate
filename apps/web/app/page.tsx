@@ -124,6 +124,8 @@ type AFLPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?:
@@ -154,6 +156,8 @@ type NBAPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?:
@@ -188,6 +192,8 @@ type NRLPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -217,6 +223,9 @@ type SoccerPrediction = {
     fair_odds_home: number;
     fair_odds_away: number;
     fair_odds_draw?: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
+    market_odds_draw?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -245,6 +254,7 @@ type GolfPrediction = {
     name: string;
     win_probability: number;
     fair_odds: number;
+    market_odds?: number;
   }>;
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -271,6 +281,8 @@ type MMAPrediction = {
     away_win_probability: number;
     fair_odds_home: number;
     fair_odds_away: number;
+    market_odds_home?: number;
+    market_odds_away?: number;
   };
   feature_impact?: FeatureImpactItem[] | Record<string, number>;
   ai_insights_context?: any;
@@ -1238,6 +1250,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1245,8 +1260,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/afl",
-          note:
-            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
         },
       ];
     }),
@@ -1273,13 +1286,14 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
           }),
           href: "/nba",
-          note:
-            "No live market price is attached on this screen, so this ranking stays model-led and confidence-weighted.",
         },
       ];
     }),
@@ -1306,6 +1320,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1313,7 +1330,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/nrl",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
@@ -1333,15 +1349,18 @@ function DashboardContent() {
       let selectionName = game.home_team;
       let probability = homePct;
       let fairOdds = prediction.predictions.fair_odds_home;
+      let marketOdds = prediction.predictions.market_odds_home ?? undefined;
 
       if (awayPct > homePct && awayPct > drawPct) {
         selectionName = game.away_team;
         probability = awayPct;
         fairOdds = prediction.predictions.fair_odds_away;
+        marketOdds = prediction.predictions.market_odds_away ?? undefined;
       } else if (drawPct > homePct && drawPct > awayPct) {
         selectionName = "Draw";
         probability = drawPct;
         fairOdds = prediction.predictions.fair_odds_draw ?? 3.0;
+        marketOdds = prediction.predictions.market_odds_draw ?? undefined;
       }
 
       return [
@@ -1352,6 +1371,7 @@ function DashboardContent() {
           eventLabel: `${game.home_team} vs ${game.away_team}`,
           probability,
           fairOdds,
+          marketOdds,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1359,7 +1379,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/soccer",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
@@ -1384,7 +1403,7 @@ function DashboardContent() {
           eventLabel: tournament.name,
           probability: pick.win_probability,
           fairOdds: pick.fair_odds,
-          marketOdds: player?.betfair_back_price ?? null,
+          marketOdds: pick.market_odds ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: tournament.start_time,
@@ -1417,6 +1436,9 @@ function DashboardContent() {
           fairOdds: homeWins
             ? prediction.predictions.fair_odds_home
             : prediction.predictions.fair_odds_away,
+          marketOdds: homeWins
+            ? prediction.predictions.market_odds_home ?? undefined
+            : prediction.predictions.market_odds_away ?? undefined,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,
@@ -1424,7 +1446,6 @@ function DashboardContent() {
             isResultPending: (game.complete ?? 0) >= 100,
           }),
           href: "/mma",
-          note: "No live market price is attached on this screen, so this ranking stays model-led.",
         },
       ];
     }),
@@ -1449,16 +1470,30 @@ function DashboardContent() {
 
   const activeRaces = races;
 
-  const mockOpportunities = [
-    { id: "opp-1", sport: "AFL", event: "Collingwood vs Carlton", selection: "Collingwood -6.5", fairOdds: 1.75, marketOdds: 2.10, edge: 20.0, bookie: "Sportsbet" },
-    { id: "opp-2", sport: "NBA", event: "Lakers vs Celtics", selection: "Over 224.5 Points", fairOdds: 1.80, marketOdds: 2.05, edge: 13.8, bookie: "Betfair" },
-    { id: "opp-3", sport: "NRL", event: "Penrith vs Broncos", selection: "Penrith H2H", fairOdds: 1.50, marketOdds: 1.72, edge: 14.6, bookie: "Ladbrokes" },
-    { id: "opp-4", sport: "Racing", event: "Flemington Race 7", selection: "Imperatriz", fairOdds: 2.00, marketOdds: 2.40, edge: 20.0, bookie: "TAB" },
-    { id: "opp-5", sport: "Soccer", event: "Man City vs Arsenal", selection: "Man City Win", fairOdds: 1.65, marketOdds: 1.95, edge: 18.2, bookie: "Betfair" },
-  ];
+  const allRealOpportunities = rankOpportunities([
+    ...racingOpportunities,
+    ...aflOpportunities,
+    ...nbaOpportunities,
+    ...nrlOpportunities,
+    ...soccerOpportunities,
+    ...golfOpportunities,
+    ...mmaOpportunities,
+  ]).map((opp) => {
+    const edgeVal = getEdgePercent(opp.fairOdds, opp.marketOdds);
+    return {
+      id: opp.id,
+      sport: opp.sport.toUpperCase(),
+      event: opp.eventLabel,
+      selection: opp.selectionName,
+      fairOdds: opp.fairOdds,
+      marketOdds: opp.marketOdds ?? undefined,
+      edge: edgeVal !== null ? Number(edgeVal.toFixed(1)) : undefined,
+      bookie: opp.marketOdds ? "Betfair" : undefined,
+    };
+  });
 
   const handleOpenPaperBet = (opp: any) => {
-    alert(`Added ${opp.selection || opp.runner} ($${opp.marketOdds || opp.odds}) to Betslip!`);
+    // Toast notification handles feedback
   };
 
   const handleOpenBobModal = (ctx: any) => {
@@ -1470,7 +1505,7 @@ function DashboardContent() {
         probability: 0.62,
         fairOdds: 1.61,
         featureImpact: [],
-        aiInsightsContext: { notes: [`Value signal triggered with ${ctx.edge} edge.`] },
+        aiInsightsContext: { notes: [`Value signal triggered with ${ctx.edge || 0}% edge.`] },
       })
     );
   };
@@ -1485,7 +1520,8 @@ function DashboardContent() {
 
       <VariantA_CyberpunkTerminal
         racesData={activeRaces}
-        allOpportunities={mockOpportunities}
+        allOpportunities={allRealOpportunities}
+        isLoading={loading}
         onOpenPaperBet={handleOpenPaperBet}
         onOpenBobModal={handleOpenBobModal}
       />
