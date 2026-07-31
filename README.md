@@ -29,15 +29,12 @@ BetMate is structured as a pnpm + Turborepo monorepo:
 bet-mate/
 ├── apps/
 │   ├── web/                  # Next.js 16 frontend app (deployed on Vercel)
-│   ├── api/                  # Express API backend with Prisma (deployed on Vercel Serverless)
-│   └── mobile/               # Mobile client workspace (planned)
+│   └── api/                  # Express API backend with Prisma (deployed on Vercel Serverless)
 ├── services/
-│   ├── prediction-engine/    # Python FastAPI ML engine (runs locally & on Modal)
-│   └── ai-service/           # AI insights integration service
+│   └── prediction-engine/    # Python FastAPI ML engine (runs locally & on Modal)
 ├── packages/
 │   ├── prisma/               # Database schema & Neon Serverless PostgreSQL client
 │   ├── types/                # Shared TypeScript type definitions
-│   ├── ui/                   # Shared UI component library
 │   └── utils/                # Shared utility functions
 ├── scripts/                  # Development automation scripts (e.g. dev-stack.mjs)
 ├── docs/                     # Domain documentation, weights configuration, and media

@@ -46,8 +46,8 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform p
 ### 4. Shared Packages (`packages/*`)
 - `@bet-mate/prisma`: Database models (User, Bet, Race, Prediction, StrategyCard, etc.) and Prisma Client.
 - `@bet-mate/types`: Shared TypeScript definitions and interfaces.
-- `@bet-mate/ui`: Shared React component primitives.
 - `@bet-mate/utils`: Shared utility functions (formatting, date utilities, calculations).
+- *(Note: Component primitives currently live inside `apps/web/app/components`; `@bet-mate/ui` is reserved for shared cross-app primitives).*
 
 ---
 
@@ -59,13 +59,10 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform p
 
 ---
 
-## 📡 Live Data Policy (No Mock Fixtures)
+## 📡 Live Data & UI Preview Policy
 
-BetMate **never** serves mock, synthetic, or hardcoded racing or sports fixture data to the UI or API consumers. All race cards, game slates, and market odds come from live upstream sources (primarily Betfair Exchange API and sport-specific feeds such as Squiggle, Ball Don't Lie, and Racing Australia enrichment).
-
-- If live data cannot be fetched (auth failure, upstream outage, empty market catalogue), endpoints return **empty arrays** — never placeholder meetings or fabricated runners.
-- The frontend must show an explicit empty state (e.g. **"No races currently"**) rather than silently substituting cached mock content.
-- ML model training may still bootstrap from synthetic feature matrices when no persisted model artifact exists; that is internal to the prediction engine and is **not** exposed as live fixture data.
+- **Backend API Data Feeds:** In production, backend endpoints serve live data from upstream sources (Betfair, Squiggle, Ball Don't Lie, etc.). When upstream markets are empty or unavailable, endpoints return empty arrays rather than fabricating production fixtures.
+- **Frontend UI Components & Prototyping:** Frontend components are encouraged to support sample props, rich mock visual states, and preview data for local UI development, testing, and component prototyping. This ensures developers and AI agents can build and refine UI layouts even when local API servers or live odds feeds are offline.
 
 ---
 
