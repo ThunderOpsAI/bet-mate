@@ -415,10 +415,10 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={race.race_id || idx}
-                        className="bg-slate-800/60 rounded-xl px-4 py-3 md:px-5 md:py-4 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-2 flex-1 w-full overflow-hidden"
+                        className="bg-slate-800/60 rounded-xl px-6 py-4 md:px-6 md:py-4.5 border border-slate-700/60 flex items-start justify-between hover:bg-slate-800 hover:border-slate-600 transition-all duration-200 group cursor-pointer gap-3 flex-1 w-full overflow-hidden"
                       >
                         {/* Left Side: Race Details & Horse */}
-                        <div className="flex flex-col gap-1 w-full sm:w-auto overflow-hidden">
+                        <div className="flex flex-col gap-1 w-full sm:w-auto overflow-hidden px-0.5">
                           <div className="flex items-center gap-2">
                             <span className="text-sm font-bold text-white truncate">R{race.race_number} {race.venue}</span>
                             <span className="text-[11px] text-slate-400 truncate">{race.distance}m</span>
@@ -490,7 +490,7 @@ export default function VariantA_CyberpunkTerminal({
                     return (
                       <div
                         key={item.id}
-                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 px-4 py-4 md:px-6 md:py-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
+                        className="bg-slate-900/60 backdrop-blur-xl border border-white/10 px-6 py-4 md:px-7 md:py-5 rounded-2xl transition-all duration-200 hover:border-cyan-500/40 group shadow-lg min-h-[120px] flex flex-col justify-center w-full"
                       >
                         <div className="flex items-center justify-between mb-2 w-full overflow-hidden gap-2">
                           <div className="flex items-center gap-2 flex-wrap overflow-hidden">
@@ -579,28 +579,28 @@ export default function VariantA_CyberpunkTerminal({
                       return (
                         <div
                           key={opp.id || idx}
-                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 md:px-5 md:py-4 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
+                          className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl px-6 py-4 md:px-7 md:py-5 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between overflow-hidden shadow-lg flex-1 min-h-[110px] w-full"
                         >
                           {/* Top Row (Metadata) */}
-                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 w-full overflow-hidden">
+                          <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 w-full overflow-hidden px-0.5">
                             <div className="flex items-center gap-2 text-slate-400 truncate">
                               <SportIcon className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                              <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-2 py-0.5 leading-normal rounded-md border border-slate-700/60 truncate">
+                              <span className="text-[10px] font-mono uppercase tracking-widest bg-slate-800/80 px-2.5 py-1 leading-normal rounded-md border border-slate-700/60 truncate">
                                 {opp.sport} • {opp.event}
                               </span>
                             </div>
-                            <span className="text-[10px] text-slate-500 font-mono tracking-tight">
+                            <span className="text-[10px] text-slate-500 font-mono tracking-tight shrink-0">
                               JUST NOW
                             </span>
                           </div>
 
                           {/* Main Row */}
-                          <div className="flex items-center justify-between z-10 relative pt-2 gap-2">
-                            <div className="flex-1 overflow-hidden space-y-0.5">
+                          <div className="flex items-center justify-between z-10 relative pt-2 gap-3 px-0.5">
+                            <div className="flex-1 overflow-hidden space-y-1">
                               <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider truncate">
                                 MODEL SELECTION
                               </div>
-                              <div className="text-sm font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors truncate">
+                              <div className="text-sm font-bold text-white font-sans leading-snug group-hover:text-cyan-300 transition-colors truncate pl-0.5">
                                 {opp.selection}
                               </div>
                             </div>

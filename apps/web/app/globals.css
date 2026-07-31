@@ -327,7 +327,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 1.25rem 1.5rem;
   backdrop-filter: blur(8px);
   transition: all var(--transition);
 }
@@ -340,7 +340,7 @@ body {
   background: var(--bg-glass);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 1.25rem 1.5rem;
   backdrop-filter: blur(16px);
 }
 
@@ -356,7 +356,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.25rem;
+  padding: 1.25rem 1.5rem;
   position: relative;
   overflow: hidden;
 }
@@ -1953,7 +1953,7 @@ tr:hover td {
 .opportunity-card {
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 1rem;
+  padding: 1.25rem 1.5rem;
   background: rgba(255, 255, 255, 0.03);
 }
 
