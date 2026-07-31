@@ -32,7 +32,16 @@ DEFAULT_TIMEOUT_SECONDS = 10
 BETFAIR_INTERACTIVE_LOGIN_URL = "https://identitysso.betfair.com.au/api/login"
 BETFAIR_CERT_LOGIN_URL = "https://identitysso-cert.betfair.com.au/api/certlogin"
 BETFAIR_AUTH_MODES = {"auto", "interactive", "certificate"}
+BETFAIR_API_BASE_URL = os.getenv("BETFAIR_API_BASE_URL", "https://api.betfair.com.au").rstrip("/")
 BETFAIR_CERT_TEMP_DIR = Path(tempfile.gettempdir()) / "betmate-betfair"
+
+
+def betfair_catalogue_url() -> str:
+    return f"{BETFAIR_API_BASE_URL}/exchange/betting/rest/v1.0/listMarketCatalogue/"
+
+
+def betfair_market_book_url() -> str:
+    return f"{BETFAIR_API_BASE_URL}/exchange/betting/rest/v1.0/listMarketBook/"
 
 _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
@@ -231,11 +240,14 @@ def fetch_today_races(run_date: Optional[str] = None):
         prepared = _prepare_race_card(race, default_meeting_date=target_date_str)
         if prepared.get("meeting_date") and prepared.get("meeting_date") != target_date_str:
             continue
+        if not _allowlist_allows_meeting(prepared):
+            continue
         prepared_races.append(prepared)
         
     with ThreadPoolExecutor(max_workers=10) as executor:
         final_races = list(executor.map(_enrich_with_racing_australia, prepared_races))
 
+    final_races.sort(key=lambda race: race.get("start_time") or "")
     return final_races
 
 
@@ -347,7 +359,7 @@ def _betfair_certificate_status() -> str:
 
 
 def _fetch_live_races(headers, target_date: date):
-    api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
+    api_url = betfair_catalogue_url()
     market_start_time = _betfair_market_time_window(target_date)
     
     all_markets = []
@@ -478,7 +490,7 @@ def _fetch_prices(headers, market_ids):
     if not market_ids:
         return {}
 
-    api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketBook/"
+    api_url = betfair_market_book_url()
     result = {}
 
     try:
@@ -523,7 +535,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
     state = allowlist_entry.get("state", "") if allowlist_entry else ""
     canonical_venue = allowlist_entry.get("venue", race.get("venue", "")) if allowlist_entry else race.get("venue", "")
-    data_source = "mock" if race.get("source") == "mock" else "betfair"
+    data_source = "betfair"
 
     prepared_horses = []
     for horse in race.get("horses", []):
@@ -561,10 +573,20 @@ def _lookup_allowlist_entry(venue: str) -> Optional[dict]:
     return None
 
 
-def _enrich_with_racing_australia(race: dict) -> dict:
-    if race.get("data_source") == "mock":
-        return race
+def _allowlist_allows_meeting(race: dict) -> bool:
+    allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
+    if not allowlist_entry:
+        return True
 
+    active_days = allowlist_entry.get("active_days") or []
+    if not active_days:
+        return True
+
+    meeting_context = _meeting_context_for_start_time(race.get("start_time") or None)
+    return meeting_context.get("weekday", "") in active_days
+
+
+def _enrich_with_racing_australia(race: dict) -> dict:
     allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
     if not allowlist_entry:
         return race

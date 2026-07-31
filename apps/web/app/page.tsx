@@ -1462,7 +1462,10 @@ function DashboardContent() {
     refreshFailed,
   });
 
-  const activeRaces = races;
+  const activeRaces = [...races].sort(
+    (left, right) =>
+      (left.start_time ?? "").localeCompare(right.start_time ?? ""),
+  );
 
   const allRealOpportunities = rankOpportunities([
     ...racingOpportunities,

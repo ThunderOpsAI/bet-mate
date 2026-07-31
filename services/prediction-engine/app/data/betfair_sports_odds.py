@@ -9,11 +9,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.data.scraper import _get_api_headers, _fetch_prices
-
-LOGGER = logging.getLogger("betmate.betfair_sports_odds")
-
-BETFAIR_CATALOGUE_URL = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
+from app.data.scraper import _get_api_headers, _fetch_prices, betfair_catalogue_url
 
 SPORT_EVENT_TYPE_IDS = {
     "afl": "61420",
@@ -70,7 +66,7 @@ def fetch_sport_market_odds(sport: str, lookback_days: int = 1, lookahead_days: 
     }
 
     try:
-        response = requests.post(BETFAIR_CATALOGUE_URL, headers=headers, json=payload, timeout=10)
+        response = requests.post(betfair_catalogue_url(), headers=headers, json=payload, timeout=10)
         response.raise_for_status()
         catalogue = response.json()
     except Exception as exc:

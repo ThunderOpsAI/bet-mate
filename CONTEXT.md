@@ -57,4 +57,55 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform p
 - **Authentication:** `JWT_SECRET` must be synchronized between `apps/api` and `services/prediction-engine`.
 - **Package Manager:** `pnpm` for JavaScript/TypeScript, `venv` for Python.
 
+---
+
+## 📡 Live Data Policy (No Mock Fixtures)
+
+BetMate **never** serves mock, synthetic, or hardcoded racing or sports fixture data to the UI or API consumers. All race cards, game slates, and market odds come from live upstream sources (primarily Betfair Exchange API and sport-specific feeds such as Squiggle, Ball Don't Lie, and Racing Australia enrichment).
+
+- If live data cannot be fetched (auth failure, upstream outage, empty market catalogue), endpoints return **empty arrays** — never placeholder meetings or fabricated runners.
+- The frontend must show an explicit empty state (e.g. **"No races currently"**) rather than silently substituting cached mock content.
+- ML model training may still bootstrap from synthetic feature matrices when no persisted model artifact exists; that is internal to the prediction engine and is **not** exposed as live fixture data.
+
+---
+
+## 🏇 Betfair Integration
+
+Racing and several sports markets are sourced from the **Betfair AU Exchange API** in `services/prediction-engine/app/data/scraper.py`.
+
+### Required environment variables
+
+| Variable | Purpose |
+|---|---|
+| `BETFAIR_APP_KEY` | Application key (`X-Application` header) |
+| `BETFAIR_USERNAME` | Betfair account username |
+| `BETFAIR_PASSWORD` | Betfair account password |
+| `BETFAIR_AUTH_MODE` | `auto` (default), `certificate`, or `interactive` |
+| `BETFAIR_API_BASE_URL` | Defaults to `https://api.betfair.com.au` |
+
+### Certificate authentication (recommended for production)
+
+Non-interactive API access requires a client certificate uploaded to the Betfair developer console:
+
+1. Generate a `.crt` / `.key` pair (or export from Betfair after creating a cert login).
+2. Provide material via **one** of:
+   - `BETFAIR_CERT_PATH` + `BETFAIR_KEY_PATH` (file paths)
+   - `BETFAIR_CERT_PEM` + `BETFAIR_KEY_PEM` (inline PEM text)
+   - `BETFAIR_CERT_PEM_B64` + `BETFAIR_KEY_PEM_B64` (base64-encoded PEM — used by Modal secrets)
+3. Set `BETFAIR_AUTH_MODE=certificate`.
+4. Redeploy Modal (`modal deploy modal_app.py`) after updating the `betmate-prediction-engine-secrets` secret.
+
+Use `services/prediction-engine/deploy_secret.py` to push updated certificate material to Modal.
+
+### Local verification
+
+```bash
+cd services/prediction-engine
+source venv/bin/activate
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+curl http://127.0.0.1:8000/api/races/today
+```
+
+A successful response includes a non-empty `races` array during active AU thoroughbred meetings. An empty array with `[Betfair] authentication unavailable` in logs indicates missing or expired credentials/certificate.
+
 

@@ -74,7 +74,7 @@ type HorseData = {
   betfair_back_price?: number;
   betfair_implied_prob?: number;
   jockey_name?: string | null;
-  data_source?: "betfair" | "racing_australia" | "mock";
+  data_source?: "betfair" | "racing_australia";
 };
 
 type Race = {
@@ -86,7 +86,7 @@ type Race = {
   meeting_type?: "metro" | "provincial" | "country" | "unknown";
   meeting_region?: string;
   meeting_date?: string;
-  data_source?: "betfair" | "racing_australia" | "mock";
+  data_source?: "betfair" | "racing_australia";
   horses: HorseData[];
 };
 
@@ -461,7 +461,15 @@ function RacingPageContent() {
         </div>
       ) : null}
 
-      {!hasRacingData && refreshFailed ? (
+      {!hasRacingData && !refreshing ? (
+        <ErrorState
+          title="No races currently"
+          message="Live Betfair feeds returned no Australian thoroughbred meetings for today. Try refreshing once meetings are published."
+          tone="info"
+          actionLabel="Refresh now"
+          onAction={() => void refreshPage()}
+        />
+      ) : !hasRacingData && refreshFailed ? (
         <ErrorState
           title="Racing snapshot unavailable"
           message="BetMate could not load the current race board. Try again shortly while cached data warms back up."
@@ -949,6 +957,11 @@ function RacingPageContent() {
       </p>
 
       <ErrorBoundary sectionName="Racing full race board">
+        {filteredRaces.length === 0 ? (
+          <div className="card">
+            <p className="muted-copy">No races currently for the selected filters.</p>
+          </div>
+        ) : (
         <div className="race-board-list">
           {filteredRaces.map((race) => {
             const prediction = predictions[race.race_id];
@@ -1076,6 +1089,7 @@ function RacingPageContent() {
             );
           })}
         </div>
+        )}
       </ErrorBoundary>
         </>
       )}

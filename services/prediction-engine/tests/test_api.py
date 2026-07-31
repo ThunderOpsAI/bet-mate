@@ -81,10 +81,10 @@ class TestRacingEndpoints:
             assert "meeting_region" in race
             assert "state" in race
             assert "meeting_date" in race
-            assert race["data_source"] in {"betfair", "racing_australia", "mock"}
+            assert race["data_source"] in {"betfair", "racing_australia"}
             for horse in race["horses"]:
                 assert "jockey_name" in horse
-                assert horse["data_source"] in {"betfair", "racing_australia", "mock"}
+                assert horse["data_source"] in {"betfair", "racing_australia"}
                 assert not re.fullmatch(r"Horse \d+", horse["name"])
 
     def test_predict_racing_accepts_expanded_payload(self, client):
@@ -145,7 +145,7 @@ class TestDateScopedGameEndpoints:
         monkeypatch.setattr(
             main_mod.afl_scraper,
             "fetch_this_week_afl",
-            lambda run_date=None, allow_mock=None: [{"game_id": "afl-1", "date": run_date}],
+            lambda run_date=None: [{"game_id": "afl-1", "date": run_date}],
         )
 
         response = client.get("/api/afl/games/upcoming?date=2026-04-10")

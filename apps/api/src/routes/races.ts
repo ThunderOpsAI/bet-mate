@@ -4,20 +4,6 @@ import { PrismaClient } from "@prisma/client";
 const router = Router();
 const prisma: any = new PrismaClient();
 
-const SAMPLE_RACE = {
-  id: "sample-race-1",
-  raceNumber: 1,
-  venue: "Sample Park",
-  raceDate: new Date().toISOString().slice(0, 10),
-  distanceMeters: 1400,
-  trackCondition: "Good",
-  topPicks: [
-    { horseName: "Golden Star", winProbability: 0.29, confidence: "high" },
-    { horseName: "Rapid Queen", winProbability: 0.23, confidence: "medium" },
-    { horseName: "Night Runner", winProbability: 0.19, confidence: "medium" },
-  ],
-};
-
 // GET /api/races/today
 router.get("/today", async (_req, res) => {
   try {
@@ -34,22 +20,9 @@ router.get("/today", async (_req, res) => {
 
     if (races.length === 0) {
       return res.json({
-        meetings: [
-          {
-            venueName: "Sample Park",
-            raceDate: start.toISOString().slice(0, 10),
-            races: [
-              {
-                id: "sample-race-1",
-                raceNumber: 1,
-                postTime: new Date(start.getTime() + 3600000).toISOString(),
-                distance: 1400,
-                topPicks: SAMPLE_RACE.topPicks,
-              },
-            ],
-          },
-        ],
-        source: "fallback",
+        meetings: [],
+        source: "database",
+        message: "No races currently",
       });
     }
 
@@ -75,23 +48,10 @@ router.get("/today", async (_req, res) => {
 
     return res.json({ meetings: [...byVenue.values()], source: "database" });
   } catch {
-    return res.json({
-      meetings: [
-        {
-          venueName: "Sample Park",
-          raceDate: new Date().toISOString().slice(0, 10),
-          races: [
-            {
-              id: "sample-race-1",
-              raceNumber: 1,
-              postTime: new Date().toISOString(),
-              distance: 1400,
-              topPicks: SAMPLE_RACE.topPicks,
-            },
-          ],
-        },
-      ],
-      source: "fallback",
+    return res.status(503).json({
+      meetings: [],
+      source: "error",
+      message: "Failed to fetch races",
     });
   }
 });
@@ -99,24 +59,6 @@ router.get("/today", async (_req, res) => {
 // GET /api/races/:raceId
 router.get("/:raceId", async (req, res) => {
   const { raceId } = req.params;
-
-  // Fallback for sample race
-  if (raceId === "sample-race-1") {
-    return res.json({
-      race: {
-        ...SAMPLE_RACE,
-        predictions: [
-          { horseName: "Golden Star", barrier: 3, winProbability: 0.29, placeProbability: 0.52, confidence: "high", valueRating: "strong", factors: ["Good form last 3 runs", "Preferred distance"] },
-          { horseName: "Rapid Queen", barrier: 7, winProbability: 0.23, placeProbability: 0.45, confidence: "medium", valueRating: "fair", factors: ["Consistent runner", "Draws wide"] },
-          { horseName: "Night Runner", barrier: 1, winProbability: 0.19, placeProbability: 0.40, confidence: "medium", valueRating: "fair", factors: ["Inside barrier advantage", "Wet track specialist"] },
-          { horseName: "Thunder Bolt", barrier: 5, winProbability: 0.14, placeProbability: 0.32, confidence: "low", valueRating: "poor", factors: ["Class drop", "First time blinkers"] },
-          { horseName: "Silver Lining", barrier: 2, winProbability: 0.10, placeProbability: 0.25, confidence: "low", valueRating: "poor", factors: ["Returning from spell", "Untested distance"] },
-          { horseName: "Lucky Charm", barrier: 4, winProbability: 0.05, placeProbability: 0.15, confidence: "low", valueRating: "avoid", factors: ["Poor recent form", "Not suited to track"] },
-        ],
-      },
-      source: "fallback",
-    });
-  }
 
   try {
     const race = await prisma.race.findUnique({

@@ -14,7 +14,7 @@ from app.time_utils import is_melbourne_premium_day
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
-MOCK_EVENT_ID_PATTERNS = (
+LEGACY_SYNTHETIC_EVENT_ID_PATTERNS = (
     re.compile(r"^r_\d+_\d+$"),
     re.compile(r"^afl_game_\d+$"),
     re.compile(r"^nba_game_\d+$"),
@@ -264,7 +264,7 @@ def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: st
 def card_requires_refresh(card: Dict[str, Any]) -> bool:
     for bet in card.get("selected_bets", []):
         event_id = str(bet.get("event_id", "")).strip()
-        if any(pattern.match(event_id) for pattern in MOCK_EVENT_ID_PATTERNS):
+        if any(pattern.match(event_id) for pattern in LEGACY_SYNTHETIC_EVENT_ID_PATTERNS):
             return True
     return False
 

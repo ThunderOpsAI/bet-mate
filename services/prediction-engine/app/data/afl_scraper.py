@@ -319,13 +319,11 @@ def fetch_completed_afl_results(year=None, max_results=50):
     return results
 
 
-def fetch_this_week_afl(run_date=None, allow_mock=None):
+def fetch_this_week_afl(run_date=None):
     """
     Fetch upcoming/recent AFL games from Squiggle and build feature dicts
     that our XGBoost model can consume.
-    Falls back to mock data if the API is unreachable.
     """
-    should_allow_mock = _should_allow_mock(allow_mock)
     target_date = resolve_melbourne_date(run_date) if run_date else None
     target_date_str = target_date.isoformat() if target_date else None
     year = target_date.year if target_date else datetime.now().year
@@ -337,7 +335,7 @@ def fetch_this_week_afl(run_date=None, allow_mock=None):
     if target_date_str:
         if not games_data:
             if target_date == today_melbourne():
-                return _fallback_games(target_date_str, should_allow_mock, reason=f"AFL API unavailable for {target_date_str}")
+                print(f"[Squiggle] AFL API unavailable for {target_date_str}")
             return []
         raw_games = [
             game for game in raw_games
@@ -356,7 +354,8 @@ def fetch_this_week_afl(run_date=None, allow_mock=None):
         if target_date_str:
             print(f"[Squiggle] No AFL games found for {target_date_str}")
             return []
-        return _fallback_games(None, should_allow_mock, reason="No AFL games found")
+        print("[Squiggle] No AFL games found")
+        return []
 
     # 2. Get standings for form data
     standings_data = _squiggle_get({"q": "standings", "year": year})
@@ -463,60 +462,3 @@ def fetch_this_week_afl(run_date=None, allow_mock=None):
         print(f"[Squiggle] Loaded {len(games)} AFL games (Round {games[0].get('round', '?') if games else '?'})")
     return games
 
-
-def _should_allow_mock(allow_mock) -> bool:
-    if allow_mock is not None:
-        return bool(allow_mock)
-    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    raw = os.getenv("BETMATE_ALLOW_MOCK_AFL", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    return True
-
-
-def _fallback_games(run_date: str | None, allow_mock: bool, reason: str):
-    if allow_mock:
-        print(f"[Squiggle] {reason}, falling back to mock data")
-        return _generate_mock_afl(run_date)
-    print(f"[Squiggle] {reason}, returning no games because mock data is disabled")
-    return []
-
-
-def _generate_mock_afl(run_date: str | None = None):
-    """Fallback mock data when Squiggle is unreachable."""
-    teams = [
-        "Collingwood", "Brisbane Lions", "Carlton", "Melbourne", "Sydney Swans",
-        "St Kilda", "GWS Giants", "Port Adelaide", "Western Bulldogs", "Essendon",
-        "Geelong Cats", "Richmond", "Adelaide Crows", "Gold Coast Suns", "Fremantle",
-        "Hawthorn", "North Melbourne", "West Coast Eagles"
-    ]
-    random.shuffle(teams)
-    games = []
-
-    for i in range(0, 18, 2):
-        games.append({
-            "game_id": f"afl_game_{i // 2 + 1}",
-            "home_team": teams[i],
-            "away_team": teams[i + 1],
-            "features": {
-                "home_win_streak": float(random.randint(0, 5)),
-                "away_win_streak": float(random.randint(0, 5)),
-                "home_avg_points_for": round(random.uniform(70, 100), 1),
-                "away_avg_points_for": round(random.uniform(70, 100), 1),
-                "home_avg_points_against": round(random.uniform(65, 95), 1),
-                "away_avg_points_against": round(random.uniform(65, 95), 1),
-                "home_rest_days": float(random.randint(6, 9)),
-                "away_rest_days": float(random.randint(6, 9)),
-                "weather_condition": float(random.randint(1, 3)),
-                "travel_distance_away": round(random.uniform(0, 3000), 0),
-                "squiggle_home_signal": round(random.uniform(0.35, 0.65), 4),
-            },
-            "date": f"{run_date or today_melbourne().isoformat()} 19:50:00",
-            "squiggle_tip": "",
-            "squiggle_confidence": 0,
-            "source": "mock",
-        })
-
-    return games
