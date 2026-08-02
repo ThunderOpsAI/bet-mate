@@ -1,7 +1,7 @@
 export const ML_DATA_CACHE_TTL_MS = 30 * 60 * 1000;
 export const ML_DATA_CACHE_RETRY_MS = 60 * 1000;
 
-const ML_DATA_CACHE_NAMESPACE = "betmate:ml-data-cache:v1";
+const ML_DATA_CACHE_NAMESPACE = "betmate:ml-data-cache:v2";
 
 const memoryCache = new Map<string, MlDataCacheEntry<unknown>>();
 const inflightCache = new Map<string, Promise<MlDataCacheEntry<unknown>>>();
