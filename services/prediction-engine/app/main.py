@@ -182,12 +182,12 @@ def resolve_optional_user_id(
 class Horse(BaseModel):
     horse_id: str
     name: str
-    barrier: int
-    weight: float
-    past_win_rate: float
-    jockey_win_rate: float
-    track_condition: int
-    days_since_last_race: int
+    barrier: int = 1
+    weight: float = 58.0
+    past_win_rate: float = 0.1
+    jockey_win_rate: float = 0.1
+    track_condition: int = 5
+    days_since_last_race: int = 14
     betfair_back_price: float = 0.0
     betfair_implied_prob: float = 0.0
     jockey_name: Optional[str] = None
