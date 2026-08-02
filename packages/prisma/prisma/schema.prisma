@@ -9,673 +9,178 @@ datasource db {
   schemas  = ["auth", "public"]
 }
 
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model AuthUser {
-  instance_id                 String?                @db.Uuid
-  id                          String                 @id @db.Uuid
-  aud                         String?                @db.VarChar(255)
-  role                        String?                @db.VarChar(255)
-  email                       String?                @db.VarChar(255)
-  encrypted_password          String?                @db.VarChar(255)
-  email_confirmed_at          DateTime?              @db.Timestamptz(6)
-  invited_at                  DateTime?              @db.Timestamptz(6)
-  confirmation_token          String?                @db.VarChar(255)
-  confirmation_sent_at        DateTime?              @db.Timestamptz(6)
-  recovery_token              String?                @db.VarChar(255)
-  recovery_sent_at            DateTime?              @db.Timestamptz(6)
-  email_change_token_new      String?                @db.VarChar(255)
-  email_change                String?                @db.VarChar(255)
-  email_change_sent_at        DateTime?              @db.Timestamptz(6)
-  last_sign_in_at             DateTime?              @db.Timestamptz(6)
-  raw_app_meta_data           Json?
-  raw_user_meta_data          Json?
-  is_super_admin              Boolean?
-  created_at                  DateTime?              @db.Timestamptz(6)
-  updated_at                  DateTime?              @db.Timestamptz(6)
-  phone                       String?                @unique
-  phone_confirmed_at          DateTime?              @db.Timestamptz(6)
-  phone_change                String?                @default("")
-  phone_change_token          String?                @default("") @db.VarChar(255)
-  phone_change_sent_at        DateTime?              @db.Timestamptz(6)
-  confirmed_at                DateTime?              @default(dbgenerated("LEAST(email_confirmed_at, phone_confirmed_at)")) @db.Timestamptz(6)
-  email_change_token_current  String?                @default("") @db.VarChar(255)
-  email_change_confirm_status Int?                   @default(0) @db.SmallInt
-  banned_until                DateTime?              @db.Timestamptz(6)
-  reauthentication_token      String?                @default("") @db.VarChar(255)
-  reauthentication_sent_at    DateTime?              @db.Timestamptz(6)
-  is_sso_user                 Boolean                @default(false)
-  deleted_at                  DateTime?              @db.Timestamptz(6)
-  is_anonymous                Boolean                @default(false)
-  identities                  identities[]
-  mfa_factors                 mfa_factors[]
-  oauth_authorizations        oauth_authorizations[]
-  oauth_consents              oauth_consents[]
-  one_time_tokens             one_time_tokens[]
-  sessions                    sessions[]
-  webauthn_challenges         webauthn_challenges[]
-  webauthn_credentials        webauthn_credentials[]
-  profiles                    Profile?
-  user_settings               user_settings?
+model auto_tune_log {
+  id                     Int       @id @default(autoincrement())
+  profile_key            String
+  tuned_at               DateTime? @default(now()) @db.Timestamptz(6)
+  window_start           DateTime  @db.Date
+  window_end             DateTime  @db.Date
+  settled_bets_in_window Int
+  params_before          Json
+  params_after           Json
+  improvement_metric     Float?
 
-  @@index([created_at(sort: Desc)], map: "idx_users_created_at_desc")
-  @@index([email], map: "idx_users_email")
-  @@index([last_sign_in_at(sort: Desc)], map: "idx_users_last_sign_in_at_desc")
-  @@index([instance_id])
-  @@index([is_anonymous])
-  @@map("users")
-  @@schema("auth")
-}
-
-/// Extends the Supabase auth.users row with app-specific user data.
-model Profile {
-  id                String    @id @db.Uuid
-  display_name      String
-  email             String
-  plan_tier         String    @default("free")
-  age_confirmed_at  DateTime? @db.Timestamptz(6)
-  terms_accepted_at DateTime? @db.Timestamptz(6)
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
-  authUser          AuthUser  @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@map("profiles")
   @@schema("public")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model audit_log_entries {
-  instance_id String?   @db.Uuid
-  id          String    @id @db.Uuid
-  payload     Json?     @db.Json
-  created_at  DateTime? @db.Timestamptz(6)
-  ip_address  String    @default("") @db.VarChar(64)
-
-  @@index([instance_id], map: "audit_logs_instance_id_idx")
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model custom_oauth_providers {
-  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  provider_type         String
-  identifier            String    @unique
-  name                  String
-  client_id             String
-  client_secret         String
-  acceptable_client_ids String[]  @default([])
-  scopes                String[]  @default([])
-  pkce_enabled          Boolean   @default(true)
-  attribute_mapping     Json      @default("{}")
-  authorization_params  Json      @default("{}")
-  enabled               Boolean   @default(true)
-  email_optional        Boolean   @default(false)
-  issuer                String?
-  discovery_url         String?
-  skip_nonce_check      Boolean   @default(false)
-  cached_discovery      Json?
-  discovery_cached_at   DateTime? @db.Timestamptz(6)
-  authorization_url     String?
-  token_url             String?
-  userinfo_url          String?
-  jwks_uri              String?
-  created_at            DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
-
-  @@index([created_at])
-  @@index([enabled])
-  @@index([identifier])
-  @@index([provider_type])
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model flow_state {
-  id                     String                 @id @db.Uuid
-  user_id                String?                @db.Uuid
-  auth_code              String?
-  code_challenge_method  code_challenge_method?
-  code_challenge         String?
-  provider_type          String
-  provider_access_token  String?
-  provider_refresh_token String?
-  created_at             DateTime?              @db.Timestamptz(6)
-  updated_at             DateTime?              @db.Timestamptz(6)
-  authentication_method  String
-  auth_code_issued_at    DateTime?              @db.Timestamptz(6)
-  invite_token           String?
-  referrer               String?
-  oauth_client_state_id  String?                @db.Uuid
-  linking_target_id      String?                @db.Uuid
-  email_optional         Boolean                @default(false)
-  saml_relay_states      saml_relay_states[]
-
-  @@index([created_at(sort: Desc)])
-  @@index([auth_code], map: "idx_auth_code")
-  @@index([user_id, authentication_method], map: "idx_user_id_auth_method")
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model identities {
-  provider_id     String
-  user_id         String    @db.Uuid
-  identity_data   Json
-  provider        String
-  last_sign_in_at DateTime? @db.Timestamptz(6)
-  created_at      DateTime? @db.Timestamptz(6)
-  updated_at      DateTime? @db.Timestamptz(6)
-  email           String?   @default(dbgenerated("lower((identity_data ->> 'email'::text))"))
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  users           AuthUser  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([provider_id, provider], map: "identities_provider_id_provider_unique")
-  @@index([email])
-  @@index([user_id])
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model instances {
-  id              String    @id @db.Uuid
-  uuid            String?   @db.Uuid
-  raw_base_config String?
-  created_at      DateTime? @db.Timestamptz(6)
-  updated_at      DateTime? @db.Timestamptz(6)
-
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model mfa_amr_claims {
-  session_id            String   @db.Uuid
+model blackbook_auto_bet_config {
+  id                    Int      @id @default(autoincrement())
   created_at            DateTime @db.Timestamptz(6)
   updated_at            DateTime @db.Timestamptz(6)
-  authentication_method String
-  id                    String   @id(map: "amr_id_pk") @db.Uuid
-  sessions              sessions @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_id               String
+  runner                String
+  sport                 String
+  bet_type              String
+  stake                 Float
+  enabled               Int      @default(1)
+  probability_threshold Float    @default(50.0)
+  notify_phone          String?
+  notify_email          String?
+  notify_pushover_key   String?
 
-  @@unique([session_id, authentication_method], map: "mfa_amr_claims_session_id_authentication_method_pkey")
-  @@schema("auth")
+  @@unique([user_id, runner])
+  @@schema("public")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model daily_strategy_runs {
+  id                Int               @id @default(autoincrement())
+  profile_key       String
+  run_date          DateTime          @db.Date
+  bankroll_standard Float             @default(250.00)
+  bankroll_premium  Float             @default(500.00)
+  total_allocated   Float?
+  candidate_count   Int?
+  selected_count    Int?
+  skipped_count     Int?
+  run_payload_json  Json?
+  created_at        DateTime?         @default(now()) @db.Timestamptz(6)
+  strategy_profiles strategy_profiles @relation(fields: [profile_key], references: [profile_key], onDelete: NoAction, onUpdate: NoAction)
+  system_bets       system_bets[]
+
+  @@unique([profile_key, run_date])
+  @@schema("public")
+}
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model mfa_challenges {
-  id                     String      @id @db.Uuid
-  factor_id              String      @db.Uuid
-  created_at             DateTime    @db.Timestamptz(6)
-  verified_at            DateTime?   @db.Timestamptz(6)
-  ip_address             String      @db.Inet
-  otp_code               String?
-  web_authn_session_data Json?
-  mfa_factors            mfa_factors @relation(fields: [factor_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "mfa_challenges_auth_factor_id_fkey")
+model paper_bet_log {
+  id                Int          @id @default(autoincrement())
+  created_at        DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime     @default(now()) @db.Timestamptz(6)
+  settled_at        DateTime?    @db.Timestamptz(6)
+  prediction_log_id Int?
+  sport             String
+  event_id          String
+  event_name        String
+  selection         String
+  bet_type          String
+  odds              Float
+  stake             Float
+  status            String       @default("PENDING")
+  payout            Float?
+  profit            Float?
+  notes             String?
+  origin            String?      @default("user")
+  system_bet_id     Int?
+  user_id           String       @default("legacy")
+  system_bets       system_bets? @relation(fields: [system_bet_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([created_at(sort: Desc)], map: "mfa_challenge_created_at_idx")
-  @@schema("auth")
+  @@index([created_at], map: "idx_paper_bet_log_created_at")
+  @@index([sport, event_id], map: "idx_paper_bet_log_event")
+  @@index([status], map: "idx_paper_bet_log_status")
+  @@index([user_id, created_at], map: "idx_paper_bet_log_user_created_at")
+  @@schema("public")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model mfa_factors {
-  id                           String           @id @db.Uuid
-  user_id                      String           @db.Uuid
-  friendly_name                String?
-  factor_type                  factor_type
-  status                       factor_status
-  created_at                   DateTime         @db.Timestamptz(6)
-  updated_at                   DateTime         @db.Timestamptz(6)
-  secret                       String?
-  phone                        String?
-  last_challenged_at           DateTime?        @unique @db.Timestamptz(6)
-  web_authn_credential         Json?
-  web_authn_aaguid             String?          @db.Uuid
-  last_webauthn_challenge_data Json?
-  mfa_challenges               mfa_challenges[]
-  users                        AuthUser         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model prediction_log {
+  id                  Int       @id @default(autoincrement())
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime? @db.Timestamptz(6)
+  sport               String
+  event_id            String
+  event_name          String
+  selection           String
+  probability         Float
+  fair_odds           Float?
+  payload_json        Json      @default("{}")
+  feature_impact_json Json      @default("{}")
+  actual_outcome      Float?
+  result_status       String?
+  settled_at          DateTime? @db.Timestamptz(6)
 
-  @@unique([user_id, phone], map: "unique_phone_factor_per_user")
-  @@index([user_id, created_at], map: "factor_id_created_at_idx")
-  @@index([user_id])
-  @@schema("auth")
+  @@unique([sport, event_id, selection], map: "idx_prediction_log_unique_selection")
+  @@index([created_at], map: "idx_prediction_log_created_at")
+  @@index([sport, event_id], map: "idx_prediction_log_event")
+  @@index([settled_at], map: "idx_prediction_log_settled_at")
+  @@index([sport], map: "idx_prediction_log_sport")
+  @@schema("public")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model oauth_authorizations {
-  id                    String                     @id @db.Uuid
-  authorization_id      String                     @unique
-  client_id             String                     @db.Uuid
-  user_id               String?                    @db.Uuid
-  redirect_uri          String
-  scope                 String
-  state                 String?
-  resource              String?
-  code_challenge        String?
-  code_challenge_method code_challenge_method?
-  response_type         oauth_response_type        @default(code)
-  status                oauth_authorization_status @default(pending)
-  authorization_code    String?                    @unique
-  created_at            DateTime                   @default(now()) @db.Timestamptz(6)
-  expires_at            DateTime                   @default(dbgenerated("(now() + '00:03:00'::interval)")) @db.Timestamptz(6)
-  approved_at           DateTime?                  @db.Timestamptz(6)
-  nonce                 String?
-  oauth_clients         oauth_clients              @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                 AuthUser?                  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model prediction_results {
+  id                  Int      @id @default(autoincrement())
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+  completed_at        DateTime @db.Timestamptz(6)
+  sport               String
+  event_id            String
+  event_name          String
+  winner_selection    String?
+  result_payload_json Json     @default("{}")
 
-  @@schema("auth")
+  @@unique([sport, event_id], map: "idx_prediction_results_unique_event")
+  @@schema("public")
 }
 
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-model oauth_client_states {
-  id            String   @id @db.Uuid
-  provider_type String
-  code_verifier String?
-  created_at    DateTime @db.Timestamptz(6)
-
-  @@index([created_at], map: "idx_oauth_client_states_created_at")
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model oauth_clients {
-  id                         String                  @id @db.Uuid
-  client_secret_hash         String?
-  registration_type          oauth_registration_type
-  redirect_uris              String
-  grant_types                String
-  client_name                String?
-  client_uri                 String?
-  logo_uri                   String?
-  created_at                 DateTime                @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime                @default(now()) @db.Timestamptz(6)
-  deleted_at                 DateTime?               @db.Timestamptz(6)
-  client_type                oauth_client_type       @default(confidential)
-  token_endpoint_auth_method String
-  oauth_authorizations       oauth_authorizations[]
-  oauth_consents             oauth_consents[]
-  sessions                   sessions[]
-
-  @@index([deleted_at])
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model oauth_consents {
-  id            String        @id @db.Uuid
-  user_id       String        @db.Uuid
-  client_id     String        @db.Uuid
-  scopes        String
-  granted_at    DateTime      @default(now()) @db.Timestamptz(6)
-  revoked_at    DateTime?     @db.Timestamptz(6)
-  oauth_clients oauth_clients @relation(fields: [client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users         AuthUser      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([user_id, client_id], map: "oauth_consents_user_client_unique")
-  @@index([user_id, granted_at(sort: Desc)], map: "oauth_consents_user_order_idx")
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model one_time_tokens {
-  id         String              @id @db.Uuid
-  user_id    String              @db.Uuid
-  token_type one_time_token_type
-  token_hash String
-  relates_to String
-  created_at DateTime            @default(now()) @db.Timestamp(6)
-  updated_at DateTime            @default(now()) @db.Timestamp(6)
-  users      AuthUser            @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@unique([user_id, token_type])
-  @@index([relates_to], map: "one_time_tokens_relates_to_hash_idx", type: Hash)
-  @@index([token_hash], map: "one_time_tokens_token_hash_hash_idx", type: Hash)
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model refresh_tokens {
-  instance_id String?   @db.Uuid
-  id          BigInt    @id @default(autoincrement())
-  token       String?   @unique(map: "refresh_tokens_token_unique") @db.VarChar(255)
-  user_id     String?   @db.VarChar(255)
-  revoked     Boolean?
-  created_at  DateTime? @db.Timestamptz(6)
-  updated_at  DateTime? @db.Timestamptz(6)
-  parent      String?   @db.VarChar(255)
-  session_id  String?   @db.Uuid
-  sessions    sessions? @relation(fields: [session_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([instance_id])
-  @@index([instance_id, user_id])
-  @@index([parent])
-  @@index([session_id, revoked])
-  @@index([updated_at(sort: Desc)])
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model saml_providers {
-  id                String        @id @db.Uuid
-  sso_provider_id   String        @db.Uuid
-  entity_id         String        @unique
-  metadata_xml      String
-  metadata_url      String?
-  attribute_mapping Json?
-  created_at        DateTime?     @db.Timestamptz(6)
-  updated_at        DateTime?     @db.Timestamptz(6)
-  name_id_format    String?
-  sso_providers     sso_providers @relation(fields: [sso_provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([sso_provider_id])
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model saml_relay_states {
-  id              String        @id @db.Uuid
-  sso_provider_id String        @db.Uuid
-  request_id      String
-  for_email       String?
-  redirect_to     String?
-  created_at      DateTime?     @db.Timestamptz(6)
-  updated_at      DateTime?     @db.Timestamptz(6)
-  flow_state_id   String?       @db.Uuid
-  flow_state      flow_state?   @relation(fields: [flow_state_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  sso_providers   sso_providers @relation(fields: [sso_provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([created_at(sort: Desc)])
-  @@index([for_email])
-  @@index([sso_provider_id])
-  @@schema("auth")
-}
-
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model schema_migrations {
-  version String @id @db.VarChar(255)
-
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model sessions {
-  id                     String           @id @db.Uuid
-  user_id                String           @db.Uuid
-  created_at             DateTime?        @db.Timestamptz(6)
-  updated_at             DateTime?        @db.Timestamptz(6)
-  factor_id              String?          @db.Uuid
-  aal                    aal_level?
-  not_after              DateTime?        @db.Timestamptz(6)
-  refreshed_at           DateTime?        @db.Timestamp(6)
-  user_agent             String?
-  ip                     String?          @db.Inet
-  tag                    String?
-  oauth_client_id        String?          @db.Uuid
-  refresh_token_hmac_key String?
-  refresh_token_counter  BigInt?
-  scopes                 String?
-  mfa_amr_claims         mfa_amr_claims[]
-  refresh_tokens         refresh_tokens[]
-  oauth_clients          oauth_clients?   @relation(fields: [oauth_client_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users                  AuthUser         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([not_after(sort: Desc)])
-  @@index([oauth_client_id])
-  @@index([user_id])
-  @@index([user_id, created_at], map: "user_id_created_at_idx")
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model sso_domains {
-  id              String        @id @db.Uuid
-  sso_provider_id String        @db.Uuid
-  domain          String
-  created_at      DateTime?     @db.Timestamptz(6)
-  updated_at      DateTime?     @db.Timestamptz(6)
-  sso_providers   sso_providers @relation(fields: [sso_provider_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([sso_provider_id])
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model sso_providers {
-  id                String              @id @db.Uuid
-  resource_id       String?
-  created_at        DateTime?           @db.Timestamptz(6)
-  updated_at        DateTime?           @db.Timestamptz(6)
-  disabled          Boolean?
-  saml_providers    saml_providers[]
-  saml_relay_states saml_relay_states[]
-  sso_domains       sso_domains[]
-
-  @@index([resource_id], map: "sso_providers_resource_id_pattern_idx")
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model webauthn_challenges {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id        String?   @db.Uuid
-  challenge_type String
-  session_data   Json
-  created_at     DateTime  @default(now()) @db.Timestamptz(6)
-  expires_at     DateTime  @db.Timestamptz(6)
-  users          AuthUser? @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([expires_at])
-  @@index([user_id])
-  @@schema("auth")
-}
-
-model webauthn_credentials {
-  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  user_id          String    @db.Uuid
-  credential_id    Bytes     @unique
-  public_key       Bytes
-  attestation_type String    @default("")
-  aaguid           String?   @db.Uuid
-  sign_count       BigInt    @default(0)
-  transports       Json      @default("[]")
-  backup_eligible  Boolean   @default(false)
-  backed_up        Boolean   @default(false)
-  friendly_name    String    @default("")
-  created_at       DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
-  last_used_at     DateTime? @db.Timestamptz(6)
-  users            AuthUser  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-
-  @@index([user_id])
-  @@schema("auth")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model user_settings {
-  user_id    String   @id @db.Uuid
-  sports     String[] @default(["racing", "afl", "nba"])
-  risk_level String   @default("balanced")
-  max_stake  Decimal  @default(25.00) @db.Decimal(10, 2)
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @db.Timestamptz(6)
-  users      AuthUser @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+model strategy_profiles {
+  id                  Int                   @id @default(autoincrement())
+  profile_key         String                @unique
+  display_name        String
+  rule_set_json       Json
+  is_editable         Boolean?              @default(false)
+  created_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime?             @default(now()) @db.Timestamptz(6)
+  daily_strategy_runs daily_strategy_runs[]
 
   @@schema("public")
 }
 
-enum aal_level {
-  aal1
-  aal2
-  aal3
+model system_bets {
+  id                  Int                 @id @default(autoincrement())
+  run_id              Int
+  profile_key         String
+  sport               String
+  event_id            String
+  event_name          String
+  market_type         String
+  selection           String
+  model_probability   Float
+  odds_used           Float
+  odds_source         String
+  edge                Float
+  stake               Float
+  status              String              @default("pending")
+  payout              Float?
+  profit              Float?
+  settled_at          DateTime?           @db.Timestamptz(6)
+  created_at          DateTime?           @default(now()) @db.Timestamptz(6)
+  legs_json           Json?
+  paper_bet_log       paper_bet_log[]
+  daily_strategy_runs daily_strategy_runs @relation(fields: [run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@schema("auth")
-}
-
-enum code_challenge_method {
-  s256
-  plain
-
-  @@schema("auth")
-}
-
-enum factor_status {
-  unverified
-  verified
-
-  @@schema("auth")
-}
-
-enum factor_type {
-  totp
-  webauthn
-  phone
-
-  @@schema("auth")
-}
-
-enum oauth_authorization_status {
-  pending
-  approved
-  denied
-  expired
-
-  @@schema("auth")
-}
-
-enum oauth_client_type {
-  public
-  confidential
-
-  @@schema("auth")
-}
-
-enum oauth_registration_type {
-  dynamic
-  manual
-
-  @@schema("auth")
-}
-
-enum oauth_response_type {
-  code
-
-  @@schema("auth")
-}
-
-enum one_time_token_type {
-  confirmation_token
-  reauthentication_token
-  recovery_token
-  email_change_token_new
-  email_change_token_current
-  phone_change_token
-
-  @@schema("auth")
-}
-
-enum BetStatus {
-  PENDING
-  WON
-  LOST
-  VOID
-
+  @@index([sport, event_id], map: "idx_system_bets_event")
+  @@index([profile_key, created_at], map: "idx_system_bets_profile")
+  @@index([run_id], map: "idx_system_bets_run")
   @@schema("public")
 }
 
-model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  username         String            @unique
-  passwordHash     String
-  startingBankroll Decimal           @db.Decimal(10, 2)
-  currentBankroll  Decimal           @db.Decimal(10, 2)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  bets             Bet[]
-  bankrollHistory  BankrollHistory[]
+model weekly_retrain_log {
+  id             Int      @id @default(autoincrement())
+  run_date       DateTime @unique @db.Date
+  started_at     DateTime @db.Timestamptz(6)
+  completed_at   DateTime @db.Timestamptz(6)
+  profile_count  Int
+  tuned_profiles Int
+  summary_json   Json     @default("{}")
 
-  @@schema("public")
-}
-
-model Race {
-  id             String       @id @default(cuid())
-  raceDate       DateTime
-  venue          String
-  raceNumber     Int
-  distanceMeters Int
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  predictions    Prediction[]
-
-  @@index([raceDate, venue])
-  @@schema("public")
-}
-
-model Prediction {
-  id             String   @id @default(cuid())
-  raceId         String
-  horseName      String
-  winProbability Float
-  confidence     String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  race           Race     @relation(fields: [raceId], references: [id], onDelete: Cascade)
-
-  @@index([raceId])
-  @@schema("public")
-}
-
-model Bet {
-  id               String    @id @default(cuid())
-  userId           String
-  eventType        String
-  eventId          String
-  eventName        String
-  eventTime        DateTime
-  betType          String
-  selection        String
-  odds             Float
-  stake            Decimal   @db.Decimal(10, 2)
-  payout           Decimal?  @db.Decimal(10, 2)
-  status           BetStatus @default(PENDING)
-  settledAt        DateTime?
-  wasAIRecommended Boolean   @default(false)
-  notes            String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, status])
-  @@schema("public")
-}
-
-model BankrollHistory {
-  id        String   @id @default(cuid())
-  userId    String
-  amount    Decimal  @db.Decimal(10, 2)
-  reason    String
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId, createdAt])
+  @@index([run_date], map: "idx_weekly_retrain_log_run_date")
   @@schema("public")
 }

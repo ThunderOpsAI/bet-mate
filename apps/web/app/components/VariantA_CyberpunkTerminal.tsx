@@ -425,7 +425,7 @@ export default function VariantA_CyberpunkTerminal({
                           </div>
                           <div className="text-xs md:text-sm text-slate-300 font-medium flex items-center gap-1.5 mt-0.5 truncate">
                             <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
-                            <span className="truncate">{race.horses?.[0]?.name || "Top Favorite"}</span>
+                            <span className="truncate">{race.horses?.[0]?.name || "TBD"}</span>
                           </div>
                         </div>
                         

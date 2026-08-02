@@ -40,7 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
-import { deriveFallbackWinProb } from "../lib/fallbackProbability";
+
 
 type NRLGame = {
   game_id: string;
@@ -451,9 +451,15 @@ export default function NRLPage() {
                   ? `${gameComplete >= 100 ? "Final" : "Live"}: ${homeScore}-${awayScore}`
                   : null;
 
-                const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
-                const homePct = prediction?.predictions?.home_win_probability ?? fallback.homePct;
-                const awayPct = prediction?.predictions?.away_win_probability ?? fallback.awayPct;
+                if (!prediction) {
+                  return (
+                    <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-6 border border-white/5 rounded-2xl bg-white/5 mb-3">
+                      <span className="text-slate-400 font-bold text-sm">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
+                    </div>
+                  );
+                }
+                const homePct = prediction.predictions.home_win_probability;
+                const awayPct = prediction.predictions.away_win_probability;
                 const homeWins = homePct > awayPct;
                 const isExpanded = expandedGame === game.game_id;
                 const confidenceSignal = prediction
