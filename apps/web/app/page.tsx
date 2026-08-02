@@ -1,5 +1,7 @@
 "use client";
 
+export const dynamic = 'force-dynamic';
+
 import { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -469,6 +471,7 @@ async function fetchRacePredictions(races: RaceSummary[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/racing`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(race),
         });
@@ -496,6 +499,7 @@ async function fetchAflPredictions(games: AFLGame[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/afl`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
         });
@@ -523,6 +527,7 @@ async function fetchNbaPredictions(games: NBAGame[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/nba`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
         });
@@ -551,6 +556,7 @@ async function fetchNrlPredictions(games: NRLGame[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/nrl`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
         });
@@ -574,6 +580,7 @@ async function fetchSoccerPredictions(games: SoccerGame[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/soccer`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
         });
@@ -597,6 +604,7 @@ async function fetchGolfPredictions(tournaments: GolfTournament[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/golf`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(tournament),
         });
@@ -620,6 +628,7 @@ async function fetchMmaPredictions(games: MMAMatchup[]) {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/predict/mma`, {
           method: "POST",
+          cache: "no-store",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(game),
         });
