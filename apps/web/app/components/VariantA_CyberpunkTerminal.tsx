@@ -116,7 +116,7 @@ export default function VariantA_CyberpunkTerminal({
     setBlackbookRunners(prev => prev.filter(item => item.id !== id));
   };
 
-  const targetVenues = ["randwick", "rosehill", "warwick farm", "canterbury", "flemington", "caulfield", "moonee valley", "sandown", "doomben", "eagle farm", "morphettville", "gawler", "sydney", "melbourne", "brisbane", "adelaide", "brissy"];
+  const targetVenues = ["randwick", "rosehill", "warwick farm", "canterbury", "flemington", "caulfield", "moonee valley", "sandown", "doomben", "eagle farm", "morphettville", "gawler", "sydney", "melbourne", "brisbane", "adelaide", "brissy", "darwin"];
   const displayRaces = React.useMemo(() => {
     const filtered = racesData.filter(r => targetVenues.some(v => (r.venue || "").toLowerCase().includes(v)));
     return filtered.length > 0 ? filtered : racesData;
@@ -125,12 +125,12 @@ export default function VariantA_CyberpunkTerminal({
   // Aggregate and sort upcoming sports for Next Sport card
   const nextSportsData = React.useMemo(() => {
     let combined = [
-      ...aflData.map(g => ({ id: g.game_id, sport: 'AFL', date: g.date || '', event: `${g.home_team} vs ${g.away_team}` })),
-      ...nbaData.map(g => ({ id: g.game_id, sport: 'NBA', date: g.date || '', event: `${g.home_team} vs ${g.away_team}` })),
-      ...nrlData.map(g => ({ id: g.game_id, sport: 'NRL', date: g.date || '', event: `${g.home_team} vs ${g.away_team}` })),
-      ...soccerData.map(g => ({ id: g.game_id, sport: 'Soccer', date: g.date || '', event: `${g.home_team} vs ${g.away_team}` })),
-      ...golfData.map(g => ({ id: g.tournament_id, sport: 'Golf', date: g.start_time || g.meeting_date || '', event: g.name })),
-      ...mmaData.map(g => ({ id: g.game_id, sport: 'MMA', date: g.date || '', event: `${g.home_team} vs ${g.away_team}` })),
+      ...aflData.map(g => ({ id: g.game_id, sport: 'AFL', date: g.date ? g.date.replace(' ', 'T') : '', event: `${g.home_team} vs ${g.away_team}` })),
+      ...nbaData.map(g => ({ id: g.game_id, sport: 'NBA', date: g.date ? g.date.replace(' ', 'T') : '', event: `${g.home_team} vs ${g.away_team}` })),
+      ...nrlData.map(g => ({ id: g.game_id, sport: 'NRL', date: g.date ? g.date.replace(' ', 'T') : '', event: `${g.home_team} vs ${g.away_team}` })),
+      ...soccerData.map(g => ({ id: g.game_id, sport: 'Soccer', date: g.date ? g.date.replace(' ', 'T') : '', event: `${g.home_team} vs ${g.away_team}` })),
+      ...golfData.map(g => ({ id: g.tournament_id, sport: 'Golf', date: g.start_time || g.meeting_date ? (g.start_time || g.meeting_date)?.replace(' ', 'T') : '', event: g.name })),
+      ...mmaData.map(g => ({ id: g.game_id, sport: 'MMA', date: g.date ? g.date.replace(' ', 'T') : '', event: `${g.home_team} vs ${g.away_team}` })),
     ].filter(g => g.date && new Date(g.date).getTime() > Date.now() - 86400000); // Only include games from yesterday onwards
 
     // Sort chronologically
