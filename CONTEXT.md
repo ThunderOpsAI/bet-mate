@@ -59,10 +59,12 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform p
 
 ---
 
-## 📡 Live Data & UI Preview Policy
+## 📡 Live Data & Zero-Tolerance Synthetic Data Policy
 
-- **Backend API Data Feeds:** In production, backend endpoints serve live data from upstream sources (Betfair, Squiggle, Ball Don't Lie, etc.). When upstream markets are empty or unavailable, endpoints return empty arrays rather than fabricating production fixtures.
-- **Frontend UI Components & Prototyping:** Frontend components are encouraged to support sample props, rich mock visual states, and preview data for local UI development, testing, and component prototyping. This ensures developers and AI agents can build and refine UI layouts even when local API servers or live odds feeds are offline.
+- **Backend API Data Feeds:** In production and development, backend endpoints serve live data from upstream sources (Betfair, Squiggle, Ball Don't Lie, etc.). When upstream markets are empty or unavailable, endpoints return empty arrays rather than fabricating synthetic data or production fixtures.
+- **Absolute Prohibition on Synthetic/Mock Data:** Agents are strictly forbidden from adding, injecting, or leaving hardcoded fallback arrays, static JSON, sample props, or fake data in any page, component, or API route.
+- **Mandatory Graceful Empty States:** When data streams or APIs are empty, offline, or unavailable, the UI must render an explicit, clean Empty/Error state component (e.g., `<NoLiveMeetings />` or `"Awaiting Data Feed"`). Synthetic data must never be used to simulate a functional state.
+
 
 ---
 

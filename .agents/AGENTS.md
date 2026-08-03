@@ -15,7 +15,36 @@ BetMate is a monorepo containing a web frontend, an Express API backend, and a P
 
 ---
 
-## 2. General Development Rules
+## 2. General Development Rules & Operational Boundaries
+
+### Core Constraints & Directives
+
+1. **'Patch, Don't Rewrite' Directive:** Agents are explicitly forbidden from rewriting entire components, pages, or functions to solve a bug. They must diagnose the specific line or block causing the issue and apply a targeted, surgical patch.
+2. **Strict Architectural Boundaries:** Agents must respect separation of concerns. An agent assigned to a specific domain (e.g. UI/Frontend) must never alter backend data pipelines, database schemas, or API logic to achieve its goal without following the Hard-Stop Protocol.
+3. **Zero-Tolerance for Mock Data Fallbacks:** Agents are strictly forbidden from adding, injecting, or leaving hardcoded fallback arrays, static JSON, sample props, or fake data in any component, page, or API route. If a data stream or API returns empty or fails, the UI must render an explicit, clean Empty/Error state component (e.g. `<NoLiveMeetings />` or `"Awaiting Data Feed"`).
+4. **Mandatory Execution Checkpoints:** Before an agent executes any change that touches more than one file or involves structural/architectural changes, it must stop, output a concise Execution Plan, and await explicit written authorization.
+
+---
+
+### Hard-Stop Protocol for Architectural Boundaries
+
+If an agent is assigned a task within a specific domain (e.g., Frontend/UI) and discovers that the task genuinely cannot be completed without crossing an architectural boundary to alter another domain (e.g., modifying Backend APIs, altering Prisma schema, or changing state management pipelines), the agent MUST treat this as a hard blocker and execute the following protocol:
+
+1. **HALT EXECUTION:** Immediately stop making code changes. Do not attempt a workaround or use mock data.
+2. **REPORT THE BLOCKER:** Clearly explain to the user exactly what missing backend/architectural requirement or dependency is blocking the task.
+3. **PROPOSE AN EXECUTION PLAN:** Output a clear, step-by-step Execution Plan detailing both the backend changes required to expose the data and the subsequent frontend changes needed to consume it.
+4. **AWAIT AUTHORIZATION:** Wait in a standby state for explicit, written authorization from the user before touching any files outside the originally assigned architectural boundary.
+
+---
+
+### Execution Checkpoint Thresholds
+
+- 🟢 **GREEN LIGHT (Execute Immediately):** If a task is a single-file, non-structural bug fix or a targeted surgical patch (e.g., updating a CSS class, fixing a localized typo, or patching a self-contained logic error), the agent is authorized to execute the patch immediately without pausing for a checkpoint, provided it strictly respects architectural boundaries.
+- 🔴 **RED LIGHT (Mandatory Checkpoint):** If a task requires modifying multiple files, refactoring the structural hierarchy of a component, altering a shared data pipeline, or crossing frontend/backend boundaries, the agent MUST trigger a Mandatory Checkpoint. It must halt execution, output a concise, step-by-step Execution Plan, and wait for explicit, written authorization from the user before making any edits.
+
+---
+
+### Repository Standards
 
 - **Prisma Schema Updates:** If you modify the Prisma schema, you must regenerate the Prisma client using:
   ```bash
@@ -29,11 +58,11 @@ BetMate is a monorepo containing a web frontend, an Express API backend, and a P
 
 ## 3. Frontend Development & UI Guidelines
 
-AI agents working on `apps/web` have full authorization to improve, redesign, and refactor frontend components.
+AI agents working on `apps/web` must strictly adhere to the operational boundaries and core directives outlined above.
 
 - **Component Decomposition:** Avoid adding logic or UI directly into giant monolithic files (like `app/page.tsx`). Break down complex pages into small, modular React components under `app/components/` or dedicated feature folders.
 - **Visual Design & Aesthetics:** Aim for high-quality, modern, and dynamic UI designs. Utilize Tailwind CSS v4, smooth gradients, subtle micro-animations (Framer Motion), clean typography, and polished empty/loading states.
-- **UI Prototyping & Sample Props:** When building or updating UI components, feel free to use sample props, mock UI states, and visual preview data within components to ensure rich visual feedback, even when local API servers or live odds data feeds are offline or returning empty arrays.
+- **Zero-Tolerance for Synthetic Data:** Never inject fake data, static JSON fixtures, or sample props into UI components to mask empty or failing API feeds. Always render explicit empty states when data is missing.
 - **State Management:** Keep local UI state in standard React hooks (`useState`, `useReducer`) or local component state. Use TanStack Query / Zustand for global data fetching and app-wide state when interacting with backend APIs.
 
 ---
