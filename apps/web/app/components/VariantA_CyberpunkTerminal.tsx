@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { formatDistanceToNow, format } from "date-fns";
 import {
   Trophy,
   Zap,
@@ -453,6 +454,11 @@ export default function VariantA_CyberpunkTerminal({
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-white truncate">R{race.race_number} {race.venue}</span>
                         <span className="text-[11px] text-slate-400 truncate">{race.distance}m</span>
+                        {race.start_time && (
+                          <span className="text-[11px] text-emerald-400 font-medium truncate ml-2">
+                            {format(new Date(race.start_time), 'HH:mm')} ({formatDistanceToNow(new Date(race.start_time), { addSuffix: true })})
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 truncate">
                         <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0"></span>
@@ -461,7 +467,7 @@ export default function VariantA_CyberpunkTerminal({
                     </div>
                     <div className="flex items-center justify-end shrink-0 gap-2">
                       <Link href={`/races/${race.race_id}`} className="text-slate-400 hover:text-white font-medium text-[10px] hidden sm:flex items-center gap-1">
-                        Card <ArrowUpRight className="w-3 h-3" />
+                        Race Card <ArrowUpRight className="w-3 h-3" />
                       </Link>
                       {race.horses?.[0]?.betfair_back_price ? (
                         <button className="bg-slate-700 hover:bg-slate-600 h-7 w-12 flex items-center justify-center rounded-md font-mono text-xs font-bold text-white shrink-0">
@@ -498,7 +504,10 @@ export default function VariantA_CyberpunkTerminal({
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-bold text-white truncate">{game.sport}</span>
                         <span className="text-[11px] text-slate-400 truncate">
-                          {new Date(game.date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          {format(new Date(game.date), 'EEE MMM d, HH:mm')}
+                        </span>
+                        <span className="text-[11px] text-emerald-400 font-medium truncate ml-1">
+                          ({formatDistanceToNow(new Date(game.date), { addSuffix: true })})
                         </span>
                       </div>
                       <div className="text-xs text-slate-300 font-medium flex items-center gap-1.5 truncate">
