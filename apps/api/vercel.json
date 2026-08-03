@@ -1,12 +1,16 @@
 {
   "version": 2,
-  "framework": null,
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm api:build:prod",
+  "installCommand": "pnpm install --frozen-lockfile && pnpm api:build:prod",
+  "builds": [
+    {
+      "src": "src/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/api/index.ts"
+      "destination": "/src/index.ts"
     }
   ]
 }
