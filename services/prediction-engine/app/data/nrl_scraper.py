@@ -35,7 +35,7 @@ def fetch_upcoming_nrl(run_date=None):
 def _fetch_live_nrl(headers, target_date):
     api_url = betfair_catalogue_url()
     start_time = (datetime.combine(target_date, datetime.min.time()) - timedelta(days=1)).isoformat() + "Z"
-    end_time = (datetime.combine(target_date, datetime.max.time()) + timedelta(days=3)).isoformat() + "Z"
+    end_time = (datetime.combine(target_date, datetime.max.time()) + timedelta(days=7)).isoformat() + "Z"
 
     payload = {
         "filter": {

@@ -713,6 +713,11 @@ def get_today_races(date: Optional[str] = None):
     """Fetch live race data for a Melbourne date (defaults to today)."""
     try:
         races = racing_scraper.fetch_today_races(run_date=date)
+        if not races and not date:
+            import datetime
+            from app.time_utils import today_melbourne
+            tomorrow = (today_melbourne() + datetime.timedelta(days=1)).isoformat()
+            races = racing_scraper.fetch_today_races(run_date=tomorrow)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}

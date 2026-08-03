@@ -193,7 +193,8 @@ function RacingPageContent() {
   const [expandedPredictionRace, setExpandedPredictionRace] = useState<string | null>(
     null,
   );
-  const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(null);
+  const initialRace = searchParams.get("race") || null;
+  const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(initialRace);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
   const [watchPanel, setWatchPanel] = useState<string | null>(null);
   const [watchConfig, setWatchConfig] = useState<BlackbookConfig>({
