@@ -220,8 +220,8 @@ class RacingPredictor:
                 (row['track_conditions'] * RACING_WEIGHTS['track_conditions']) +
                 (row['recent_form'] * RACING_WEIGHTS['recent_form']) +
                 (row['class_factor'] * RACING_WEIGHTS['class_factor']) +
-                (row['barrier'] * RACING_WEIGHTS['barrier_penalty']) +
-                (row['weight'] * RACING_WEIGHTS['weight_penalty'])
+                (max(0, row['barrier'] - 8) * RACING_WEIGHTS['barrier_penalty']) +
+                (max(0, row['weight'] - 54) * RACING_WEIGHTS['weight_penalty'])
             )
             
             combo_multiplier = (

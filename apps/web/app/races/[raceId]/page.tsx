@@ -12,6 +12,7 @@ type Prediction = {
   confidence: string;
   valueRating?: string;
   factors?: string[];
+  odds?: number;
 };
 
 type RaceDetail = {
@@ -117,6 +118,11 @@ export default function RaceDetailPage() {
                   {fmt(pred.winProbability)}
                 </div>
                 <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Win Prob</div>
+                {pred.odds && (
+                  <div style={{ marginTop: "0.25rem", fontSize: "0.9rem", fontWeight: 600, color: "var(--text-secondary)" }}>
+                    ${pred.odds.toFixed(2)}
+                  </div>
+                )}
                 {pred.placeProbability != null && (
                   <div style={{ marginTop: "0.25rem", fontSize: "0.85rem", color: "var(--text-secondary)" }}>
                     {fmt(pred.placeProbability)} place

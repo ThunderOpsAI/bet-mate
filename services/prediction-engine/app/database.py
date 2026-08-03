@@ -174,6 +174,10 @@ def _translate_sql(sql: str) -> str:
     """
     # Replace ? with %s for parameter binding
     result = sql.replace("?", "%s")
+    # Handle AUTOINCREMENT
+    result = result.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    result = result.replace("AUTOINCREMENT", "")
+    result = result.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS")
     return result
 
 

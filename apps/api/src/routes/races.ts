@@ -67,6 +67,20 @@ router.get("/:raceId", async (req, res) => {
 
       const liveRace = allRaces.find((r: any) => r.race_id === raceId);
       if (liveRace) {
+        let predictions: any = {};
+        try {
+          const predRes = await fetch(`${mlApi}/api/predict/racing`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(liveRace)
+          });
+          if (predRes.ok) {
+            predictions = await predRes.json();
+          }
+        } catch (e) {
+          console.error("Failed to fetch predictions for single race fallback:", e);
+        }
+
         const transformed = {
           id: liveRace.race_id,
           raceNumber: liveRace.race_number,
@@ -74,15 +88,21 @@ router.get("/:raceId", async (req, res) => {
           raceDate: liveRace.start_time,
           distanceMeters: liveRace.distance,
           trackCondition: "Good",
-          predictions: (liveRace.horses || []).map((h: any) => ({
-            horseName: h.name,
-            barrier: h.barrier,
-            winProbability: h.prediction?.win_probability ? h.prediction.win_probability / 100 : 0.05,
-            placeProbability: h.prediction?.place_probability ? h.prediction.place_probability / 100 : undefined,
-            confidence: (h.prediction?.win_probability || 0) > 30 ? "high" : (h.prediction?.win_probability || 0) > 10 ? "medium" : "low",
-            valueRating: (h.prediction?.win_probability || 0) > 20 ? "strong" : "fair",
-            factors: []
-          })).sort((a: any, b: any) => b.winProbability - a.winProbability)
+          predictions: (liveRace.horses || []).map((h: any) => {
+            const p = predictions[h.name];
+            const winProb = p?.win_probability ? p.win_probability / 100 : 0.05;
+            const placeProb = p?.place_probability ? p.place_probability / 100 : undefined;
+            return {
+              horseName: h.name,
+              barrier: h.barrier,
+              odds: h.betfair_back_price,
+              winProbability: winProb,
+              placeProbability: placeProb,
+              confidence: winProb > 0.3 ? "high" : winProb > 0.1 ? "medium" : "low",
+              valueRating: winProb > 0.2 ? "strong" : "fair",
+              factors: p?.key_factors || []
+            };
+          }).sort((a: any, b: any) => b.winProbability - a.winProbability)
         };
         return res.json({ race: transformed, source: "ml_engine" });
       }
