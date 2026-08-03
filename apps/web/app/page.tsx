@@ -376,12 +376,27 @@ async function fetchEngineStatus() {
 
 async function fetchTodayRaces() {
   try {
-    const response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
+    let response = await fetchWithTimeout(`${ML_API}/api/races/today`, {
       cache: "no-store",
     });
     if (!response.ok) return [];
-    const data = await response.json();
-    return (data?.races ?? []) as RaceSummary[];
+    let data = await response.json();
+    let races = (data?.races ?? []) as RaceSummary[];
+    
+    if (races.length === 0) {
+      // Fetch tomorrow's races if today has none
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dateStr = tomorrow.toISOString().split("T")[0];
+      response = await fetchWithTimeout(`${ML_API}/api/races/today?date=${dateStr}`, {
+        cache: "no-store",
+      });
+      if (response.ok) {
+        data = await response.json();
+        races = (data?.races ?? []) as RaceSummary[];
+      }
+    }
+    return races;
   } catch (error) {
     return [];
   }
@@ -1527,6 +1542,12 @@ function DashboardContent() {
       <VariantA_CyberpunkTerminal
         racesData={activeRaces}
         allOpportunities={allRealOpportunities}
+        aflData={aflGames}
+        nbaData={nbaGames}
+        nrlData={nrlGames}
+        soccerData={soccerGames}
+        golfData={golfTournaments}
+        mmaData={mmaMatchups}
         isLoading={loading}
         onOpenPaperBet={handleOpenPaperBet}
         onOpenBobModal={handleOpenBobModal}
