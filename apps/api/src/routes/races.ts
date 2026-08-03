@@ -47,7 +47,8 @@ router.get("/today", async (_req, res) => {
     }
 
     return res.json({ meetings: [...byVenue.values()], source: "database" });
-  } catch {
+  } catch (error: any) {
+    console.error("Failed to fetch races for /today:", error);
     return res.status(503).json({
       meetings: [],
       source: "error",
