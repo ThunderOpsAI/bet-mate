@@ -28,6 +28,9 @@ import {
 } from "lucide-react";
 import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
+import NotificationInbox from "./NotificationInbox";
+import Leaderboard from "./Leaderboard";
+import StrategyAnalyticsCard from "./StrategyAnalyticsCard";
 
 interface VariantProps {
   racesData: any[];
@@ -352,8 +355,9 @@ export default function VariantA_CyberpunkTerminal({
             </div>
           </div>
 
-          {/* Active Bankroll Barometer - Only displayed when bankroll is configured/set up */}
+          {/* Active Bankroll & Notifications Barometer */}
           <div className="flex items-center gap-3 font-sans">
+            <NotificationInbox />
             {user && user.currentBankroll !== undefined && user.currentBankroll !== null ? (
               <div className="flex items-center gap-3 bg-slate-900/80 border border-slate-800 px-4 py-2 rounded-2xl shadow-inner">
                 <span className="text-slate-500 text-xl font-medium">$</span>
@@ -378,8 +382,84 @@ export default function VariantA_CyberpunkTerminal({
         </div>
       </div>
 
-      {/* Main Content Area with generous section spacing */}
+      {/* Top Priority Cards: Next Sport to Jump & Next Blackbooker to Jump */}
+      <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Next Sport to Jump Card */}
+          <div className="bg-slate-900/90 border border-emerald-500/30 rounded-xl p-4 shadow-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                <Clock className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold tracking-wider text-emerald-400 uppercase">NEXT SPORT TO JUMP</span>
+                <h3 className="text-base font-bold text-slate-100 mt-0.5">
+                  {racesData && racesData.length > 0
+                    ? `R${racesData[0].race_number} ${racesData[0].venue}`
+                    : aflData && aflData.length > 0
+                    ? `${aflData[0].home_team} vs ${aflData[0].away_team}`
+                    : "Awaiting Live Meeting Feed"}
+                </h3>
+                <p className="text-xs text-slate-400">
+                  {racesData && racesData.length > 0 ? "High Confidence Model Signal" : "Live data stream active"}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/racing"
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold transition-all shadow-md shrink-0"
+            >
+              View Market
+            </Link>
+          </div>
+
+          {/* Next Blackbooker to Jump Card */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-xl p-4 shadow-lg flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                <Bookmark className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="text-[10px] font-bold tracking-wider text-amber-400 uppercase">NEXT BLACKBOOKER TO JUMP</span>
+                <h3 className="text-base font-bold text-slate-100 mt-0.5">
+                  No Blackbook Runners Queued
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Add runners in Blackbook Hub to set automated rules
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/blackbook"
+              className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-bold transition-all shadow-md shrink-0"
+            >
+              Blackbook Hub
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 py-4 md:py-8 flex flex-col gap-6 md:gap-8">
+        {/* Gamification & Leaderboards Section */}
+        <div className="w-full">
+          <Leaderboard />
+        </div>
+
+        {/* AI Strategy Performance Cards Section */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-5 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-emerald-400" />
+              <h3 className="text-lg font-bold text-slate-100">Active AI Strategies & P&L Sparklines</h3>
+            </div>
+            <span className="text-xs text-slate-400">Auto-tuned weekly via Modal engine</span>
+          </div>
+
+          <div className="py-8 text-center text-slate-400 text-sm bg-slate-950/40 rounded-lg border border-slate-800/60">
+            Awaiting strategy performance data feed from nightly cycle.
+          </div>
+        </div>
         {/* Signal Feeds Horizontal Selector with extra top & bottom padding */}
         <div className="pt-8 border-t border-slate-800/40 flex flex-col gap-6">
           <div className="flex items-center justify-between">
@@ -655,13 +735,13 @@ export default function VariantA_CyberpunkTerminal({
         {/* Footer: App Store Badge + Gamble Responsibly */}
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full mt-6 pt-4 border-t border-slate-800/60">
           {/* Banner 6: App Store Promo (compact) */}
-          <Link href="#" className="relative w-full sm:w-48 h-16 bg-slate-900 rounded-lg overflow-hidden border border-slate-800 shadow-md block shrink-0">
+          <Link href="#" className="relative w-full sm:w-48 h-14 bg-slate-950 rounded-lg overflow-hidden border border-slate-800 shadow-md block shrink-0">
             <Image
               src="/banners/banner_6.png"
               alt="Download BetMate App"
               fill
               sizes="192px"
-              className="object-cover"
+              className="object-contain p-1"
               unoptimized
             />
           </Link>

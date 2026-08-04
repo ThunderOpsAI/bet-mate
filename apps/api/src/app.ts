@@ -7,6 +7,8 @@ import authRoutes from "./routes/auth";
 import betsRoutes from "./routes/bets";
 import racesRoutes from "./routes/races";
 import userRoutes from "./routes/user";
+import leaderboardsRoutes from "./routes/leaderboards";
+import cronRoutes from "./routes/cron";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -23,5 +25,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/races", racesRoutes);
 app.use("/api/bets", betsRoutes);
 app.use("/api/user", userRoutes);
+app.use("/api/leaderboards", leaderboardsRoutes);
+app.use("/api/cron", cronRoutes);
 
 export default app;

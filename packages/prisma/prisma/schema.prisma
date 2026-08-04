@@ -184,3 +184,74 @@ model weekly_retrain_log {
   @@index([run_date], map: "idx_weekly_retrain_log_run_date")
   @@schema("public")
 }
+
+enum TriggerType {
+  TRACK_CONDITION
+  BARRIER_BOX
+  JOCKEY_TRAINER
+  ODDS_THRESHOLD
+  ML_CONFIDENCE
+
+  @@schema("public")
+}
+
+model Bankroll {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  username        String   @default("Anonymous")
+  balance         Float    @default(10000.0)
+  startingBalance Float    @default(10000.0)
+  monthlySpend    Float    @default(0.0)
+  totalBetsPlaced Int      @default(0)
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+
+  @@schema("public")
+}
+
+model BlackbookItem {
+  id         String          @id @default(cuid())
+  userId     String
+  targetType String
+  targetId   String
+  targetName String
+  notes      String?
+  createdAt  DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime        @updatedAt @db.Timestamptz(6)
+  rules      BlackbookRule[]
+
+  @@unique([userId, targetId, targetType])
+  @@schema("public")
+}
+
+model BlackbookRule {
+  id              String        @id @default(cuid())
+  blackbookItemId String
+  triggerType     TriggerType
+  operator        String        @default("EQUALS")
+  triggerValue    String
+  stakeAmount     Float         @default(10.0)
+  stakeType       String        @default("WIN")
+  isActive        Boolean       @default(true)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(6)
+  blackbookItem   BlackbookItem @relation(fields: [blackbookItemId], references: [id], onDelete: Cascade)
+
+  @@schema("public")
+}
+
+model StrategyPerformanceLog {
+  id          String   @id @default(cuid())
+  strategyId  String
+  runDate     DateTime @db.Date
+  totalBets   Int
+  winningBets Int
+  totalStaked Float
+  totalProfit Float
+  roi         Float
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([strategyId, runDate])
+  @@schema("public")
+}
+

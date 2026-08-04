@@ -207,13 +207,13 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         {/* Sidebar Promo Banner */}
         <div className="px-3 py-2">
           <Link href="/racing" onClick={onClose} className="block">
-            <div className="relative w-full h-32 md:h-40 rounded-lg overflow-hidden border border-slate-700/50 shadow-md hover:border-emerald-500/40 transition-all duration-200">
+            <div className="relative w-full aspect-[16/9] max-h-32 rounded-lg overflow-hidden border border-slate-700/50 bg-slate-950 shadow-md hover:border-emerald-500/40 transition-all duration-200">
               <Image
                 src="/banners/banner_7.png"
                 alt="Saturday Racing Carnival – Enhanced Odds"
                 fill
                 sizes="220px"
-                className="object-cover"
+                className="object-contain p-1"
                 unoptimized
               />
             </div>
