@@ -8,7 +8,7 @@ import os
 
 from app.ml.artifacts import ensure_model_dir, legacy_model_path, model_path
 
-from app.ml.weights import RACING_WEIGHTS, RACING_MULTIPLIERS, WEIGHTS_VERSION
+from app.ml.weights import THOROUGHBRED_WEIGHTS as RACING_WEIGHTS, THOROUGHBRED_MULTIPLIERS as RACING_MULTIPLIERS, WEIGHTS_VERSION
 
 MODEL_FILENAME = "racing_model.pkl"
 MODEL_PATH = model_path(MODEL_FILENAME)
@@ -214,19 +214,19 @@ class RacingPredictor:
         for _, row in df.iterrows():
             # Manual scoring based on WEIGHTS_CONFIG_1.md
             base_score = (
-                (row['speed_rating'] * RACING_WEIGHTS['speed_rating']) +
-                (row['horse_win_rate'] * RACING_WEIGHTS['horse_win_rate']) +
-                (row['jockey_win_rate'] * RACING_WEIGHTS['jockey_win_rate']) +
-                (row['track_conditions'] * RACING_WEIGHTS['track_conditions']) +
-                (row['recent_form'] * RACING_WEIGHTS['recent_form']) +
-                (row['class_factor'] * RACING_WEIGHTS['class_factor']) +
-                (max(0, row['barrier'] - 8) * RACING_WEIGHTS['barrier_penalty']) +
-                (max(0, row['weight'] - 54) * RACING_WEIGHTS['weight_penalty'])
+                (row['speed_rating'] * RACING_WEIGHTS.get('speed_rating', 0.15)) +
+                (row['horse_win_rate'] * RACING_WEIGHTS.get('horse_win_rate', 0.10)) +
+                (row['jockey_win_rate'] * RACING_WEIGHTS.get('jockey_win_rate', 0.05)) +
+                (row['track_conditions'] * RACING_WEIGHTS.get('track_conditions', 0.05)) +
+                (row['recent_form'] * RACING_WEIGHTS.get('recent_form', 0.20)) +
+                (row['class_factor'] * RACING_WEIGHTS.get('class_factor', 0.10)) +
+                (max(0, row['barrier'] - 8) * RACING_WEIGHTS.get('barrier_penalty', -0.03)) +
+                (max(0, row['weight'] - 54) * RACING_WEIGHTS.get('weight_penalty', -0.03))
             )
             
             combo_multiplier = (
-                (1.0 + float(row['horse_jockey_proven']) * (RACING_MULTIPLIERS['horse_jockey_combo'] - 1.0)) *
-                (1.0 + float(row['jockey_trainer_proven']) * (RACING_MULTIPLIERS['jockey_trainer_combo'] - 1.0))
+                (1.0 + float(row['horse_jockey_proven']) * (RACING_MULTIPLIERS.get('horse_jockey_combo', 2.0) - 1.0)) *
+                (1.0 + float(row['jockey_trainer_proven']) * (RACING_MULTIPLIERS.get('jockey_trainer_combo', 1.5) - 1.0))
             )
             
             final_score = base_score * combo_multiplier
