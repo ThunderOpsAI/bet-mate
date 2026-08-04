@@ -330,7 +330,7 @@ export default function PaperBetAction({
   const buttonLabel =
     existingSelectionCount > 0
       ? `In Slip (${existingSelectionCount})`
-      : "Quick Paper Bet";
+      : label ?? "Quick Paper Bet";
 
   return (
     <div

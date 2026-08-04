@@ -47,7 +47,25 @@ function SidebarNavList({ onClose }: { onClose: () => void }) {
     <ul className="sidebar-nav">
       <li>
         <Link href="/" className={pathname === "/" ? "active" : ""} onClick={onClose}>
-          Dashboard
+          Dashboard Overview
+        </Link>
+      </li>
+
+      {/* UI Prototype Standalone Views */}
+      <li className="sidebar-section-title">UI PROTOTYPES</li>
+      <li>
+        <Link href="/variant-a" className={pathname === "/variant-a" ? "active" : ""} onClick={onClose}>
+          Variant A (Terminal)
+        </Link>
+      </li>
+      <li>
+        <Link href="/variant-b" className={pathname === "/variant-b" ? "active" : ""} onClick={onClose}>
+          Variant B (Split Workspace)
+        </Link>
+      </li>
+      <li>
+        <Link href="/variant-c" className={pathname === "/variant-c" ? "active" : ""} onClick={onClose}>
+          Variant C (Timeline Stream)
         </Link>
       </li>
 

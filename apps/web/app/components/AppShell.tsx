@@ -10,6 +10,7 @@ import PromoCarousel from "./PromoCarousel";
 
 const PaperBetslip = dynamic(() => import("./PaperBetslip"), { ssr: false });
 const AskBobBubble = dynamic(() => import("./AskBobBubble"), { ssr: false });
+const PrototypeSwitcher = dynamic(() => import("./PrototypeSwitcher"), { ssr: false });
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -88,6 +89,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <main className="page-content">{children}</main>
         <PaperBetslip />
         <AskBobBubble />
+        <PrototypeSwitcher />
         {/* Global Toasts Container */}
         {toasts && toasts.length > 0 && (
           <div className="toast-container">

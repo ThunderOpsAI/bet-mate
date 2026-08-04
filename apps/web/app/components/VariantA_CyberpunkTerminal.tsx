@@ -31,6 +31,7 @@ import { ML_API } from "../lib/mlApi";
 import NotificationInbox from "./NotificationInbox";
 import Leaderboard from "./Leaderboard";
 import StrategyAnalyticsCard from "./StrategyAnalyticsCard";
+import PaperBetAction from "./PaperBetAction";
 
 interface VariantProps {
   racesData: any[];
@@ -639,6 +640,8 @@ export default function VariantA_CyberpunkTerminal({
                     else if (opp.sport?.toLowerCase() === "mma") SportIcon = ShieldCheck;
                     else if (opp.sport?.toLowerCase() === "golf") SportIcon = Flag;
 
+                    const displayOdds = opp.marketOdds || opp.odds || opp.fairOdds || 2.0;
+
                     return (
                       <div key={opp.id || idx} className="relative bg-slate-900/60 backdrop-blur-sm border border-white/10 rounded-2xl px-4 py-3 hover:bg-slate-800/80 hover:border-cyan-500/40 transition-all duration-200 group flex flex-col justify-between shadow-lg flex-shrink-0">
                         <div className="flex items-center justify-between pb-1 border-b border-slate-800/40 w-full overflow-hidden">
@@ -655,13 +658,33 @@ export default function VariantA_CyberpunkTerminal({
                             <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider truncate">MODEL SELECTION</div>
                             <div className="text-xs font-bold text-white font-sans leading-snug truncate">{opp.selection}</div>
                           </div>
-                          <div className="flex flex-col items-end flex-shrink-0 justify-center">
-                            {opp.marketOdds ? (
-                              <button className="bg-slate-700 hover:bg-slate-600 h-6 w-12 flex items-center justify-center rounded-md font-mono text-xs font-bold text-white">${opp.marketOdds.toFixed(2)}</button>
-                            ) : (
-                              <span className="inline-flex items-center justify-center h-6 px-1.5 bg-emerald-500/10 text-emerald-400 font-bold font-mono tracking-widest rounded-md border border-emerald-500/30 text-[9px]">{opp.edge ? `+${opp.edge}%` : "SIG"}</span>
-                            )}
-                            {opp.marketOdds && opp.edge && <div className="text-[9px] font-mono text-emerald-400 mt-1 font-bold">+{opp.edge}% EV</div>}
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="flex flex-col items-end justify-center">
+                              <span className="bg-slate-800 border border-slate-700/80 px-2 py-0.5 rounded-md font-mono text-xs font-bold text-white text-right">
+                                ${displayOdds.toFixed(2)}
+                              </span>
+                              <span className="text-[9px] font-mono text-emerald-400 font-bold mt-0.5">
+                                {opp.edge ? `+${opp.edge}% EV` : "MODEL EDGE"}
+                              </span>
+                            </div>
+                            <PaperBetAction
+                              variant="phase1"
+                              label="+ Betslip"
+                              loggedLabel="In Slip"
+                              cancelLabel="Cancel"
+                              openBetslipOnAdd={true}
+                              bet={{
+                                sport: (opp.sport || "sports").toLowerCase(),
+                                event_id: opp.id || `ev-${idx}`,
+                                event_name: opp.event || "Match",
+                                selection: opp.selection || "Selection",
+                                odds: displayOdds,
+                                bet_type: "head_to_head",
+                                stake: 10,
+                                odds_source: opp.marketOdds ? "market" : "model_fair",
+                                current_odds: displayOdds,
+                              }}
+                            />
                           </div>
                         </div>
                       </div>

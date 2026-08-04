@@ -4,13 +4,15 @@ export const dynamic = 'force-dynamic';
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   BobExplanation,
   FeatureImpactItem,
   ModelMetadata,
 } from "./lib/bob/explainer";
 import VariantA_CyberpunkTerminal from "./components/VariantA_CyberpunkTerminal";
+import VariantB_SplitWorkspace from "./components/VariantB_SplitWorkspace";
+import VariantC_TimelineStream from "./components/VariantC_TimelineStream";
 import {
   Trophy,
   Zap,
@@ -1531,6 +1533,10 @@ function DashboardContent() {
     );
   };
 
+  const searchParams = useSearchParams();
+  const rawVariant = searchParams?.get("variant")?.toUpperCase();
+  const activeVariant = rawVariant === "B" ? "B" : rawVariant === "C" ? "C" : "A";
+
   return (
     <div>
       <ExplainDrawer
@@ -1539,19 +1545,53 @@ function DashboardContent() {
         onClose={() => setActiveExplanation(null)}
       />
 
-      <VariantA_CyberpunkTerminal
-        racesData={activeRaces}
-        allOpportunities={allRealOpportunities}
-        aflData={aflGames}
-        nbaData={nbaGames}
-        nrlData={nrlGames}
-        soccerData={soccerGames}
-        golfData={golfTournaments}
-        mmaData={mmaMatchups}
-        isLoading={loading}
-        onOpenPaperBet={handleOpenPaperBet}
-        onOpenBobModal={handleOpenBobModal}
-      />
+      {activeVariant === "A" && (
+        <VariantA_CyberpunkTerminal
+          racesData={activeRaces}
+          allOpportunities={allRealOpportunities}
+          aflData={aflGames}
+          nbaData={nbaGames}
+          nrlData={nrlGames}
+          soccerData={soccerGames}
+          golfData={golfTournaments}
+          mmaData={mmaMatchups}
+          isLoading={loading}
+          onOpenPaperBet={handleOpenPaperBet}
+          onOpenBobModal={handleOpenBobModal}
+        />
+      )}
+
+      {activeVariant === "B" && (
+        <VariantB_SplitWorkspace
+          racesData={activeRaces}
+          allOpportunities={allRealOpportunities}
+          aflData={aflGames}
+          nbaData={nbaGames}
+          nrlData={nrlGames}
+          soccerData={soccerGames}
+          golfData={golfTournaments}
+          mmaData={mmaMatchups}
+          isLoading={loading}
+          onOpenPaperBet={handleOpenPaperBet}
+          onOpenBobModal={handleOpenBobModal}
+        />
+      )}
+
+      {activeVariant === "C" && (
+        <VariantC_TimelineStream
+          racesData={activeRaces}
+          allOpportunities={allRealOpportunities}
+          aflData={aflGames}
+          nbaData={nbaGames}
+          nrlData={nrlGames}
+          soccerData={soccerGames}
+          golfData={golfTournaments}
+          mmaData={mmaMatchups}
+          isLoading={loading}
+          onOpenPaperBet={handleOpenPaperBet}
+          onOpenBobModal={handleOpenBobModal}
+        />
+      )}
     </div>
   );
 }
