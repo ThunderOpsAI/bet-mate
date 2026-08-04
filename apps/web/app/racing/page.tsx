@@ -138,15 +138,32 @@ function isRacePredictionEntry(
 
 async function fetchTodayRaces(raceType: string = "T") {
   const typeParam = raceType ? `?type=${raceType}` : "";
-  const response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}`, {
+  let response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}`, {
     cache: "no-store",
   });
   if (!response.ok) {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
   }
 
-  const data = await response.json();
-  return (data?.races ?? []) as Race[];
+  let data = await response.json();
+  let races = (data?.races ?? []) as Race[];
+
+  if (races.length === 0) {
+    // Fetch tomorrow's races if today has none
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateStr = tomorrow.toISOString().split("T")[0];
+    const sep = typeParam ? "&" : "?";
+    response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}${sep}date=${dateStr}`, {
+      cache: "no-store",
+    });
+    if (response.ok) {
+      data = await response.json();
+      races = (data?.races ?? []) as Race[];
+    }
+  }
+
+  return races;
 }
 
 async function fetchRacePredictions(races: Race[]) {
@@ -464,8 +481,8 @@ function RacingPageContent() {
 
       {!hasRacingData && !refreshing ? (
         <ErrorState
-          title="No races currently"
-          message="Live Betfair feeds returned no Australian thoroughbred meetings for today. Try refreshing once meetings are published."
+          title="No races scheduled for tomorrow"
+          message="Live Betfair feeds returned no meetings for today or tomorrow. Try refreshing once meetings are published."
           tone="info"
           actionLabel="Refresh now"
           onAction={() => void refreshPage()}
@@ -960,7 +977,7 @@ function RacingPageContent() {
       <ErrorBoundary sectionName="Racing full race board">
         {filteredRaces.length === 0 ? (
           <div className="card">
-            <p className="muted-copy">No races currently for the selected filters.</p>
+            <p className="muted-copy">No races found for the selected filters.</p>
           </div>
         ) : (
         <div className="race-board-list">

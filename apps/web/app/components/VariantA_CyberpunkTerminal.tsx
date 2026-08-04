@@ -523,7 +523,7 @@ export default function VariantA_CyberpunkTerminal({
             ) : displayRaces.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 px-4 text-center rounded-xl bg-slate-950/40 border border-dashed border-slate-800 flex-1">
                 <Clock className="w-6 h-6 text-slate-500 mb-2" />
-                <p className="text-sm text-slate-300 font-medium">No races currently</p>
+                <p className="text-sm text-slate-300 font-medium">No races scheduled for tomorrow</p>
                 <p className="text-xs text-slate-500 mt-1">Live Betfair feeds returned no meetings.</p>
               </div>
             ) : (
