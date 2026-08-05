@@ -53,6 +53,11 @@ import { isPhase2MainRace } from "../lib/racingMainRaces";
 import { useAuth } from "../providers/AuthProvider";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import TemporalHeader from "../components/racing/TemporalHeader";
+import RaceCodeFilter from "../components/racing/RaceCodeFilter";
+import VenueCard from "../components/racing/VenueCard";
+import MeetingOverview from "../components/racing/MeetingOverview";
+import SingleRaceCard from "../components/racing/SingleRaceCard";
 
 type BlackbookConfig = {
   probability_threshold: number;
@@ -213,6 +218,10 @@ function RacingPageContent() {
   const initialRace = searchParams.get("race") || null;
   const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(initialRace);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
+  const [temporalTab, setTemporalTab] = useState<string>("today");
+  const [regionFilter, setRegionFilter] = useState<string>("all");
+  const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
+  const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [watchPanel, setWatchPanel] = useState<string | null>(null);
   const [watchConfig, setWatchConfig] = useState<BlackbookConfig>({
     probability_threshold: 50,
@@ -452,6 +461,26 @@ function RacingPageContent() {
     refreshFailed,
   });
 
+  // Group races by venue
+  const venueGroups = filteredRaces.reduce<Record<string, Race[]>>((acc, race) => {
+    if (!acc[race.venue]) acc[race.venue] = [];
+    acc[race.venue].push(race);
+    return acc;
+  }, {});
+
+  // Region filtering
+  const regionFilteredVenues = Object.entries(venueGroups).filter(([, venueRaces]) => {
+    if (regionFilter === "all") return true;
+    const region = venueRaces[0]?.meeting_region?.toLowerCase() ?? "";
+    if (regionFilter === "aunz") return ["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "aus", "australia", "new zealand"].some((r) => region.includes(r)) || region === "" || region === "unknown";
+    if (regionFilter === "intl") return !["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "aus", "australia", "new zealand", "", "unknown"].some((r) => region.includes(r));
+    return true;
+  });
+
+  // Selected venue races
+  const selectedVenueRaces = selectedVenueName ? (venueGroups[selectedVenueName] ?? []) : [];
+  const selectedRace = selectedRaceId ? filteredRaces.find((r) => r.race_id === selectedRaceId) : null;
+
   return (
     <div>
       <ExplainDrawer
@@ -479,9 +508,28 @@ function RacingPageContent() {
         </div>
       ) : null}
 
+      {/* Temporal header */}
+      <TemporalHeader activeTab={temporalTab} onTabChange={setTemporalTab} />
+
+      {/* Race code + region filters */}
+      <RaceCodeFilter
+        activeType={raceType}
+        activeRegion={regionFilter}
+        onTypeChange={(type) => {
+          setSelectedVenueName(null);
+          setSelectedRaceId(null);
+          window.location.href = `/racing?type=${type}`;
+        }}
+        onRegionChange={(region) => {
+          setRegionFilter(region);
+          setSelectedVenueName(null);
+          setSelectedRaceId(null);
+        }}
+      />
+
       {!hasRacingData && !refreshing ? (
         <ErrorState
-          title="No races scheduled for tomorrow"
+          title="No races scheduled"
           message="Live Betfair feeds returned no meetings for today or tomorrow. Try refreshing once meetings are published."
           tone="info"
           actionLabel="Refresh now"
@@ -495,621 +543,66 @@ function RacingPageContent() {
           actionLabel="Refresh now"
           onAction={() => void refreshPage()}
         />
-      ) : (
-        <>
-
-      {/* Racing Type Tabs */}
-      <div className="racing-type-tabs">
-        <a
-          href="/racing?type=T"
-          className={`racing-type-tab ${raceType === "T" ? "active" : ""}`}
-          data-type="T"
-        >
-          <Trophy size={16} />
-          Thoroughbred
-        </a>
-        <a
-          href="/racing?type=G"
-          className={`racing-type-tab ${raceType === "G" ? "active" : ""}`}
-          data-type="G"
-        >
-          <CircleDot size={16} />
-          Greyhounds
-        </a>
-        <a
-          href="/racing?type=H"
-          className={`racing-type-tab ${raceType === "H" ? "active" : ""}`}
-          data-type="H"
-        >
-          <Flag size={16} />
-          Harness
-        </a>
-      </div>
-
-      <div className="filter-bar">
-        <button
-          className={`filter-chip ${selectedVenue === "all" ? "active" : ""}`}
-          onClick={() => setSelectedVenue("all")}
-        >
-          All Venues
-        </button>
-        {venues.map((venue) => (
+      ) : selectedRace ? (
+        /* --- Single Race Card View --- */
+        <ErrorBoundary sectionName="Single race card">
           <button
-            key={venue}
-            className={`filter-chip ${selectedVenue === venue ? "active" : ""}`}
-            onClick={() => setSelectedVenue(venue)}
+            type="button"
+            className="meeting-back-btn"
+            style={{ marginBottom: "0.75rem" }}
+            onClick={() => setSelectedRaceId(null)}
           >
-            <MapPin size={12} /> {venue}
+            <span style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: "var(--text-secondary)", fontSize: "0.85rem" }}>
+              ← Back to {selectedVenueName ?? "venue"}
+            </span>
           </button>
-        ))}
-      </div>
-
-      <ErrorBoundary sectionName="Racing opportunities">
-        <BestRacingOpportunities opportunities={racingOpportunities} />
-      </ErrorBoundary>
-
-      <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>{raceType === "G" ? "🐕" : raceType === "H" ? "🏎️" : "🏇"} {raceTypeLabel} Predictions ({venues.length} venues)</h3>
-      </div>
-      <p className="muted-copy" style={{ marginBottom: "1rem" }}>
-        Main-race prediction cards stay focused on Melbourne, Sydney, Brisbane,
-        and WA metro meetings. Every predicted runner below still supports direct
-        paper-bet adds.
-      </p>
-
-      <ErrorBoundary sectionName="Racing main predictions">
-        {mainRacePredictions.length === 0 ? (
-          <div className="card">
-            <p className="muted-copy">
-              No approved main-race prediction cards are available right now. The
-              full Australian race board below still supports paper bet logging.
-            </p>
-          </div>
-        ) : (
-        <div className="race-list">
-          {mainRacePredictions.map((race) => {
-          const prediction = predictions[race.race_id];
-          const top3 = prediction?.predictions?.slice(0, 3) ?? [];
-          const isExpanded = expandedPredictionRace === race.race_id;
-          const confidenceSignal = prediction
-            ? getConfidenceSignal(prediction.ai_insights_context)
-            : null;
-          const urgencySignal = getUrgencySignal({
-            startTime: race.start_time,
-            eventDate: race.meeting_date,
-          });
-
-          return (
-            <div
-              key={race.race_id}
-              className={`race-detail-card ${isExpanded ? "expanded" : ""}`}
-            >
-              <div
-                className="race-detail-header"
-                onClick={() =>
-                  setExpandedPredictionRace(isExpanded ? null : race.race_id)
-                }
-              >
-                <div className="race-detail-title">
-                  <span className="race-venue-badge">{race.venue}</span>
-                  <span className="race-number-lg">R{race.race_number}</span>
-                  <span className="badge badge-accent">{race.distance}m</span>
-                  <span className="badge badge-muted">
-                    {race.horses.length} runners
-                  </span>
-                  <span className="badge badge-blue">
-                    {trackConditions[race.horses[0]?.track_condition] ?? "Good"}
-                  </span>
-                  {race.meeting_type && race.meeting_type !== "unknown" ? (
-                    <span className="badge badge-green">
-                      {race.meeting_type.toUpperCase()}
-                    </span>
-                  ) : null}
-                  {race.meeting_region && race.meeting_region !== "unknown" ? (
-                    <span className="badge badge-muted">{race.meeting_region}</span>
-                  ) : null}
-                  {race.meeting_date ? (
-                    <span className="badge badge-muted">{race.meeting_date}</span>
-                  ) : null}
-                  {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                  {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                </div>
-                <div className="race-detail-preview">
-                  {top3.map((pick, index) => (
-                    <span
-                      key={pick.horse_id}
-                      className={`preview-pick rank-${index + 1}-text`}
-                    >
-                      {index + 1}. {pick.name} ({pick.win_probability}%)
-                    </span>
-                  ))}
-                  {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                </div>
-              </div>
-
-              {isExpanded && prediction ? (
-                <div className="race-detail-body">
-                  <div className="field-table-wrap">
-                    <table className="field-table">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>Horse</th>
-                          <th>Jockey</th>
-                          <th>Barrier</th>
-                          <th>Weight</th>
-                          <th>Form</th>
-                          <th>Jockey Win%</th>
-                          <th>Market</th>
-                          <th>Win Prob</th>
-                          <th>Fair Odds</th>
-                          <th>Paper Bet</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {prediction.predictions.map((pick, index) => {
-                          const horse = race.horses.find(
-                            (candidate) => candidate.horse_id === pick.horse_id,
-                          );
-                          const edgePercent = getEdgePercent(
-                            pick.fair_odds,
-                            horse?.betfair_back_price,
-                          );
-
-                          return (
-                            <tr
-                              key={pick.horse_id}
-                              className={
-                                index < 3 ? `top-pick-row rank-${index + 1}-row` : ""
-                              }
-                            >
-                              <td>
-                                <span
-                                  className={`pick-rank rank-${Math.min(index + 1, 4)}`}
-                                >
-                                  {index + 1}
-                                </span>
-                              </td>
-                              <td className="horse-name-cell">{pick.name}</td>
-                              <td>{horse?.jockey_name ?? "TBA"}</td>
-                              <td>{horse?.barrier ?? "-"}</td>
-                              <td>{horse?.weight ?? "-"}kg</td>
-                              <td>{((horse?.past_win_rate ?? 0) * 100).toFixed(1)}%</td>
-                              <td>
-                                {((horse?.jockey_win_rate ?? 0) * 100).toFixed(1)}%
-                              </td>
-                              <td>{formatMarketPrice(horse)}</td>
-                              <td>
-                                <span
-                                  className={`prob-badge ${
-                                    index === 0 ? "prob-top" : ""
-                                  }`}
-                                >
-                                  {pick.win_probability}%
-                                </span>
-                              </td>
-                              <td className="fair-odds">
-                                ${pick.fair_odds}
-                                {edgePercent ? (
-                                  <span className="value-badge positive">
-                                    Edge +{edgePercent.toFixed(0)}%
-                                  </span>
-                                ) : null}
-                              </td>
-                              <td>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    gap: "6px",
-                                    alignItems: "center",
-                                  }}
-                                >
-                                  <PaperBetAction
-                                    variant="phase1"
-                                    label="Log Selection"
-                                    loggedLabel="Selection Logged"
-                                    cancelLabel="Cancel"
-                                    openBetslipOnAdd={false}
-                                    bet={{
-                                      sport: "racing",
-                                      event_id: race.race_id,
-                                      event_name: `${race.venue} R${race.race_number}`,
-                                      selection_id: pick.horse_id,
-                                      selection: pick.name,
-                                      odds: horse?.betfair_back_price ?? pick.fair_odds,
-                                      bet_type: "win",
-                                      stake: 10,
-                                      odds_source: horse?.betfair_back_price
-                                        ? "market"
-                                        : "model_fair",
-                                      current_odds:
-                                        horse?.betfair_back_price ?? pick.fair_odds,
-                                      can_compare_odds: Boolean(
-                                        horse?.betfair_back_price &&
-                                          horse.betfair_back_price > 1,
-                                      ),
-                                      event_start_time: race.start_time,
-                                      event_date: race.meeting_date,
-                                    }}
-                                  />
-                                  <button
-                                    type="button"
-                                    className="why-pick-button"
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      setActiveExplanation(
-                                        buildBobExplanation({
-                                          sport: "racing",
-                                          selectionName: pick.name,
-                                          probability: pick.win_probability,
-                                          fairOdds: pick.fair_odds,
-                                          marketOdds: horse?.betfair_back_price,
-                                          featureImpact: prediction.feature_impact,
-                                          aiInsightsContext:
-                                            prediction.ai_insights_context,
-                                          modelMetadata: prediction.model_metadata,
-                                        }),
-                                      )
-                                    }}
-                                  >
-                                    Why this pick?
-                                  </button>
-                                  <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: '0.5rem' }}>
-                                    <FeedbackButtons 
-                                      sport="racing" 
-                                      eventId={race.race_id} 
-                                      selection={pick.name}
-                                    />
-                                  </div>
-                                  {user && user.id !== "guest" ? (
-                                    <button
-                                      className="btn btn-sm btn-outline"
-                                      title="Watch this horse"
-                                      onClick={() =>
-                                        watchPanel === pick.name
-                                          ? setWatchPanel(null)
-                                          : openWatchPanel(pick.name)
-                                      }
-                                      style={{ padding: "4px 8px" }}
-                                    >
-                                      {watchSaved === pick.name ? (
-                                        <Bell size={14} />
-                                      ) : (
-                                        <BellOff size={14} />
-                                      )}
-                                    </button>
-                                  ) : null}
-                                </div>
-                                {watchPanel === pick.name ? (
-                                  <div
-                                    style={{
-                                      marginTop: "8px",
-                                      padding: "12px",
-                                      background: "var(--surface, #1a1a2e)",
-                                      border: "1px solid var(--border, #333)",
-                                      borderRadius: "8px",
-                                      minWidth: "240px",
-                                      fontSize: "13px",
-                                    }}
-                                  >
-                                    <div
-                                      style={{
-                                        fontWeight: 600,
-                                        marginBottom: "8px",
-                                      }}
-                                    >
-                                      Save watch rule: {pick.name}
-                                    </div>
-                                    <label
-                                      style={{
-                                        display: "block",
-                                        marginBottom: "6px",
-                                      }}
-                                    >
-                                      Trigger when model win chance reaches{" "}
-                                      <strong>
-                                        {watchConfig.probability_threshold}%
-                                      </strong>
-                                      <input
-                                        type="range"
-                                        min={1}
-                                        max={99}
-                                        step={1}
-                                        value={watchConfig.probability_threshold}
-                                        onChange={(event) =>
-                                          setWatchConfig((current) => ({
-                                            ...current,
-                                            probability_threshold: Number(
-                                              event.target.value,
-                                            ),
-                                          }))
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          marginTop: "4px",
-                                        }}
-                                      />
-                                    </label>
-                                    <label
-                                      style={{
-                                        display: "block",
-                                        marginBottom: "6px",
-                                      }}
-                                    >
-                                      Paper bet stake $
-                                      <input
-                                        type="number"
-                                        min={1}
-                                        max={10000}
-                                        step={1}
-                                        value={watchConfig.stake}
-                                        onChange={(event) =>
-                                          setWatchConfig((current) => ({
-                                            ...current,
-                                            stake: Number(event.target.value),
-                                          }))
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          marginTop: "2px",
-                                        }}
-                                      />
-                                    </label>
-                                    <label
-                                      style={{
-                                        display: "block",
-                                        marginBottom: "4px",
-                                      }}
-                                    >
-                                      SMS (phone number)
-                                      <input
-                                        type="tel"
-                                        placeholder="+61400000000"
-                                        value={watchConfig.notify_phone}
-                                        onChange={(event) =>
-                                          setWatchConfig((current) => ({
-                                            ...current,
-                                            notify_phone: event.target.value,
-                                          }))
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          marginTop: "2px",
-                                        }}
-                                      />
-                                    </label>
-                                    <label
-                                      style={{
-                                        display: "block",
-                                        marginBottom: "4px",
-                                      }}
-                                    >
-                                      Email
-                                      <input
-                                        type="email"
-                                        placeholder="you@email.com"
-                                        value={watchConfig.notify_email}
-                                        onChange={(event) =>
-                                          setWatchConfig((current) => ({
-                                            ...current,
-                                            notify_email: event.target.value,
-                                          }))
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          marginTop: "2px",
-                                        }}
-                                      />
-                                    </label>
-                                    <label
-                                      style={{
-                                        display: "block",
-                                        marginBottom: "8px",
-                                      }}
-                                    >
-                                      Pushover key (phone push)
-                                      <input
-                                        type="text"
-                                        placeholder="pushover user key"
-                                        value={watchConfig.notify_pushover_key}
-                                        onChange={(event) =>
-                                          setWatchConfig((current) => ({
-                                            ...current,
-                                            notify_pushover_key:
-                                              event.target.value,
-                                          }))
-                                        }
-                                        style={{
-                                          width: "100%",
-                                          marginTop: "2px",
-                                        }}
-                                      />
-                                    </label>
-                                    <button
-                                      className="btn btn-sm btn-primary"
-                                      onClick={() => saveWatchConfig(pick.name)}
-                                      disabled={watchSaving}
-                                      style={{ width: "100%" }}
-                                    >
-                                      {watchSaved === pick.name
-                                        ? "Saved ✓"
-                                        : watchSaving
-                                          ? "Saving..."
-                                          : "Save watch rule"}
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="feature-impact-section">
-                    <h4>
-                      <BarChart3 size={16} /> Bob explainability
-                    </h4>
-                    <p className="muted-copy">
-                      Each runner now has a dedicated "Why this pick?" view so Bob can
-                      explain the model edge, caution flags, and market context
-                      without flooding the table with raw feature bars.
-                    </p>
-                  </div>
-                </div>
-              ) : null}
+          <SingleRaceCard
+            race={selectedRace}
+            prediction={predictions[selectedRace.race_id] ?? null}
+            siblingRaces={selectedVenueRaces.map((r) => ({ race_id: r.race_id, race_number: r.race_number }))}
+            onSwitchRace={(id) => setSelectedRaceId(id)}
+            onExplain={setActiveExplanation}
+          />
+        </ErrorBoundary>
+      ) : selectedVenueName ? (
+        /* --- Meeting Overview --- */
+        <ErrorBoundary sectionName="Meeting overview">
+          <MeetingOverview
+            venue={selectedVenueName}
+            races={selectedVenueRaces}
+            onBack={() => setSelectedVenueName(null)}
+            onSelectRace={(id) => setSelectedRaceId(id)}
+            selectedRaceId={selectedRaceId}
+          />
+        </ErrorBoundary>
+      ) : (
+        /* --- Venue Cards Landing --- */
+        <ErrorBoundary sectionName="Racing venue list">
+          {regionFilteredVenues.length === 0 ? (
+            <div className="card" style={{ marginTop: "1rem" }}>
+              <p className="muted-copy">No venues found for the selected filters.</p>
             </div>
-          );
-          })}
-        </div>
-        )}
-      </ErrorBoundary>
-
-      <div className="section-header" style={{ marginTop: "2rem" }}>
-        <h3>🇦🇺 Full Australian Race Listings</h3>
-      </div>
-      <p className="muted-copy" style={{ marginBottom: "1rem" }}>
-        Use the full race board below to place paper bets across all Australian
-        races, even when a meeting does not have a prediction card attached.
-      </p>
-
-      <ErrorBoundary sectionName="Racing full race board">
-        {filteredRaces.length === 0 ? (
-          <div className="card">
-            <p className="muted-copy">No races found for the selected filters.</p>
-          </div>
-        ) : (
-        <div className="race-board-list">
-          {filteredRaces.map((race) => {
-            const prediction = predictions[race.race_id];
-            const isExpanded = expandedRaceListing === race.race_id;
-
-            return (
-              <div
-                key={`${race.race_id}-board`}
-                className={`race-board-card ${isExpanded ? "expanded" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="race-board-header"
-                  onClick={() =>
-                    setExpandedRaceListing(isExpanded ? null : race.race_id)
-                  }
-                >
-                  <div className="race-board-title">
-                    <div className="race-detail-title">
-                      <span className="race-venue-badge">{race.venue}</span>
-                      <span className="race-number-lg">R{race.race_number}</span>
-                      <span className="badge badge-accent">{race.distance}m</span>
-                      <span className="badge badge-muted">
-                        {race.horses.length} runners
-                      </span>
-                      {race.meeting_type && race.meeting_type !== "unknown" ? (
-                        <span className="badge badge-green">
-                          {race.meeting_type.toUpperCase()}
-                        </span>
-                      ) : null}
-                      {race.meeting_region && race.meeting_region !== "unknown" ? (
-                        <span className="badge badge-muted">{race.meeting_region}</span>
-                      ) : null}
-                      {prediction ? (
-                        <span className="badge badge-blue">Prediction available</span>
-                      ) : (
-                        <span className="badge badge-muted">Paper bet only</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="race-board-summary">
-                    <span>{prediction ? "Model plus full field" : "Full field only"}</span>
-                    {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                  </div>
-                </button>
-
-                {isExpanded ? (
-                  <div className="race-board-body">
-                    <div className="field-table-wrap">
-                      <table className="field-table">
-                        <thead>
-                          <tr>
-                            <th>Horse</th>
-                            <th>Jockey</th>
-                            <th>Barrier</th>
-                            <th>Weight</th>
-                            <th>Market</th>
-                            <th>Model</th>
-                            <th>Paper Bet</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {race.horses.map((horse) => {
-                            const pick = prediction?.predictions.find(
-                              (candidate) => candidate.horse_id === horse.horse_id,
-                            );
-                            const hasMarketPrice =
-                              typeof horse.betfair_back_price === "number" &&
-                              horse.betfair_back_price > 1;
-
-                            return (
-                              <tr key={horse.horse_id}>
-                                <td className="horse-name-cell">{horse.name}</td>
-                                <td>{horse.jockey_name ?? "TBA"}</td>
-                                <td>{horse.barrier ?? "-"}</td>
-                                <td>{horse.weight ?? "-"}kg</td>
-                                <td>{formatMarketPrice(horse)}</td>
-                                <td>
-                                  {pick ? (
-                                    <div className="race-board-model-pill">
-                                      <span>{pick.win_probability}%</span>
-                                      <span>${pick.fair_odds}</span>
-                                    </div>
-                                  ) : (
-                                    <span className="badge badge-muted">No model pick</span>
-                                  )}
-                                </td>
-                                <td>
-                                  {hasMarketPrice ? (
-                                    <div onClick={(event) => event.stopPropagation()}>
-                                      <PaperBetAction
-                                        bet={{
-                                          sport: "racing",
-                                          event_id: race.race_id,
-                                          event_name: `${race.venue} R${race.race_number}`,
-                                          selection_id: horse.horse_id,
-                                          selection: horse.name,
-                                          odds: horse.betfair_back_price,
-                                          bet_type: "win",
-                                          stake: 10,
-                                          notes: prediction
-                                            ? `Race board paper bet for ${race.venue} R${race.race_number}`
-                                            : `Paper bet for ${race.venue} R${race.race_number} without model prediction`,
-                                          odds_source: "market",
-                                          current_odds: horse.betfair_back_price,
-                                          can_compare_odds: true,
-                                          event_start_time: race.start_time,
-                                          event_date: race.meeting_date,
-                                        }}
-                                      />
-                                    </div>
-                                  ) : (
-                                    <span className="badge badge-muted">Odds pending</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-        )}
-      </ErrorBoundary>
-        </>
+          ) : (
+            <div className="venue-card-grid">
+              {regionFilteredVenues.map(([venue, venueRaces]) => {
+                const nextJump = venueRaces
+                  .filter((r) => r.start_time)
+                  .sort((a, b) => new Date(a.start_time!).getTime() - new Date(b.start_time!).getTime())[0];
+                return (
+                  <VenueCard
+                    key={venue}
+                    venue={venue}
+                    raceCount={venueRaces.length}
+                    nextRaceTime={nextJump?.start_time}
+                    meetingType={venueRaces[0]?.meeting_type}
+                    region={venueRaces[0]?.meeting_region}
+                    onClick={() => setSelectedVenueName(venue)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </ErrorBoundary>
       )}
 
       <div className="disclaimer">

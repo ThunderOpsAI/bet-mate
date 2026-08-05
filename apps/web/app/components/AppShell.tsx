@@ -3,7 +3,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
-import { Menu, LogIn, LogOut, User as UserIcon, AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
+import { Menu, LogIn, LogOut, User as UserIcon, AlertTriangle, CheckCircle2, Info, X, Home, Trophy, Zap, FlaskConical, MoreHorizontal } from "lucide-react";
 import Sidebar from "./Sidebar";
 import dynamic from "next/dynamic";
 import PromoCarousel from "./PromoCarousel";
@@ -122,6 +122,29 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </div>
         )}
+        {/* Mobile Bottom Navigation */}
+        <nav className="mobile-bottom-nav">
+          <Link href="/" className={`bottom-nav-item ${pathname === "/" ? "active" : ""}`}>
+            <Home size={20} />
+            <span>Home</span>
+          </Link>
+          <Link href="/racing" className={`bottom-nav-item ${pathname === "/racing" || pathname.startsWith("/races") ? "active" : ""}`}>
+            <Trophy size={20} />
+            <span>Racing</span>
+          </Link>
+          <Link href="/afl" className={`bottom-nav-item ${pathname === "/afl" || pathname === "/nrl" || pathname === "/nba" || pathname === "/soccer" ? "active" : ""}`}>
+            <Zap size={20} />
+            <span>Sport</span>
+          </Link>
+          <Link href="/strategy" className={`bottom-nav-item ${pathname === "/strategy" || pathname === "/analytics" ? "active" : ""}`}>
+            <FlaskConical size={20} />
+            <span>Lab</span>
+          </Link>
+          <button type="button" className="bottom-nav-item" onClick={() => setSidebarOpen(true)}>
+            <MoreHorizontal size={20} />
+            <span>More</span>
+          </button>
+        </nav>
       </div>
     </div>
   );

@@ -3725,3 +3725,653 @@ button:disabled {
     height: 60vh !important;
   }
 }
+
+/* ==========================================
+   SPORTSBET-STYLE RACING UI
+   ========================================== */
+
+/* ---- Temporal Header ---- */
+.temporal-header {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.temporal-header::-webkit-scrollbar {
+  display: none;
+}
+
+.temporal-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.temporal-tab:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.temporal-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+/* ---- Race Code Filter ---- */
+.race-code-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0 0.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: wrap;
+}
+
+.race-code-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.race-code-filter-group {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.race-code-filter-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  margin: 0 0.25rem;
+  flex-shrink: 0;
+}
+
+.race-code-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.race-code-pill:hover {
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+.race-code-pill.active {
+  background: rgba(6, 182, 212, 0.15);
+  color: var(--accent-hover);
+  border-color: var(--accent);
+}
+
+.race-code-pill.region.active {
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+/* ---- Venue Cards ---- */
+.venue-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.venue-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.venue-card:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--bg-card-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.venue-card-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.venue-card-icon {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.venue-card-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.venue-card-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.venue-card-type {
+  padding: 0.1rem 0.4rem;
+  background: var(--green-bg);
+  color: var(--green);
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.venue-card-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.venue-card-time {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-hover);
+  background: var(--accent-glow);
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+}
+
+.venue-card-chevron {
+  color: var(--text-dim);
+  transition: transform var(--transition-fast);
+}
+
+.venue-card:hover .venue-card-chevron {
+  transform: translateX(2px);
+  color: var(--text-secondary);
+}
+
+/* ---- Meeting Overview ---- */
+.meeting-overview {
+  padding: 0.5rem 0;
+}
+
+.meeting-overview-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.meeting-back-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.meeting-back-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.meeting-overview-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.meeting-overview-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: var(--bg-glass);
+  padding: 0.2rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.meeting-race-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+}
+
+.meeting-race-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.75rem 0.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  text-align: center;
+  font-family: inherit;
+  color: var(--text-primary);
+}
+
+.meeting-race-chip:hover {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--bg-card-hover);
+}
+
+.meeting-race-chip.active {
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.meeting-chip-number {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.meeting-chip-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.meeting-chip-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  color: var(--accent-hover);
+}
+
+.meeting-chip-runners {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* ---- Single Race Card ---- */
+.single-race-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.race-switcher-bar {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  overflow-x: auto;
+  scrollbar-width: none;
+  background: rgba(0, 0, 0, 0.15);
+  border-bottom: 1px solid var(--border);
+}
+
+.race-switcher-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.race-switcher-chip {
+  padding: 0.35rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.race-switcher-chip:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.race-switcher-chip.active {
+  color: var(--accent-hover);
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+
+.single-race-info {
+  padding: 1rem 1.25rem 0.5rem;
+}
+
+.single-race-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.single-race-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+/* ---- Betting Tabs ---- */
+.race-bet-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0 1.25rem;
+}
+
+.race-bet-tab {
+  padding: 0.6rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.race-bet-tab:hover {
+  color: var(--text-secondary);
+}
+
+.race-bet-tab.active {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent);
+}
+
+.race-tab-placeholder {
+  padding: 2rem 1.25rem;
+  text-align: center;
+}
+
+/* ---- Runner List ---- */
+.runner-list {
+  padding: 0;
+}
+
+.runner-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1.25rem;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.35);
+  transition: background var(--transition-fast);
+}
+
+.runner-row:last-child {
+  border-bottom: none;
+}
+
+.runner-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.runner-row.runner-top {
+  background: rgba(6, 182, 212, 0.03);
+}
+
+.runner-number {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: center;
+}
+
+.runner-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  background: var(--bg-glass);
+  color: var(--text-secondary);
+}
+
+.runner-rank.rank-1 {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+}
+
+.runner-rank.rank-2 {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--blue);
+}
+
+.runner-rank.rank-3 {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--yellow);
+}
+
+.runner-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.runner-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runner-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
+}
+
+.runner-prob {
+  font-weight: 700;
+  color: var(--accent-hover);
+}
+
+.runner-odds-section {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.runner-odds-buttons {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.runner-odds-pending {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.runner-edge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--green);
+  background: var(--green-bg);
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+/* ---- Odds Button Variant ---- */
+.paper-bet-btn.odds-button-variant {
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(6, 182, 212, 0.1);
+  color: var(--accent-hover);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  transition: all var(--transition-fast);
+}
+
+.paper-bet-btn.odds-button-variant:hover {
+  background: rgba(6, 182, 212, 0.2);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+
+.paper-bet-btn.odds-button-variant.logged {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--green);
+  border-color: rgba(52, 211, 153, 0.3);
+}
+
+@media (max-width: 640px) {
+  .venue-card-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .meeting-race-chips {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+  
+  .runner-row {
+    padding: 0.55rem 0.75rem;
+    gap: 0.5rem;
+  }
+  
+  .runner-name {
+    font-size: 0.82rem;
+  }
+  
+  .single-race-info {
+    padding: 0.75rem 0.75rem 0.4rem;
+  }
+  
+  .race-bet-tabs {
+    padding: 0 0.75rem;
+  }
+  
+  .race-switcher-bar {
+    padding: 0.4rem 0.5rem;
+  }
+}
+
+/* ---- Mobile Bottom Navigation ---- */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  background: rgba(15, 23, 42, 0.97);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  z-index: 50;
+  justify-content: space-around;
+  align-items: center;
+  padding: 0 0.5rem;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.bottom-nav-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  transition: all 150ms ease;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bottom-nav-item:hover,
+.bottom-nav-item:active {
+  color: var(--text-secondary);
+}
+
+.bottom-nav-item.active {
+  color: var(--accent);
+}
+
+.bottom-nav-item.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+@media (max-width: 768px) {
+  .mobile-bottom-nav {
+    display: flex;
+  }
+  
+  .page-content {
+    padding-bottom: 80px;
+  }
+}
+

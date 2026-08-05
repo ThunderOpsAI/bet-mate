@@ -27,7 +27,7 @@ interface PaperBetActionProps {
     can_compare_odds?: boolean;
     current_odds?: number | null;
   };
-  variant?: "default" | "phase1";
+  variant?: "default" | "phase1" | "odds-button";
   label?: string;
   loggedLabel?: string;
   cancelLabel?: string;
@@ -163,6 +163,22 @@ export default function PaperBetAction({
     matchingSelections.forEach((selection) => removeBet(selection.id));
     setFeedback("removed");
   };
+
+  if (variant === "odds-button") {
+    return (
+      <div className={`paper-bet-action odds-button-variant ${fullWidth ? "full-width" : ""}`} onClick={stopCardToggle} onMouseDown={stopCardToggle}>
+        <button
+          type="button"
+          className={`paper-bet-btn odds-button-variant ${existingSelectionCount > 0 ? "logged" : ""}`}
+          onClick={handleQuickAdd}
+          disabled={totalSlipCount >= 50 && existingSelectionCount === 0}
+        >
+          {existingSelectionCount > 0 ? (loggedLabel ?? "✓") : (label ?? `$${(bet.odds ?? 0).toFixed(2)}`)}
+        </button>
+        <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
+      </div>
+    );
+  }
 
   if (variant === "phase1") {
     const phase1PrimaryLabel =
