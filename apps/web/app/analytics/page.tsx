@@ -27,6 +27,7 @@ import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
 import RefreshControls from "../components/RefreshControls";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 
 type AnalyticsTab = "user" | "strategy" | "ml";
@@ -216,7 +217,11 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   if (!response.ok) {
     throw new Error(`${response.status} ${response.statusText}`);
   }
-  return response.json() as Promise<T>;
+  const parsed = await safeResponseJson<T>(response);
+  if (parsed === null) {
+    throw new Error("Invalid or non-JSON response from server");
+  }
+  return parsed;
 }
 
 export default function AnalyticsPage() {
@@ -344,8 +349,8 @@ export default function AnalyticsPage() {
         throw new Error("Failed to trigger result ingestion");
       }
 
-      const data = await response.json();
-      const { fetched, settled, errors } = data.ingestion || {};
+      const data = await safeResponseJson(response);
+      const { fetched, settled, errors } = data?.ingestion || {};
       setSyncMessage(
         `Fetched ${fetched} results. Settled ${settled} predictions into history.${errors?.length ? ` (${errors.length} errors)` : ""}`,
       );

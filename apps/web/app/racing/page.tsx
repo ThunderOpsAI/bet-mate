@@ -30,6 +30,7 @@ import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import {
   getMlCacheDateKey,
   getMlDataCacheKey,
@@ -150,7 +151,7 @@ async function fetchTodayRaces(raceType: string = "T") {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
   }
 
-  let data = await response.json();
+  let data = await safeResponseJson(response);
   let races = (data?.races ?? []) as Race[];
 
   if (races.length === 0) {
@@ -163,7 +164,7 @@ async function fetchTodayRaces(raceType: string = "T") {
       cache: "no-store",
     });
     if (response.ok) {
-      data = await response.json();
+      data = await safeResponseJson(response);
       races = (data?.races ?? []) as Race[];
     }
   }
@@ -185,7 +186,9 @@ async function fetchRacePredictions(races: Race[]) {
           return null;
         }
 
-        return [race.race_id, await response.json()] as const;
+        const predData = await safeResponseJson(response);
+        if (!predData) return null;
+        return [race.race_id, predData] as const;
       } catch {
         return null;
       }
@@ -297,10 +300,13 @@ function RacingPageContent() {
     const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType), {
       force: true,
     }).catch((error) => {
-      refreshHadFailure = true;
-      usedCacheFallback = true;
-      console.error("Failed to refresh racing fixtures:", error);
-      scheduleMlDataCacheRetry(fixturesKey);
+      const isAbort = error?.name === "AbortError" || error?.message?.includes("aborted");
+      if (!isAbort) {
+        refreshHadFailure = true;
+        usedCacheFallback = true;
+        console.error("Failed to refresh racing fixtures:", error);
+        scheduleMlDataCacheRetry(fixturesKey);
+      }
       return readMlDataCache<Race[]>(fixturesKey);
     });
 
@@ -315,10 +321,13 @@ function RacingPageContent() {
         () => fetchRacePredictions(fixturesEntry.data),
         { force: true },
       ).catch((error) => {
-        refreshHadFailure = true;
-        usedCacheFallback = true;
-        console.error("Failed to refresh racing predictions:", error);
-        scheduleMlDataCacheRetry(predictionsKey);
+        const isAbort = error?.name === "AbortError" || error?.message?.includes("aborted");
+        if (!isAbort) {
+          refreshHadFailure = true;
+          usedCacheFallback = true;
+          console.error("Failed to refresh racing predictions:", error);
+          scheduleMlDataCacheRetry(predictionsKey);
+        }
         return readMlDataCache<Record<string, RacePrediction>>(predictionsKey);
       });
 

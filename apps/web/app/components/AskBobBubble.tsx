@@ -5,6 +5,7 @@ import Image from "next/image";
 import { Send, X, Loader2, Brain } from "lucide-react";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 
 export default function AskBobBubble() {
   const { bets, isBetslipOpen } = usePaperBetslip();
@@ -95,11 +96,11 @@ export default function AskBobBubble() {
         }),
       });
 
-      if (!res.ok) {
+      const data = await safeResponseJson(res);
+      if (!res.ok || !data) {
         throw new Error("Chat request failed");
       }
 
-      const data = await res.json();
       const reply = data?.message ?? "Bob is thinking, but didn't say anything.";
 
       setMessages((prev) => [

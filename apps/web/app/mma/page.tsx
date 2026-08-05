@@ -19,6 +19,7 @@ import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import {
   getMlCacheDateKey,
   getMlDataCacheKey,
@@ -110,7 +111,7 @@ async function fetchTodayMmaGames() {
       throw new Error(`MMA fixtures request failed with ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await safeResponseJson(response);
     return (data?.games ?? []) as MMAMatchup[];
   } catch (error) {
     console.error("fetchTodayMmaGames failed:", error);
@@ -134,7 +135,9 @@ async function fetchMmaPredictions(games: MMAMatchup[]) {
           return null;
         }
 
-        return [game.game_id, await response.json()] as const;
+        const predData = await safeResponseJson(response);
+        if (!predData) return null;
+        return [game.game_id, predData] as const;
       } catch {
         return null;
       }

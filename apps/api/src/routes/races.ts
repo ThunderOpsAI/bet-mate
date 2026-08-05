@@ -89,7 +89,8 @@ router.get("/:raceId", async (req, res) => {
           distanceMeters: liveRace.distance,
           trackCondition: "Good",
           predictions: (liveRace.horses || []).map((h: any) => {
-            const p = predictions[h.name];
+            const predArray = Array.isArray(predictions?.predictions) ? predictions.predictions : [];
+            const p = predArray.find((item: any) => item.name === h.name || item.horse_id === h.horse_id);
             const winProb = p?.win_probability ? p.win_probability / 100 : 0.05;
             const placeProb = p?.place_probability ? p.place_probability / 100 : undefined;
             return {

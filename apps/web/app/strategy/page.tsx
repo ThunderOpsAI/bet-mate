@@ -7,6 +7,7 @@ import PaperBetAction from "../components/PaperBetAction";
 import GuestModal from "../components/GuestModal";
 import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 
 type SystemBet = {
   id?: number;
@@ -68,10 +69,10 @@ export default function StrategyPage() {
     const load = async () => {
       try {
         const response = await fetch(`${ML_API}/api/strategy-cards`);
-        if (!response.ok) {
+        const data = await safeResponseJson(response);
+        if (!response.ok || !data) {
           throw new Error("Strategy cards unavailable");
         }
-        const data = await response.json();
         setCards(data?.cards ?? []);
       } catch (error) {
         console.error("Failed to load strategy cards", error);
@@ -99,7 +100,7 @@ export default function StrategyPage() {
           messages: [{ role: "user", content: chatInput }],
         }),
       });
-      const data = await response.json();
+      const data = await safeResponseJson(response);
       setChatReply(data?.message ?? "No response");
     } catch (error) {
       console.error("Bob chat failed", error);

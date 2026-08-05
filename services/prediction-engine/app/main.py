@@ -709,15 +709,27 @@ async def bob_chat(request: BobChatRequest):
 # --- RACING ENDPOINTS ---
 
 @app.get("/api/races/today")
-def get_today_races(date: Optional[str] = None):
+@app.get("/api/racing/today")
+@app.get("/api/races/next")
+@app.get("/api/racing/next")
+def get_today_races(
+    date: Optional[str] = None,
+    type: Optional[str] = None,
+    race_type: Optional[str] = None,
+):
     """Fetch live race data for a Melbourne date (defaults to today)."""
+    selected_type = type or race_type
     try:
-        races = racing_scraper.fetch_today_races(run_date=date)
-        if not races and not date:
+        races = racing_scraper.fetch_today_races(run_date=date, race_type=selected_type)
+        if len(races) <= 1 and not date:
             import datetime
             from app.time_utils import today_melbourne
             tomorrow = (today_melbourne() + datetime.timedelta(days=1)).isoformat()
-            races = racing_scraper.fetch_today_races(run_date=tomorrow)
+            tomorrow_races = racing_scraper.fetch_today_races(run_date=tomorrow, race_type=selected_type)
+            existing_ids = {r["race_id"] for r in races}
+            for tr in tomorrow_races:
+                if tr["race_id"] not in existing_ids:
+                    races.append(tr)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"races": races}

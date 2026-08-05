@@ -19,6 +19,7 @@ import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import {
   getMlCacheDateKey,
   getMlDataCacheKey,
@@ -101,7 +102,7 @@ async function fetchTodayNbaGames() {
     throw new Error(`NBA fixtures request failed with ${response.status}`);
   }
 
-  const data = await response.json();
+  const data = await safeResponseJson(response);
   return (data?.games ?? []) as NBAGame[];
 }
 
@@ -119,7 +120,9 @@ async function fetchNbaPredictions(games: NBAGame[]) {
           return null;
         }
 
-        return [game.game_id, await response.json()] as const;
+        const predData = await safeResponseJson(response);
+        if (!predData) return null;
+        return [game.game_id, predData] as const;
       } catch {
         return null;
       }

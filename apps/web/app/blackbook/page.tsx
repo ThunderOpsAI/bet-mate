@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
@@ -74,8 +75,8 @@ export default function BlackbookPage() {
       });
 
       if (res.ok) {
-        const data = await res.json();
-        setConfigs(data.configs || []);
+        const data = await safeResponseJson(res);
+        setConfigs(data?.configs || []);
       } else {
         setFetchError("BetMate could not load your watch rules.");
       }
@@ -153,12 +154,12 @@ export default function BlackbookPage() {
         },
       );
 
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || "Failed to save watch rule");
+      const data = await safeResponseJson(response);
+      if (!response.ok || !data) {
+        throw new Error(data?.detail || "Failed to save watch rule");
       }
 
-      const saved = (await response.json()) as BlackbookConfig;
+      const saved = data as BlackbookConfig;
       setConfigs((current) => {
         const next = current.filter((item) => item.runner !== saved.runner);
         return [...next, saved];

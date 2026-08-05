@@ -3,6 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon, ChevronDown, ChevronUp } from "lucide-react";
 import Link from "next/link";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useActionGuard } from "../lib/useActionGuard";
 
@@ -78,12 +79,13 @@ function BetsContent() {
         fetch(`${ML_API}/api/paper-bets/summary`, { headers: authHeaders }),
       ]);
 
-      if (!betsResponse.ok || !summaryResponse.ok) {
+      const betsData = await safeResponseJson(betsResponse);
+      const summaryData = await safeResponseJson(summaryResponse);
+
+      if (!betsResponse.ok || !summaryResponse.ok || !betsData || !summaryData) {
         throw new Error("Paper bets unavailable");
       }
 
-      const betsData = await betsResponse.json();
-      const summaryData = await summaryResponse.json();
       setBets(betsData?.bets ?? []);
       setSummary(summaryData?.summary ?? null);
     } catch (e) {

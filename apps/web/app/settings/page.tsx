@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { Save, SlidersHorizontal, User, RefreshCw, LogOut } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
-import { API_BASE } from "../lib/api";
+import { API_BASE, safeResponseJson } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
@@ -44,7 +44,7 @@ function SettingsContent() {
     const loadJames = async () => {
       try {
         const response = await fetch(`${ML_API}/api/strategy-profiles/james`);
-        const data = await response.json();
+        const data = await safeResponseJson(response);
         const ruleSet = data?.rule_set ?? null;
         if (!ruleSet) {
           setJamesConfig(null);
@@ -75,9 +75,9 @@ function SettingsContent() {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ username, email }),
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Update failed");
+        const data = await safeResponseJson(res);
+        if (!res.ok || !data) {
+          throw new Error(data?.error || "Update failed");
         }
         await refreshUser();
         setSuccess("Profile updated!");
@@ -122,11 +122,10 @@ function SettingsContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(jamesConfig),
         });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.detail || "James config update failed");
+        const data = await safeResponseJson(response);
+        if (!response.ok || !data) {
+          throw new Error(data?.detail || "James config update failed");
         }
-        const data = await response.json();
         setJamesConfig(data.rule_set);
         setJamesMessage("James strategy saved. Changes apply on the next daily card generation.");
       } catch (err: any) {

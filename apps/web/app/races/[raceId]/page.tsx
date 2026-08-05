@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, Star, TrendingUp, AlertTriangle } from "lucide-react";
-import { API_BASE } from "../../lib/api";
+import { API_BASE, safeResponseJson } from "../../lib/api";
 
 type Prediction = {
   horseName: string;
@@ -50,8 +50,8 @@ export default function RaceDetailPage() {
 
   useEffect(() => {
     fetch(`${API_BASE}/races/${raceId}`)
-      .then((r) => r.json())
-      .then((data) => setRace(data.race))
+      .then((r) => safeResponseJson(r))
+      .then((data) => setRace(data?.race ?? null))
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [raceId]);

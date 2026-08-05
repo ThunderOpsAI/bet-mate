@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Trophy, TrendingUp, DollarSign, Flame, ShieldAlert } from "lucide-react";
+import { API_BASE, safeResponseJson } from "../lib/api";
 
 interface LeaderboardEntry {
   userId: string;
@@ -30,9 +31,9 @@ export default function Leaderboard() {
     async function fetchLeaderboard() {
       setLoading(true);
       try {
-        const res = await fetch(`http://127.0.0.1:3001/api/leaderboards?category=${activeCategory}`);
-        const data = await res.json();
-        if (data.success && Array.isArray(data.leaderboard)) {
+        const res = await fetch(`${API_BASE}/leaderboards?category=${activeCategory}`);
+        const data = await safeResponseJson(res);
+        if (data?.success && Array.isArray(data.leaderboard)) {
           setEntries(data.leaderboard);
         } else {
           setEntries([]);

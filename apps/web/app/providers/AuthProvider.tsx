@@ -1,6 +1,6 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { API_BASE } from "../lib/api";
+import { API_BASE, safeResponseJson } from "../lib/api";
 import {
   ANALYTICS_EVENTS,
   identifyUser,
@@ -79,11 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ emailOrUsername, password }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Login failed");
+    const data = await safeResponseJson(res);
+    if (!res.ok || !data) {
+      throw new Error(data?.error || "Login failed");
     }
-    const data = await res.json();
     setUser(data.user);
     setToken(data.accessToken);
     localStorage.setItem("betmate_token", data.accessToken);
@@ -105,11 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, username, password, startingBankroll }),
     });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || "Registration failed");
+    const data = await safeResponseJson(res);
+    if (!res.ok || !data) {
+      throw new Error(data?.error || "Registration failed");
     }
-    const data = await res.json();
     setUser(data.user);
     setToken(data.accessToken);
     localStorage.setItem("betmate_token", data.accessToken);
@@ -143,9 +141,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-        localStorage.setItem("betmate_user", JSON.stringify(data.user));
+        const data = await safeResponseJson(res);
+        if (data?.user) {
+          setUser(data.user);
+          localStorage.setItem("betmate_user", JSON.stringify(data.user));
+        }
       }
     } catch { /* ignore */ }
   }, [token]);

@@ -200,14 +200,30 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
     return _metro_allowlist_cache
 
 
-def fetch_today_races(run_date: Optional[str] = None):
+def _resolve_race_type_event_ids(race_type: Optional[str]) -> List[str]:
+    if not race_type:
+        return ["7"]
+    rt = str(race_type).strip().upper()
+    if rt in {"T", "7", "THOROUGHBRED"}:
+        return ["7"]
+    if rt in {"G", "4337", "GREYHOUND"}:
+        return ["4337"]
+    if rt in {"H", "4339", "HARNESS"}:
+        return ["4339"]
+    if rt in {"ALL"}:
+        return ["7", "4337", "4339"]
+    return ["7"]
+
+
+def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] = None):
     target_date = _resolve_run_date(run_date)
     target_date_str = target_date.isoformat()
     headers = _get_api_headers()
+    event_type_ids = _resolve_race_type_event_ids(race_type)
 
     if headers:
         try:
-            races = _fetch_live_races(headers, target_date)
+            races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
         except requests.exceptions.HTTPError as exc:
             if exc.response is not None and exc.response.status_code in (400, 401):
                 print(f"[Betfair] Session expired or invalid ({exc.response.status_code}). Retrying...")
@@ -216,7 +232,7 @@ def fetch_today_races(run_date: Optional[str] = None):
                 headers = _get_api_headers()
                 if headers:
                     try:
-                        races = _fetch_live_races(headers, target_date)
+                        races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
                     except Exception as retry_exc:
                         print(f"[Betfair] Retry live fetch failed ({retry_exc})")
                         races = []
@@ -358,9 +374,11 @@ def _betfair_certificate_status() -> str:
     )
 
 
-def _fetch_live_races(headers, target_date: date):
+def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[str]] = None):
     api_url = betfair_catalogue_url()
     market_start_time = _betfair_market_time_window(target_date)
+    if not event_type_ids:
+        event_type_ids = ["7"]
     
     all_markets = []
     from_record = 0
@@ -369,7 +387,7 @@ def _fetch_live_races(headers, target_date: date):
     while True:
         market_filter = {
             "filter": {
-                "eventTypeIds": ["7"],
+                "eventTypeIds": event_type_ids,
                 "marketCountries": ["AU"],
                 "marketTypeCodes": ["WIN"],
                 "marketStartTime": market_start_time,
