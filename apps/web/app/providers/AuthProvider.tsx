@@ -23,6 +23,7 @@ type AuthContextType = {
   register: (email: string, username: string, password: string, startingBankroll: number) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  updateBankroll: (delta: number) => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -150,8 +151,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { /* ignore */ }
   }, [token]);
 
+  const updateBankroll = useCallback((delta: number) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const newBankroll = Math.max(0, Math.round(((prev.currentBankroll || 0) + delta) * 100) / 100);
+      const updated = { ...prev, currentBankroll: newBankroll };
+      try {
+        localStorage.setItem("betmate_user", JSON.stringify(updated));
+      } catch { /* ignore */ }
+      return updated;
+    });
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser, updateBankroll }}>
       {children}
     </AuthContext.Provider>
   );

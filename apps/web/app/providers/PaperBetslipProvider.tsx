@@ -71,6 +71,7 @@ interface PaperBetslipContextType {
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
 
+import { API_BASE } from "../lib/api";
 import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
 export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
@@ -81,7 +82,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   >({});
   const [hasHydrated, setHasHydrated] = useState(false);
   const betsRef = useRef<PaperBet[]>([]);
-  const { token } = useAuth();
+  const { token, updateBankroll, refreshUser } = useAuth();
 
   const [toasts, setToasts] = useState<
     Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>
@@ -283,14 +284,57 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         const createdBets = Array.isArray(data?.bets) ? data.bets : [];
         const successCount = data?.count ?? createdBets.length ?? count;
         const failedCount = count - successCount;
+        const totalStakePlaced = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
 
         trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
           totalBets: count,
           successCount,
           failedCount,
-          totalStake: bets.reduce((sum, b) => sum + (b.stake || 0), 0),
+          totalStake: totalStakePlaced,
           sports: Array.from(new Set(bets.map((b) => b.sport))),
         });
+
+        if (successCount > 0 && updateBankroll) {
+          updateBankroll(-totalStakePlaced);
+        }
+
+        if (token && token !== "guest" && successCount > 0) {
+          const apiPayload = bets.map((b) => {
+            let eventType = "race";
+            const s = (b.sport || "").toLowerCase();
+            if (s === "afl") eventType = "afl_game";
+            else if (s === "nba") eventType = "nba_game";
+            else if (s === "nrl") eventType = "nrl_game";
+            else if (s === "soccer") eventType = "soccer_game";
+            else if (s === "golf") eventType = "golf_event";
+            else if (s === "mma") eventType = "mma_fight";
+
+            return {
+              eventType,
+              eventId: b.event_id,
+              eventName: b.event_name,
+              betType: b.bet_type || "win",
+              selection: b.selection,
+              odds: Number(b.odds) || 1.0,
+              stake: Number(b.stake) || 0,
+              wasAIRecommended: true,
+              notes: b.notes || "",
+            };
+          });
+
+          fetch(`${API_BASE}/bets/batch`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(apiPayload),
+          })
+            .then(() => {
+              if (refreshUser) void refreshUser();
+            })
+            .catch((err) => console.error("Failed to sync API bets:", err));
+        }
 
         if (failedCount <= 0) {
           betsRef.current = [];
@@ -331,7 +375,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       console.error("Failed to place batch bets", e);
       return { success: 0, failed: bets.length };
     }
-  }, [bets, token]);
+  }, [bets, token, updateBankroll, refreshUser]);
 
   return (
     <PaperBetslipContext.Provider
