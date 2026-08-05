@@ -21,18 +21,6 @@ export default function VariantRacingFilters() {
     router.push(`${pathname}?${params.toString()}`);
   };
 
-  const getDayTabs = () => {
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const today = new Date();
-    const result = [];
-    for (let offset = 2; offset <= 4; offset++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + offset);
-      result.push({ id: `day-${offset}`, label: days[d.getDay()] });
-    }
-    return result;
-  };
-
   return (
     <div className="prototype-filters-container">
       {/* Date Header Filter */}
@@ -59,16 +47,27 @@ export default function VariantRacingFilters() {
         >
           Tomorrow
         </button>
-        {getDayTabs().map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`date-tab ${activeWhen === tab.id ? "active" : ""}`}
-            onClick={() => updateFilters({ when: tab.id })}
-          >
-            {tab.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          className={`date-tab ${activeWhen === "wednesday" ? "active" : ""}`}
+          onClick={() => updateFilters({ when: "wednesday" })}
+        >
+          Wednesday
+        </button>
+        <button
+          type="button"
+          className={`date-tab ${activeWhen === "friday" ? "active" : ""}`}
+          onClick={() => updateFilters({ when: "friday" })}
+        >
+          Friday
+        </button>
+        <button
+          type="button"
+          className={`date-tab ${activeWhen === "saturday" ? "active" : ""}`}
+          onClick={() => updateFilters({ when: "saturday" })}
+        >
+          Saturday
+        </button>
       </div>
 
       {/* Code & Region Sub-Filters */}

@@ -1,28 +1,14 @@
 "use client";
 import { Clock } from "lucide-react";
 
-type TemporalTab = "next" | "today" | "tomorrow" | string;
+type TemporalTab = "next" | "today" | "tomorrow" | "wednesday" | "friday" | "saturday" | string;
 
 interface TemporalHeaderProps {
   activeTab: TemporalTab;
   onTabChange: (tab: TemporalTab) => void;
 }
 
-function getDayTabs(): { id: string; label: string }[] {
-  const tabs: { id: string; label: string }[] = [];
-  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const today = new Date();
-  for (let offset = 2; offset <= 4; offset++) {
-    const d = new Date(today);
-    d.setDate(d.getDate() + offset);
-    tabs.push({ id: `day-${offset}`, label: days[d.getDay()] });
-  }
-  return tabs;
-}
-
 export default function TemporalHeader({ activeTab, onTabChange }: TemporalHeaderProps) {
-  const dayTabs = getDayTabs();
-
   return (
     <div className="temporal-header">
       <button
@@ -47,16 +33,27 @@ export default function TemporalHeader({ activeTab, onTabChange }: TemporalHeade
       >
         Tomorrow
       </button>
-      {dayTabs.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          className={`temporal-tab ${activeTab === tab.id ? "active" : ""}`}
-          onClick={() => onTabChange(tab.id)}
-        >
-          {tab.label}
-        </button>
-      ))}
+      <button
+        type="button"
+        className={`temporal-tab ${activeTab === "wednesday" ? "active" : ""}`}
+        onClick={() => onTabChange("wednesday")}
+      >
+        Wednesday
+      </button>
+      <button
+        type="button"
+        className={`temporal-tab ${activeTab === "friday" ? "active" : ""}`}
+        onClick={() => onTabChange("friday")}
+      >
+        Friday
+      </button>
+      <button
+        type="button"
+        className={`temporal-tab ${activeTab === "saturday" ? "active" : ""}`}
+        onClick={() => onTabChange("saturday")}
+      >
+        Saturday
+      </button>
     </div>
   );
 }

@@ -142,10 +142,41 @@ function isRacePredictionEntry(
   return entry !== null;
 }
 
-async function fetchTodayRaces(raceType: string = "T") {
-  const typeParam = raceType ? `?type=${raceType}` : "";
-  let response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}`, {
+function getDateForTab(tab: string): string {
+  const today = new Date();
+  if (tab === "tomorrow") {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  }
+  if (tab === "wednesday" || tab === "friday" || tab === "saturday") {
+    const targetDayMap: Record<string, number> = {
+      wednesday: 3,
+      friday: 5,
+      saturday: 6,
+    };
+    const targetDay = targetDayMap[tab];
+    const currentDay = today.getDay();
+    let daysAhead = targetDay - currentDay;
+    if (daysAhead < 0) {
+      daysAhead += 7;
+    }
+    const d = new Date(today);
+    d.setDate(d.getDate() + daysAhead);
+    return d.toISOString().split("T")[0];
+  }
+  return today.toISOString().split("T")[0];
+}
+
+async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
+  const typeParam = raceType ? `type=${raceType}` : "";
+  const dateParam = targetDateStr ? `date=${targetDateStr}` : "";
+  const params = [typeParam, dateParam].filter(Boolean).join("&");
+  const queryString = params ? `?${params}` : "";
+
+  let response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}`, {
     cache: "no-store",
+    timeoutMs: 8000,
   });
   if (!response.ok) {
     throw new Error(`Racing fixtures request failed with ${response.status}`);
@@ -154,14 +185,14 @@ async function fetchTodayRaces(raceType: string = "T") {
   let data = await safeResponseJson(response);
   let races = (data?.races ?? []) as Race[];
 
-  if (races.length === 0) {
-    // Fetch tomorrow's races if today has none
+  if (races.length === 0 && !targetDateStr) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const dateStr = tomorrow.toISOString().split("T")[0];
-    const sep = typeParam ? "&" : "?";
-    response = await fetchWithTimeout(`${ML_API}/api/races/today${typeParam}${sep}date=${dateStr}`, {
+    const fallbackDateStr = tomorrow.toISOString().split("T")[0];
+    const sep = queryString ? "&" : "?";
+    response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}${sep}date=${fallbackDateStr}`, {
       cache: "no-store",
+      timeoutMs: 8000,
     });
     if (response.ok) {
       data = await safeResponseJson(response);
@@ -297,7 +328,8 @@ function RacingPageContent() {
 
     const { fixturesKey, predictionsKey } = getRacingCacheKeys();
 
-    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType), {
+    const targetDateStr = getDateForTab(temporalTab);
+    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType, targetDateStr), {
       force: true,
     }).catch((error) => {
       const isAbort = error?.name === "AbortError" || error?.message?.includes("aborted");
@@ -403,7 +435,7 @@ function RacingPageContent() {
       isMountedRef.current = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raceType]);
+  }, [raceType, temporalTab]);
 
   useEffect(() => {
     trackStaleCache("/racing", lastUpdated);

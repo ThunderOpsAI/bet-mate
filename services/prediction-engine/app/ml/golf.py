@@ -86,8 +86,8 @@ class GolfPredictor:
             score = (
                 recent_finishes * GOLF_WEIGHTS["recent_finishes"] +
                 course_history * GOLF_WEIGHTS["course_history"] +
-                driving_accuracy * GOLF_WEIGHTS["driving_accuracy"] +
-                putting_average * GOLF_WEIGHTS["putting_average"] +
+                driving_accuracy * GOLF_WEIGHTS["sg_approach"] +
+                putting_average * GOLF_WEIGHTS["sg_off_the_tee"] +
                 implied * GOLF_WEIGHTS["live_odds_signal"]
             )
             scores.append((player, score))

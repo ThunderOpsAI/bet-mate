@@ -223,7 +223,10 @@ def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] =
 
     if headers:
         try:
-            races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
+            try:
+                races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
+            except TypeError:
+                races = _fetch_live_races(headers, target_date)
         except requests.exceptions.HTTPError as exc:
             if exc.response is not None and exc.response.status_code in (400, 401):
                 print(f"[Betfair] Session expired or invalid ({exc.response.status_code}). Retrying...")
