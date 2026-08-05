@@ -127,12 +127,12 @@ const trackConditions: Record<number, string> = {
   4: "Heavy",
 };
 
-function getRacingCacheKeys() {
-  const dateKey = getMlCacheDateKey();
+function getRacingCacheKeys(type: string = "T", tab: string = "today") {
+  const dateKey = getDateForTab(tab);
 
   return {
-    fixturesKey: getMlDataCacheKey("fixtures", "racing", dateKey),
-    predictionsKey: getMlDataCacheKey("predictions", "racing", dateKey),
+    fixturesKey: getMlDataCacheKey("fixtures", "racing", `${type}:${dateKey}`),
+    predictionsKey: getMlDataCacheKey("predictions", "racing", `${type}:${dateKey}`),
   };
 }
 
@@ -185,7 +185,7 @@ async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
   let data = await safeResponseJson(response);
   let races = (data?.races ?? []) as Race[];
 
-  if (races.length === 0 && !targetDateStr) {
+  if (races.length === 0 && (!targetDateStr || targetDateStr === new Date().toISOString().split("T")[0])) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     const fallbackDateStr = tomorrow.toISOString().split("T")[0];
@@ -236,6 +236,7 @@ function RacingPageContent() {
   const { token, user } = useAuth();
   const searchParams = useSearchParams();
   const raceType = searchParams.get("type") || "T";
+  const whenParam = searchParams.get("when") || "today";
   const raceTypeLabel = raceType === "G" ? "Greyhound" : raceType === "H" ? "Harness" : "Thoroughbred";
   const [races, setRaces] = useState<Race[]>([]);
   const [predictions, setPredictions] = useState<Record<string, RacePrediction>>(
@@ -252,7 +253,7 @@ function RacingPageContent() {
   const initialRace = searchParams.get("race") || null;
   const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(initialRace);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
-  const [temporalTab, setTemporalTab] = useState<string>("today");
+  const [temporalTab, setTemporalTab] = useState<string>(whenParam);
   const [regionFilter, setRegionFilter] = useState<string>("all");
   const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
@@ -272,13 +273,17 @@ function RacingPageContent() {
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
+  useEffect(() => {
+    setTemporalTab(whenParam);
+  }, [whenParam]);
+
   const openWatchPanel = (horseName: string) => {
     setWatchPanel(horseName);
     setWatchSaved(null);
   };
 
-  const syncCacheMetadata = () => {
-    const { fixturesKey, predictionsKey } = getRacingCacheKeys();
+  const syncCacheMetadata = (type = raceType, tab = whenParam) => {
+    const { fixturesKey, predictionsKey } = getRacingCacheKeys(type, tab);
     const metadata = getMlDataCacheMetadata([fixturesKey, predictionsKey]);
 
     if (!isMountedRef.current) {
@@ -289,8 +294,8 @@ function RacingPageContent() {
     setNextRefreshAt(metadata.nextRefreshAt);
   };
 
-  const hydrateFromCache = () => {
-    const { fixturesKey, predictionsKey } = getRacingCacheKeys();
+  const hydrateFromCache = (type = raceType, tab = whenParam) => {
+    const { fixturesKey, predictionsKey } = getRacingCacheKeys(type, tab);
     const cachedRaces = readMlDataCache<Race[]>(fixturesKey);
     const cachedPredictions = readMlDataCache<Record<string, RacePrediction>>(
       predictionsKey,
@@ -304,7 +309,7 @@ function RacingPageContent() {
       setPredictions(cachedPredictions.data);
     }
 
-    syncCacheMetadata();
+    syncCacheMetadata(type, tab);
 
     return {
       cachedRaces,
@@ -312,7 +317,7 @@ function RacingPageContent() {
     };
   };
 
-  const refreshPage = async () => {
+  const refreshPage = async (type = raceType, tab = whenParam) => {
     if (refreshingRef.current) {
       return;
     }
@@ -326,10 +331,10 @@ function RacingPageContent() {
       setRefreshing(true);
     }
 
-    const { fixturesKey, predictionsKey } = getRacingCacheKeys();
+    const { fixturesKey, predictionsKey } = getRacingCacheKeys(type, tab);
 
-    const targetDateStr = getDateForTab(temporalTab);
-    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(raceType, targetDateStr), {
+    const targetDateStr = getDateForTab(tab);
+    const fixturesEntry = await refreshMlDataCache(fixturesKey, () => fetchTodayRaces(type, targetDateStr), {
       force: true,
     }).catch((error) => {
       const isAbort = error?.name === "AbortError" || error?.message?.includes("aborted");
@@ -347,7 +352,7 @@ function RacingPageContent() {
       setLoading(false);
     }
 
-    if (fixturesEntry) {
+    if (fixturesEntry && fixturesEntry.data && fixturesEntry.data.length > 0) {
       const predictionsEntry = await refreshMlDataCache(
         predictionsKey,
         () => fetchRacePredictions(fixturesEntry.data),
@@ -368,7 +373,7 @@ function RacingPageContent() {
       }
     }
 
-    syncCacheMetadata();
+    syncCacheMetadata(type, tab);
     refreshingRef.current = false;
     trackRefreshOutcome("/racing", refreshStartedAt, {
       failed: refreshHadFailure,
@@ -415,27 +420,29 @@ function RacingPageContent() {
 
   useEffect(() => {
     isMountedRef.current = true;
-    const { cachedRaces, cachedPredictions } = hydrateFromCache();
+    setLoading(true);
+    const { cachedRaces, cachedPredictions } = hydrateFromCache(raceType, whenParam);
 
-    if (cachedRaces) {
+    if (cachedRaces && cachedRaces.data.length > 0) {
       setLoading(false);
     }
 
     const shouldRefresh =
       !cachedRaces ||
       !cachedPredictions ||
+      cachedRaces.data.length === 0 ||
       isMlDataCacheStale(cachedRaces) ||
       isMlDataCacheStale(cachedPredictions);
 
     if (shouldRefresh) {
-      void refreshPage();
+      void refreshPage(raceType, whenParam);
     }
 
     return () => {
       isMountedRef.current = false;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [raceType, temporalTab]);
+  }, [raceType, whenParam]);
 
   useEffect(() => {
     trackStaleCache("/racing", lastUpdated);
