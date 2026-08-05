@@ -143,22 +143,28 @@ def require_user_id(authorization: str = Header(default="", alias="Authorization
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     token = authorization[7:].strip()
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing bearer token")
-
-    if token == "guest":
-        database_mod.user_id_ctx.set("guest")
-        return "guest"
+    if not token or token.lower() in ("guest", "null", "undefined"):
+        user_id = "guest"
+        database_mod.user_id_ctx.set(user_id)
+        return user_id
 
     try:
         payload = _decode_jwt_payload(token)
-    except (ValueError, json.JSONDecodeError, binascii.Error):
-        raise HTTPException(status_code=401, detail="Invalid auth token")
+        user_id = payload.get("sub") or payload.get("user_id") or "guest"
+    except Exception:
+        try:
+            parts = token.split(".")
+            if len(parts) == 3:
+                payload_b64 = parts[1]
+                payload_raw = base64.urlsafe_b64decode(payload_b64 + "=" * (-len(payload_b64) % 4))
+                payload = json.loads(payload_raw.decode("utf-8"))
+                user_id = str(payload.get("sub") or payload.get("user_id") or "guest")
+            else:
+                user_id = "guest"
+        except Exception:
+            user_id = "guest"
 
-    user_id = payload.get("sub") or payload.get("user_id")
-    if not isinstance(user_id, str) or not user_id.strip():
-        raise HTTPException(status_code=401, detail="Invalid auth token")
-
+    user_id = user_id if user_id.strip() else "guest"
     database_mod.user_id_ctx.set(user_id)
     return user_id
 
