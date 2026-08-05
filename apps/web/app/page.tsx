@@ -10,9 +10,6 @@ import type {
   FeatureImpactItem,
   ModelMetadata,
 } from "./lib/bob/explainer";
-import VariantA_CyberpunkTerminal from "./components/VariantA_CyberpunkTerminal";
-import VariantB_SplitWorkspace from "./components/VariantB_SplitWorkspace";
-import VariantC_TimelineStream from "./components/VariantC_TimelineStream";
 import {
   Trophy,
   Zap,
@@ -1533,10 +1530,6 @@ function DashboardContent() {
     );
   };
 
-  const searchParams = useSearchParams();
-  const rawVariant = searchParams?.get("variant")?.toUpperCase();
-  const activeVariant = rawVariant === "B" ? "B" : rawVariant === "C" ? "C" : "A";
-
   return (
     <div>
       <ExplainDrawer
@@ -1545,53 +1538,22 @@ function DashboardContent() {
         onClose={() => setActiveExplanation(null)}
       />
 
-      {activeVariant === "A" && (
-        <VariantA_CyberpunkTerminal
-          racesData={activeRaces}
-          allOpportunities={allRealOpportunities}
-          aflData={aflGames}
-          nbaData={nbaGames}
-          nrlData={nrlGames}
-          soccerData={soccerGames}
-          golfData={golfTournaments}
-          mmaData={mmaMatchups}
-          isLoading={loading}
-          onOpenPaperBet={handleOpenPaperBet}
-          onOpenBobModal={handleOpenBobModal}
-        />
-      )}
+      <RefreshControls
+        lastUpdated={lastUpdated}
+        nextRefreshAt={nextRefreshAt}
+        isRefreshing={refreshing}
+        onRefresh={() => void refreshDashboard()}
+      />
 
-      {activeVariant === "B" && (
-        <VariantB_SplitWorkspace
-          racesData={activeRaces}
-          allOpportunities={allRealOpportunities}
-          aflData={aflGames}
-          nbaData={nbaGames}
-          nrlData={nrlGames}
-          soccerData={soccerGames}
-          golfData={golfTournaments}
-          mmaData={mmaMatchups}
-          isLoading={loading}
-          onOpenPaperBet={handleOpenPaperBet}
-          onOpenBobModal={handleOpenBobModal}
-        />
-      )}
-
-      {activeVariant === "C" && (
-        <VariantC_TimelineStream
-          racesData={activeRaces}
-          allOpportunities={allRealOpportunities}
-          aflData={aflGames}
-          nbaData={nbaGames}
-          nrlData={nrlGames}
-          soccerData={soccerGames}
-          golfData={golfTournaments}
-          mmaData={mmaMatchups}
-          isLoading={loading}
-          onOpenPaperBet={handleOpenPaperBet}
-          onOpenBobModal={handleOpenBobModal}
-        />
-      )}
+      <ErrorBoundary sectionName="Dashboard opportunities">
+        <BestRacingOpportunities opportunities={racingOpportunities} />
+        <BestAflOpportunities opportunities={aflOpportunities} />
+        <BestNbaOpportunities opportunities={nbaOpportunities} />
+        <BestNrlOpportunities opportunities={nrlOpportunities} />
+        <BestSoccerOpportunities opportunities={soccerOpportunities} />
+        <BestGolfOpportunities opportunities={golfOpportunities} />
+        <BestMmaOpportunities opportunities={mmaOpportunities} />
+      </ErrorBoundary>
     </div>
   );
 }
