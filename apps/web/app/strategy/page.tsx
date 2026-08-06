@@ -22,6 +22,7 @@ import AskBobLabCard from "../components/AskBobLabCard";
 import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
+import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 
 type SystemBet = {
   id?: number;
@@ -83,7 +84,10 @@ export default function StrategyPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const response = await fetch(`${ML_API}/api/strategy-cards`);
+        const response = await fetchWithTimeout(`${ML_API}/api/strategy-cards`, {
+          cache: "no-store",
+          timeoutMs: 8000,
+        });
         const data = await safeResponseJson(response);
         if (!response.ok || !data) {
           throw new Error("Strategy cards unavailable");
@@ -91,7 +95,7 @@ export default function StrategyPage() {
         setCards(data?.cards ?? []);
       } catch (error) {
         console.error("Failed to load strategy cards", error);
-        setLoadError("BetMate could not load the latest strategy cards.");
+        setLoadError("Awaiting Daily Strategy Card Generation");
       } finally {
         setLoading(false);
       }

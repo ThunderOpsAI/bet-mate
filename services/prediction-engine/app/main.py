@@ -30,7 +30,7 @@ from app.bob import (
     sanitize_bob_messages,
 )
 from app.notifications import notify_blackbook_trigger
-from app.strategy import StrategyService
+from app.strategy import StrategyService, build_strategy_card
 from app.time_utils import today_melbourne
 from app import database as database_mod
 from app.ml import artifacts as artifact_store
@@ -639,6 +639,23 @@ def get_strategy_cards(date: Optional[str] = None):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"cards": cards}
+
+
+@app.post("/api/strategy-cards/refresh")
+def refresh_strategy_cards(date: Optional[str] = None):
+    run_date = date or today_melbourne().isoformat()
+    try:
+        candidates = strategy_service.collect_candidates_for_date(run_date)
+        profiles = storage.list_strategy_profiles()
+        cards = []
+        for profile in profiles:
+            card = build_strategy_card(profile, candidates, run_date)
+            saved = storage.save_strategy_card(card, replace=True)
+            cards.append(saved)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to refresh strategy cards: {exc}")
+    return {"status": "success", "run_date": run_date, "count": len(cards), "cards": cards}
+
 
 
 @app.get("/api/strategy-cards/{profile_key}")

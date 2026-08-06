@@ -16,7 +16,6 @@ import {
 } from "../components/PredictionSignalBadges";
 import BestNrlOpportunities from "../components/nrl/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
-import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -406,8 +405,7 @@ export default function NRLPage() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <SectionHeaderToggle activeSection="sport" />
+      <div className="flex items-center justify-end gap-3 flex-wrap mb-3">
         <RefreshControls
           lastUpdated={lastUpdated}
           nextRefreshAt={nextRefreshAt}

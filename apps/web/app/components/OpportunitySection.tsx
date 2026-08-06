@@ -1,11 +1,10 @@
 import Link from "next/link";
 import type { RankedOpportunity } from "../lib/opportunityScore";
 import { ConfidenceBadge, UrgencyBadge } from "./PredictionSignalBadges";
-import EducationTooltip from "./EducationTooltip";
 
 type OpportunitySectionProps = {
   title: string;
-  description: string;
+  description?: string;
   opportunities: RankedOpportunity[];
   emptyMessage: string;
   href: string;
@@ -27,33 +26,11 @@ export default function OpportunitySection({
       <div className="opportunity-section-header">
         <div>
           <h3>{title}</h3>
-          <p>{description}</p>
         </div>
         <Link href={href} className="btn btn-sm btn-secondary">
           {linkLabel}
         </Link>
       </div>
-
-      {!compact ? (
-        <div className="education-tooltip-row">
-          <EducationTooltip label="Fair odds">
-            The price implied by BetMate&apos;s model probability before you compare
-            it with the market.
-          </EducationTooltip>
-          <EducationTooltip label="Edge/value">
-            Edge is only shown when the current market price is longer than the
-            model&apos;s fair odds. It is a value signal, not a promise.
-          </EducationTooltip>
-          <EducationTooltip label="Model probability">
-            The model&apos;s estimated chance of this selection winning from the
-            current data.
-          </EducationTooltip>
-          <EducationTooltip label="Market disagreement">
-            This means the model is leaning differently from the market context, so
-            extra caution is sensible.
-          </EducationTooltip>
-        </div>
-      ) : null}
 
       {opportunities.length === 0 ? (
         <div className="opportunity-empty">{emptyMessage}</div>

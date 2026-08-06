@@ -192,6 +192,7 @@ def get_connection():
     if DB_BACKEND == "postgresql":
         pool = _get_pg_pool()
         conn = pool.getconn()
+        is_broken = False
         try:
             user_id = user_id_ctx.get()
             if user_id is not None:
@@ -201,10 +202,17 @@ def get_connection():
             yield wrapper
             conn.commit()
         except Exception:
-            conn.rollback()
+            is_broken = True
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise
         finally:
-            pool.putconn(conn)
+            try:
+                pool.putconn(conn, close=is_broken or conn.closed != 0)
+            except Exception:
+                pass
     else:
         dir_name = os.path.dirname(BETMATE_DB_PATH)
         if dir_name:

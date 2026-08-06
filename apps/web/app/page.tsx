@@ -365,7 +365,7 @@ function HomePageContent() {
           </div>
         </section>
 
-        {/* Refactored Single Primary Card Component */}
+        {/* 4-Card Grid Component */}
         <HomePrimaryCard
           opportunities={opportunities}
           oppsLoading={oppsLoading}
@@ -379,6 +379,7 @@ function HomePageContent() {
           upcomingSports={upcomingSports}
           sportsLoading={sportsLoading}
           sportsError={sportsError}
+          racingLinkHref={racingLinkHref}
         />
       </div>
     </ErrorBoundary>

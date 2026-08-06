@@ -122,13 +122,30 @@ router.post("/settle-bets", async (req, res) => {
       });
     }
 
+    // 4. Trigger Prediction Engine Strategy Card Placement for the New Day
+    let refreshedStrategyCards = 0;
+    try {
+      const mlApiTarget = process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+      const refreshRes = await fetch(`${mlApiTarget}/api/strategy-cards/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        refreshedStrategyCards = refreshData?.count || 0;
+      }
+    } catch (refreshErr) {
+      console.warn("Failed to auto-refresh strategy cards during bet settlement:", refreshErr);
+    }
+
     return res.json({
       success: true,
       timezone: "Australia/Melbourne",
       timestamp: melbourneNow.toISOString(),
       settledUserBetsCount: settledCount,
       pendingLogsCount: pendingLogs.length,
-      message: "4:00 AM Melbourne bet settlement and post-settlement leaderboard updates completed successfully."
+      refreshedStrategyCardsCount: refreshedStrategyCards,
+      message: "4:00 AM Melbourne bet settlement, leaderboard updates, and daily strategy card generation completed successfully."
     });
   } catch (error: any) {
     console.error("Cron settlement failed:", error);

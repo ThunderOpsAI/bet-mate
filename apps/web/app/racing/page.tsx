@@ -25,9 +25,7 @@ import {
   ConfidenceBadge,
   UrgencyBadge,
 } from "../components/PredictionSignalBadges";
-import BestRacingOpportunities from "../components/racing/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
-import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -149,22 +147,27 @@ function getDateForTab(tab: string): string {
     d.setDate(d.getDate() + 1);
     return d.toISOString().split("T")[0];
   }
-  if (tab === "wednesday" || tab === "friday" || tab === "saturday") {
-    const targetDayMap: Record<string, number> = {
-      wednesday: 3,
-      friday: 5,
-      saturday: 6,
-    };
-    const targetDay = targetDayMap[tab];
+  if (tab === "next" || tab === "today") {
+    return today.toISOString().split("T")[0];
+  }
+
+  const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const targetDay = dayNames.indexOf(tab.toLowerCase());
+  if (targetDay !== -1) {
     const currentDay = today.getDay();
     let daysAhead = targetDay - currentDay;
-    if (daysAhead < 0) {
+    if (daysAhead <= 0) {
       daysAhead += 7;
     }
     const d = new Date(today);
     d.setDate(d.getDate() + daysAhead);
     return d.toISOString().split("T")[0];
   }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(tab)) {
+    return tab;
+  }
+
   return today.toISOString().split("T")[0];
 }
 
@@ -535,8 +538,7 @@ function RacingPageContent() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <SectionHeaderToggle activeSection="racing" />
+      <div className="flex items-center justify-end gap-3 flex-wrap mb-3">
         <RefreshControls
           lastUpdated={lastUpdated}
           nextRefreshAt={nextRefreshAt}
