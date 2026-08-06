@@ -13,6 +13,7 @@ type User = {
   email: string;
   username: string;
   currentBankroll: number;
+  emailConfirmed: boolean;
 };
 
 type AuthContextType = {
@@ -20,10 +21,17 @@ type AuthContextType = {
   token: string | null;
   isLoading: boolean;
   login: (emailOrUsername: string, password: string) => Promise<void>;
-  register: (email: string, username: string, password: string, startingBankroll: number) => Promise<void>;
+  register: (
+    email: string,
+    username: string,
+    password: string,
+    startingBankroll: number,
+    marketingOptIn?: boolean
+  ) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
   updateBankroll: (delta: number) => void;
+  resendConfirmationEmail: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -33,6 +41,7 @@ const GUEST_USER: User = {
   email: "guest@betmate.local",
   username: "Guest",
   currentBankroll: 250,
+  emailConfirmed: true,
 };
 
 const GUEST_TOKEN = "guest";
@@ -54,11 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (storedToken && storedUser) {
         const parsedUser = JSON.parse(storedUser) as User;
+        const normalizedUser: User = {
+          ...parsedUser,
+          emailConfirmed: parsedUser.emailConfirmed ?? true,
+        };
         setToken(storedToken);
-        setUser(parsedUser);
-        identifyUser(parsedUser.id, {
-          username: parsedUser.username,
-          email: parsedUser.email,
+        setUser(normalizedUser);
+        identifyUser(normalizedUser.id, {
+          username: normalizedUser.username,
+          email: normalizedUser.email,
         });
       } else {
         setToken(GUEST_TOKEN);
@@ -84,46 +97,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!res.ok || !data) {
       throw new Error(data?.error || "Login failed");
     }
-    setUser(data.user);
+    const userData: User = {
+      ...data.user,
+      emailConfirmed: data.user.emailConfirmed ?? false,
+    };
+    setUser(userData);
     setToken(data.accessToken);
     localStorage.setItem("betmate_token", data.accessToken);
-    localStorage.setItem("betmate_user", JSON.stringify(data.user));
+    localStorage.setItem("betmate_user", JSON.stringify(userData));
 
-    identifyUser(data.user.id, {
-      username: data.user.username,
-      email: data.user.email,
+    identifyUser(userData.id, {
+      username: userData.username,
+      email: userData.email,
     });
     trackEvent(ANALYTICS_EVENTS.USER_LOGGED_IN, {
-      userId: data.user.id,
-      username: data.user.username,
+      userId: userData.id,
+      username: userData.username,
     });
   }, []);
 
-  const register = useCallback(async (email: string, username: string, password: string, startingBankroll: number) => {
-    const res = await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, username, password, startingBankroll }),
-    });
-    const data = await safeResponseJson(res);
-    if (!res.ok || !data) {
-      throw new Error(data?.error || "Registration failed");
-    }
-    setUser(data.user);
-    setToken(data.accessToken);
-    localStorage.setItem("betmate_token", data.accessToken);
-    localStorage.setItem("betmate_user", JSON.stringify(data.user));
+  const register = useCallback(
+    async (
+      email: string,
+      username: string,
+      password: string,
+      startingBankroll: number,
+      marketingOptIn: boolean = false
+    ) => {
+      const res = await fetch(`${API_BASE}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, username, password, startingBankroll, marketingOptIn }),
+      });
+      const data = await safeResponseJson(res);
+      if (!res.ok || !data) {
+        throw new Error(data?.error || "Registration failed");
+      }
+      const userData: User = {
+        ...data.user,
+        emailConfirmed: data.user.emailConfirmed ?? false,
+      };
+      setUser(userData);
+      setToken(data.accessToken);
+      localStorage.setItem("betmate_token", data.accessToken);
+      localStorage.setItem("betmate_user", JSON.stringify(userData));
 
-    identifyUser(data.user.id, {
-      username: data.user.username,
-      email: data.user.email,
-    });
-    trackEvent(ANALYTICS_EVENTS.USER_REGISTERED, {
-      userId: data.user.id,
-      username: data.user.username,
-      startingBankroll,
-    });
-  }, []);
+      identifyUser(userData.id, {
+        username: userData.username,
+        email: userData.email,
+      });
+      trackEvent(ANALYTICS_EVENTS.USER_REGISTERED, {
+        userId: userData.id,
+        username: userData.username,
+        startingBankroll,
+        marketingOptIn,
+      });
+    },
+    []
+  );
 
   const logout = useCallback(() => {
     if (user && user.id !== "guest") {
@@ -144,8 +175,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (res.ok) {
         const data = await safeResponseJson(res);
         if (data?.user) {
-          setUser(data.user);
-          localStorage.setItem("betmate_user", JSON.stringify(data.user));
+          const userData: User = {
+            ...data.user,
+            emailConfirmed: data.user.emailConfirmed ?? false,
+          };
+          setUser(userData);
+          localStorage.setItem("betmate_user", JSON.stringify(userData));
         }
       }
     } catch { /* ignore */ }
@@ -163,8 +198,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const resendConfirmationEmail = useCallback(async () => {
+    if (!token || token === GUEST_TOKEN) return;
+    const res = await fetch(`${API_BASE}/auth/resend-confirmation`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const data = await safeResponseJson(res);
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to resend confirmation email");
+    }
+  }, [token]);
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser, updateBankroll }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        login,
+        register,
+        logout,
+        refreshUser,
+        updateBankroll,
+        resendConfirmationEmail,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

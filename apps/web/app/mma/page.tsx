@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 
 type MMAMatchup = {
@@ -345,13 +345,7 @@ export default function MMAPage() {
   ).slice(0, 5);
 
   const hasMmaData = games.length > 0 || Object.keys(predictions).length > 0;
-  const mmaStatus = getCachedViewStatus({
-    resourceLabel: "MMA data",
-    hasData: hasMmaData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
     <div>
@@ -366,19 +360,7 @@ export default function MMAPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {mmaStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={mmaStatus.title}
-            message={mmaStatus.message}
-            tone={mmaStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="mma" />
 
       {!hasMmaData && refreshFailed ? (
         <ErrorState

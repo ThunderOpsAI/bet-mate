@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 
 
@@ -327,13 +327,7 @@ export default function NBAPage() {
     }),
   ).slice(0, 5);
   const hasNbaData = games.length > 0 || Object.keys(predictions).length > 0;
-  const nbaStatus = getCachedViewStatus({
-    resourceLabel: "NBA data",
-    hasData: hasNbaData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
     <div>
@@ -348,19 +342,7 @@ export default function NBAPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {nbaStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={nbaStatus.title}
-            message={nbaStatus.message}
-            tone={nbaStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="nba" />
 
       {!hasNbaData && refreshFailed ? (
         <ErrorState

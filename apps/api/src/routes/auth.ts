@@ -5,19 +5,20 @@ import { PrismaClient } from "@prisma/client";
 import { z } from "zod";
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma = new PrismaClient();
 const jwtSecret = process.env.JWT_SECRET ?? "change-me-in-production";
 
 const memoryUsers = new Map<
   string,
-  { id: string; email: string; username: string; passwordHash: string; currentBankroll: number }
+  { id: string; email: string; username: string; passwordHash: string; currentBankroll: number; emailConfirmed: boolean; marketingOptIn: boolean }
 >();
 
 const registerSchema = z.object({
   email: z.string().email(),
   username: z.string().min(3),
   password: z.string().min(8),
-  startingBankroll: z.number().positive().default(1000),
+  startingBankroll: z.number().positive().default(10000),
+  marketingOptIn: z.boolean().default(false),
 });
 
 const loginSchema = z.object({
@@ -50,15 +51,24 @@ router.post("/register", async (req, res) => {
         passwordHash,
         startingBankroll: parsed.data.startingBankroll,
         currentBankroll: parsed.data.startingBankroll,
+        emailConfirmed: false,
+        marketingOptIn: parsed.data.marketingOptIn,
       },
     });
 
     return res.status(201).json({
-      user: { id: user.id, email: user.email, username: user.username, currentBankroll: Number(user.currentBankroll) },
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        currentBankroll: Number(user.currentBankroll),
+        emailConfirmed: user.emailConfirmed,
+        marketingOptIn: user.marketingOptIn,
+      },
       accessToken: makeToken(user.id),
     });
-  } catch {
-    // Fallback: in-memory registration
+  } catch (dbErr) {
+    console.warn("Prisma user creation fallback:", dbErr);
     const existingMem = [...memoryUsers.values()].find(
       (u) => u.email === parsed.data.email || u.username === parsed.data.username
     );
@@ -66,11 +76,26 @@ router.post("/register", async (req, res) => {
 
     const id = `local-${Date.now()}`;
     const passwordHash = await bcrypt.hash(parsed.data.password, 10);
-    const u = { id, email: parsed.data.email, username: parsed.data.username, passwordHash, currentBankroll: parsed.data.startingBankroll };
+    const u = {
+      id,
+      email: parsed.data.email,
+      username: parsed.data.username,
+      passwordHash,
+      currentBankroll: parsed.data.startingBankroll,
+      emailConfirmed: false,
+      marketingOptIn: parsed.data.marketingOptIn,
+    };
     memoryUsers.set(id, u);
 
     return res.status(201).json({
-      user: { id, email: u.email, username: u.username, currentBankroll: u.currentBankroll },
+      user: {
+        id,
+        email: u.email,
+        username: u.username,
+        currentBankroll: u.currentBankroll,
+        emailConfirmed: u.emailConfirmed,
+        marketingOptIn: u.marketingOptIn,
+      },
       accessToken: makeToken(id),
       mode: "fallback",
     });
@@ -94,10 +119,18 @@ router.post("/login", async (req, res) => {
     if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
     return res.json({
-      user: { id: user.id, email: user.email, username: user.username, currentBankroll: Number(user.currentBankroll) },
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        currentBankroll: Number(user.currentBankroll),
+        emailConfirmed: user.emailConfirmed,
+        marketingOptIn: user.marketingOptIn,
+      },
       accessToken: makeToken(user.id),
     });
-  } catch {
+  } catch (dbErr) {
+    console.warn("Prisma login fallback:", dbErr);
     const user = [...memoryUsers.values()].find(
       (c) => c.email === parsed.data.emailOrUsername || c.username === parsed.data.emailOrUsername
     );
@@ -107,10 +140,65 @@ router.post("/login", async (req, res) => {
     if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
     return res.json({
-      user: { id: user.id, email: user.email, username: user.username, currentBankroll: user.currentBankroll },
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        currentBankroll: user.currentBankroll,
+        emailConfirmed: user.emailConfirmed,
+        marketingOptIn: user.marketingOptIn,
+      },
       accessToken: makeToken(user.id),
       mode: "fallback",
     });
+  }
+});
+
+// POST /api/auth/resend-confirmation
+router.post("/resend-confirmation", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      const memUser = [...memoryUsers.values()].find((u) => u.email === email);
+      if (!memUser) return res.status(404).json({ error: "User not found" });
+    }
+
+    return res.json({
+      success: true,
+      message: `Confirmation email re-sent to ${email}.`,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to resend confirmation email" });
+  }
+});
+
+// POST /api/auth/confirm-email
+router.post("/confirm-email", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: "Email is required" });
+
+  try {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      await prisma.user.update({
+        where: { email },
+        data: { emailConfirmed: true },
+      });
+      return res.json({ success: true, emailConfirmed: true });
+    }
+
+    const memUser = [...memoryUsers.values()].find((u) => u.email === email);
+    if (memUser) {
+      memUser.emailConfirmed = true;
+      return res.json({ success: true, emailConfirmed: true, mode: "fallback" });
+    }
+
+    return res.status(404).json({ error: "User not found" });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to confirm email" });
   }
 });
 

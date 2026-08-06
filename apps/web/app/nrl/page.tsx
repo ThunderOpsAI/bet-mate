@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 
 type NRLGame = {
@@ -393,13 +393,7 @@ export default function NRLPage() {
   ).slice(0, 5);
 
   const hasNrlData = games.length > 0 || Object.keys(predictions).length > 0;
-  const nrlStatus = getCachedViewStatus({
-    resourceLabel: "NRL data",
-    hasData: hasNrlData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
     <div>
@@ -414,19 +408,7 @@ export default function NRLPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {nrlStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={nrlStatus.title}
-            message={nrlStatus.message}
-            tone={nrlStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="nrl" />
 
       {!hasNrlData && refreshFailed ? (
         <ErrorState

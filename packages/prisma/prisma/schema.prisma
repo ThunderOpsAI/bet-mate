@@ -255,3 +255,57 @@ model StrategyPerformanceLog {
   @@schema("public")
 }
 
+model User {
+  id               String            @id @default(cuid())
+  email            String            @unique
+  username         String            @unique
+  passwordHash     String
+  emailConfirmed   Boolean           @default(false)
+  marketingOptIn   Boolean           @default(false)
+  startingBankroll Float             @default(10000.0)
+  currentBankroll  Float             @default(10000.0)
+  createdAt        DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
+  bets             Bet[]
+  bankrollHistory  BankrollHistory[]
+
+  @@schema("public")
+}
+
+model Bet {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType        String
+  eventId          String
+  eventName        String
+  eventTime        DateTime? @db.Timestamptz(6)
+  betType          String
+  selection        String
+  odds             Float
+  stake            Float
+  status           String    @default("PENDING")
+  payout           Float?
+  wasAIRecommended Boolean   @default(false)
+  notes            String?
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6)
+  settledAt        DateTime? @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([status])
+  @@schema("public")
+}
+
+model BankrollHistory {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float
+  reason    String
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@schema("public")
+}
+
+

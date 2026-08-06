@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 
 type AFLGame = {
@@ -390,21 +390,7 @@ export default function AFLPage() {
     }),
   ).slice(0, 5);
   const hasAflData = games.length > 0 || Object.keys(predictions).length > 0;
-  const aflStatus = getCachedViewStatus({
-    resourceLabel: "AFL data",
-    hasData: hasAflData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
-  const liveScoresStatus =
-    liveStatus === "connected" || !hasAflData
-      ? null
-      : {
-          title: "AFL scores refreshing",
-          message:
-            "Live score updates are reconnecting. Predictions stay available while that feed catches up.",
-        };
+
 
   return (
     <div>
@@ -419,29 +405,7 @@ export default function AFLPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {(aflStatus || liveScoresStatus) ? (
-        <div className="status-stack">
-          {aflStatus ? (
-            <ErrorState
-              title={aflStatus.title}
-              message={aflStatus.message}
-              tone={aflStatus.tone}
-              actionLabel="Refresh now"
-              onAction={() => void refreshPage()}
-              compact
-            />
-          ) : null}
-          {liveScoresStatus ? (
-            <ErrorState
-              title={liveScoresStatus.title}
-              message={liveScoresStatus.message}
-              tone="info"
-              compact
-            />
-          ) : null}
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="afl" />
 
       {!hasAflData && refreshFailed ? (
         <ErrorState

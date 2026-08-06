@@ -18,7 +18,7 @@ export default function RaceCodeFilter({ activeType, activeRegion, onTypeChange,
           onClick={() => onTypeChange("T")}
         >
           <Trophy size={14} />
-          Horses
+          Thoroughbreds
         </button>
         <button
           type="button"

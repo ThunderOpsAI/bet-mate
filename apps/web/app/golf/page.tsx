@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { getEdgePercent, rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 type GolfPlayer = {
   player_id: string;
@@ -342,13 +342,7 @@ export default function GolfPage() {
   ).slice(0, 5);
 
   const hasGolfData = tournaments.length > 0 || Object.keys(predictions).length > 0;
-  const golfStatus = getCachedViewStatus({
-    resourceLabel: "Golf data",
-    hasData: hasGolfData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
     <div>
@@ -363,19 +357,7 @@ export default function GolfPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {golfStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={golfStatus.title}
-            message={golfStatus.message}
-            tone={golfStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="golf" />
 
       {!hasGolfData && refreshFailed ? (
         <ErrorState

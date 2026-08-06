@@ -38,14 +38,21 @@ router.post("/", async (req: AuthRequest, res) => {
   const { eventType, eventId, eventName, eventTime, betType, selection, odds, stake, wasAIRecommended, notes } = parsed.data;
 
   try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Email confirmation required",
+        message: "Please confirm your email address before placing paper bets."
+      });
+    }
+
+    if (Number(user.currentBankroll) < stake) {
+      return res.status(400).json({ error: "Insufficient bankroll" });
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
-      const user = await tx.user.findUnique({ where: { id: userId } });
-      if (!user) throw new Error("User not found");
-
-      if (Number(user.currentBankroll) < stake) {
-        throw new Error("Insufficient bankroll");
-      }
-
       const bet = await tx.bet.create({
         data: {
           userId,
@@ -71,17 +78,29 @@ router.post("/", async (req: AuthRequest, res) => {
         data: { userId, amount: -stake, reason: `Bet placed: ${selection} @ ${odds}` },
       });
 
+      // Sync bet into paper_bet_log for ML feedback loop
+      await tx.paper_bet_log.create({
+        data: {
+          sport: eventType,
+          event_id: eventId,
+          event_name: eventName,
+          selection,
+          bet_type: betType,
+          odds,
+          stake,
+          status: "PENDING",
+          notes,
+          origin: "user",
+          user_id: userId,
+        },
+      }).catch((e: any) => console.warn("Failed to sync paper_bet_log for ML engine:", e.message));
+
       return bet;
     });
 
     return res.status(201).json({ bet: result });
   } catch (err: any) {
-    if (err.message === "Insufficient bankroll") {
-      return res.status(400).json({ error: "Insufficient bankroll" });
-    }
-    if (err.message === "User not found") {
-      return res.status(404).json({ error: "User not found" });
-    }
+    console.error("Bet creation error:", err);
     return res.status(500).json({ error: "Failed to create bet" });
   }
 });
@@ -99,14 +118,21 @@ router.post("/batch", async (req: AuthRequest, res) => {
   const totalStake = betsData.reduce((sum, b) => sum + b.stake, 0);
 
   try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Email confirmation required",
+        message: "Please confirm your email address before placing paper bets."
+      });
+    }
+
+    if (Number(user.currentBankroll) < totalStake) {
+      return res.status(400).json({ error: "Insufficient bankroll" });
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
-      const user = await tx.user.findUnique({ where: { id: userId } });
-      if (!user) throw new Error("User not found");
-
-      if (Number(user.currentBankroll) < totalStake) {
-        throw new Error("Insufficient bankroll");
-      }
-
       // Create all bets
       const bets = await Promise.all(
         betsData.map((b) =>
@@ -143,21 +169,37 @@ router.post("/batch", async (req: AuthRequest, res) => {
         },
       });
 
+      // Sync batch bets into paper_bet_log for ML engine training loop
+      await Promise.all(
+        betsData.map((b) =>
+          tx.paper_bet_log.create({
+            data: {
+              sport: b.eventType,
+              event_id: b.eventId,
+              event_name: b.eventName,
+              selection: b.selection,
+              bet_type: b.betType,
+              odds: b.odds,
+              stake: b.stake,
+              status: "PENDING",
+              notes: b.notes,
+              origin: "user",
+              user_id: userId,
+            },
+          }).catch((e: any) => console.warn("Batch paper_bet_log sync failed:", e.message))
+        )
+      );
+
       return bets;
     });
 
     return res.status(201).json({ success: true, count: result.length, bets: result });
   } catch (err: any) {
-    if (err.message === "Insufficient bankroll") {
-      return res.status(400).json({ error: "Insufficient bankroll" });
-    }
-    if (err.message === "User not found") {
-      return res.status(404).json({ error: "User not found" });
-    }
     console.error("Batch creation failed:", err);
     return res.status(500).json({ error: "Failed to create batch bets" });
   }
 });
+
 
 // GET /api/bets — list user bets
 router.get("/", async (req: AuthRequest, res) => {

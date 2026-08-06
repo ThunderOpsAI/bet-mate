@@ -1648,14 +1648,8 @@ tr:hover td {
 .refresh-controls {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.25rem;
-  padding: 0.9rem 1rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: var(--bg-card);
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
 }
 
 .refresh-controls-meta {
@@ -3818,6 +3812,7 @@ button:disabled {
   transition: all var(--transition-fast);
   font-family: inherit;
   white-space: nowrap;
+  text-decoration: none;
 }
 
 .race-code-pill:hover {

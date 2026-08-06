@@ -41,7 +41,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -501,13 +500,7 @@ function RacingPageContent() {
     }),
   ).slice(0, 5);
   const hasRacingData = races.length > 0 || Object.keys(predictions).length > 0;
-  const racingStatus = getCachedViewStatus({
-    resourceLabel: "Racing data",
-    hasData: hasRacingData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   // Group races by venue
   const venueGroups = filteredRaces.reduce<Record<string, Race[]>>((acc, race) => {
@@ -543,18 +536,7 @@ function RacingPageContent() {
         onRefresh={refreshPage}
       />
 
-      {racingStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={racingStatus.title}
-            message={racingStatus.message}
-            tone={racingStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+
 
       {/* Temporal header */}
       <TemporalHeader activeTab={temporalTab} onTabChange={setTemporalTab} />

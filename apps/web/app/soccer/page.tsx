@@ -30,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -41,6 +40,7 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
 
 
 type SoccerGame = {
@@ -409,13 +409,7 @@ export default function SoccerPage() {
   ).slice(0, 5);
 
   const hasSoccerData = games.length > 0 || Object.keys(predictions).length > 0;
-  const soccerStatus = getCachedViewStatus({
-    resourceLabel: "Soccer data",
-    hasData: hasSoccerData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
     <div>
@@ -430,19 +424,7 @@ export default function SoccerPage() {
         isRefreshing={refreshing}
         onRefresh={refreshPage}
       />
-
-      {soccerStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={soccerStatus.title}
-            message={soccerStatus.message}
-            tone={soccerStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <SportCodeFilter activeSport="soccer" />
 
       {!hasSoccerData && refreshFailed ? (
         <ErrorState

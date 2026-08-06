@@ -64,7 +64,7 @@ export default function RaceDetailPage() {
     return (
       <div className="empty-state">
         <h4>Race not found</h4>
-        <button className="btn btn-secondary" onClick={() => router.push("/")}>Back to Dashboard</button>
+        <button className="btn btn-secondary" onClick={() => router.push("/")}>Back to Home</button>
       </div>
     );
   }

@@ -79,7 +79,7 @@ export default function VariantRacingFilters() {
             onClick={() => updateFilters({ type: "T" })}
           >
             <Trophy size={14} />
-            Horses
+            Thoroughbreds
           </button>
           <button
             type="button"
