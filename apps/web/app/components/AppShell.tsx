@@ -85,22 +85,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <PromoCarousel />
           </div>
 
-          <div className="relative" ref={dropdownRef}>
-            {!isGuest ? (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setProfileDropdownOpen((prev) => !prev)}
-                  className="user-badge flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-200 transition-all text-xs font-medium"
-                  aria-expanded={profileDropdownOpen}
-                  aria-label="User Profile Menu"
-                >
-                  <UserIcon size={14} className="text-emerald-400" />
-                  <span className="max-w-[100px] truncate">{user.username}</span>
-                  <span className="text-emerald-400 font-semibold">
-                    (${currentBalance.toLocaleString()})
-                  </span>
-                </button>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <Link
+              href="/settings"
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors flex items-center justify-center"
+              title="Settings"
+              aria-label="Settings"
+            >
+              <Settings size={18} />
+            </Link>
+
+            <div className="relative" ref={dropdownRef}>
+              {!isGuest ? (
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => setProfileDropdownOpen((prev) => !prev)}
+                    className="user-badge flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-200 transition-all text-xs font-medium"
+                    aria-expanded={profileDropdownOpen}
+                    aria-label="User Profile Menu"
+                  >
+                    <UserIcon size={16} className="text-emerald-400 shrink-0" />
+                    <div className="flex flex-col text-left leading-tight">
+                      <span className="max-w-[100px] truncate text-xs font-semibold text-slate-200">
+                        {user.username}
+                      </span>
+                      <span className="text-[11px] font-bold text-emerald-400">
+                        ${currentBalance.toLocaleString()}
+                      </span>
+                    </div>
+                  </button>
 
                 {/* Profile Dropdown */}
                 {profileDropdownOpen && (
@@ -181,7 +195,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             )}
           </div>
-        </header>
+        </div>
+      </header>
 
         {/* Page Content */}
         <main className="page-content flex-1">{children}</main>
@@ -235,33 +250,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Global Footer & Responsible Gambling Compliance */}
         <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16 md:mb-0">
           <div className="max-w-4xl mx-auto space-y-3">
-            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-slate-300 font-medium">
-              <Link
-                href="/how-it-works"
-                className="hover:text-emerald-400 transition-colors underline decoration-slate-700 underline-offset-4"
-              >
-                How It Works
-              </Link>
-              <Link
-                href="/strategy"
-                className="hover:text-emerald-400 transition-colors"
-              >
-                Strategy Lab
-              </Link>
-              <Link
-                href="/racing"
-                className="hover:text-emerald-400 transition-colors"
-              >
-                Racing Models
-              </Link>
-              <Link
-                href="/settings"
-                className="hover:text-emerald-400 transition-colors"
-              >
-                Settings
-              </Link>
-            </div>
-
             <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 max-w-2xl mx-auto text-slate-300 font-semibold space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-amber-400">
                 <ShieldAlert size={15} />

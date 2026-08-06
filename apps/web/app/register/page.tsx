@@ -67,7 +67,7 @@ function RegisterForm() {
       return;
     }
     if (!acceptedTerms) {
-      setError("You must accept the Terms & Conditions to create an account.");
+      setError("You must accept the Terms & Conditions and Privacy Policy to create an account.");
       return;
     }
 

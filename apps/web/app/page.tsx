@@ -291,78 +291,15 @@ function HomePageContent() {
   return (
     <ErrorBoundary sectionName="Home Landing">
       <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4">
-        {/* Welcome / Quick Hub Header Banner */}
-        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 md:p-6 backdrop-blur-sm shadow-xl">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-              <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm mb-1">
-                <Sparkles size={16} />
-                <span>AI-Powered Betting Intelligence</span>
-              </div>
-              <h1 className="text-2xl md:text-3xl font-extrabold text-slate-100 tracking-tight">
-                BetMate Dashboard
-              </h1>
-              <p className="text-slate-400 text-sm md:text-base mt-1 max-w-2xl">
-                Real-time value opportunities, model predictions across racing &amp; sports, and automated Blackbook watch rules.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <Link href={racingLinkHref} className="btn btn-primary text-sm flex items-center gap-2">
-                <Trophy size={16} />
-                <span>Racing Cards</span>
-              </Link>
-              <Link href="/strategy" className="btn btn-secondary text-sm flex items-center gap-2">
-                <Bot size={16} />
-                <span>Strategies</span>
-              </Link>
-            </div>
+        {/* Clean Dashboard Header */}
+        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm shadow-xl">
+          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs sm:text-sm mb-1">
+            <Sparkles size={16} />
+            <span>AI-Powered Betting Intelligence</span>
           </div>
-
-          {/* Quick Sport Links Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-6">
-            <Link
-              href={racingLinkHref}
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-amber-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <Trophy size={20} className="text-amber-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">Racing</span>
-            </Link>
-            <Link
-              href="/afl"
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-emerald-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <Zap size={20} className="text-emerald-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">AFL</span>
-            </Link>
-            <Link
-              href="/nba"
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-sky-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <Zap size={20} className="text-sky-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">NBA</span>
-            </Link>
-            <Link
-              href="/nrl"
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-indigo-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <Shield size={20} className="text-indigo-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">NRL</span>
-            </Link>
-            <Link
-              href="/soccer"
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-cyan-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <Globe size={20} className="text-cyan-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">Soccer</span>
-            </Link>
-            <Link
-              href="/blackbook"
-              className="p-3 bg-slate-950/60 border border-slate-800 hover:border-purple-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
-            >
-              <BookOpen size={20} className="text-purple-400 mb-1 group-hover:scale-110 transition-transform" />
-              <span className="text-xs font-semibold text-slate-200">Blackbook</span>
-            </Link>
-          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 tracking-tight">
+            BetMate Dashboard
+          </h1>
         </section>
 
         {/* 4-Card Grid Component */}

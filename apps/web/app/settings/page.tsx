@@ -63,6 +63,13 @@ function SettingsContent() {
     void loadJames();
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      setUsername(user.username ?? "");
+      setEmail(user.email ?? "");
+    }
+  }, [user]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     requireAuthAction(async () => {
@@ -73,7 +80,7 @@ function SettingsContent() {
         const res = await fetch(`${API_BASE}/user/profile`, {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ username, email }),
+          body: JSON.stringify({ username }),
         });
         const data = await safeResponseJson(res);
         if (!res.ok || !data) {
@@ -163,9 +170,16 @@ function SettingsContent() {
             <input className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
           </div>
           <div className="form-group">
-            <label className="form-label">Email</label>
-            <input className="form-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="form-label">Email Address</label>
+            <input className="form-input" type="email" value={email} disabled readOnly style={{ opacity: 0.7, cursor: "not-allowed" }} />
           </div>
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input className="form-input" type="password" value="••••••••" disabled readOnly style={{ opacity: 0.7, cursor: "not-allowed" }} />
+          </div>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "1.25rem", marginTop: "-0.25rem", lineHeight: 1.4 }}>
+            To change your registered email address or security password, please contact BetMate Support at <a href="mailto:support@bet-mate.ai" style={{ color: "var(--accent)", textDecoration: "underline" }}>support@bet-mate.ai</a>.
+          </p>
           <button type="submit" className="btn btn-primary" disabled={loading}>
             <Save size={16} /> {loading ? "Saving…" : "Save Changes"}
           </button>
