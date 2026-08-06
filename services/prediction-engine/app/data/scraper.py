@@ -204,15 +204,16 @@ def _resolve_race_type_event_ids(race_type: Optional[str]) -> List[str]:
     if not race_type:
         return ["7"]
     rt = str(race_type).strip().upper()
-    if rt in {"T", "7", "THOROUGHBRED"}:
+    if rt in {"T", "7", "THOROUGHBRED", "THOROUGHBREDS"}:
         return ["7"]
-    if rt in {"G", "4337", "GREYHOUND"}:
-        return ["4337"]
-    if rt in {"H", "4339", "HARNESS"}:
+    if rt in {"G", "4339", "GREYHOUND", "GREYHOUNDS"}:
         return ["4339"]
+    if rt in {"H", "4337", "HARNESS"}:
+        return ["4337"]
     if rt in {"ALL"}:
-        return ["7", "4337", "4339"]
+        return ["7", "4339", "4337"]
     return ["7"]
+
 
 
 def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] = None):

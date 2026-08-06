@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import type {
   BobExplanation,
   FeatureImpactItem,
@@ -27,6 +27,7 @@ import {
 } from "../components/PredictionSignalBadges";
 import BestRacingOpportunities from "../components/racing/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
+import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -233,6 +234,7 @@ async function fetchRacePredictions(races: Race[]) {
 
 function RacingPageContent() {
   const { token, user } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const raceType = searchParams.get("type") || "T";
   const whenParam = searchParams.get("when") || "today";
@@ -252,7 +254,6 @@ function RacingPageContent() {
   const initialRace = searchParams.get("race") || null;
   const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(initialRace);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
-  const [temporalTab, setTemporalTab] = useState<string>(whenParam);
   const [regionFilter, setRegionFilter] = useState<string>("all");
   const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
@@ -272,9 +273,14 @@ function RacingPageContent() {
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
-  useEffect(() => {
-    setTemporalTab(whenParam);
-  }, [whenParam]);
+  const updateQueryParams = (newType: string, newWhen: string) => {
+    setSelectedVenueName(null);
+    setSelectedRaceId(null);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("type", newType);
+    params.set("when", newWhen);
+    router.push(`/racing?${params.toString()}`);
+  };
 
   const openWatchPanel = (horseName: string) => {
     setWatchPanel(horseName);
@@ -529,27 +535,29 @@ function RacingPageContent() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshPage}
-      />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <SectionHeaderToggle activeSection="racing" />
+        <RefreshControls
+          lastUpdated={lastUpdated}
+          nextRefreshAt={nextRefreshAt}
+          isRefreshing={refreshing}
+          onRefresh={refreshPage}
+        />
+      </div>
 
 
 
       {/* Temporal header */}
-      <TemporalHeader activeTab={temporalTab} onTabChange={setTemporalTab} />
+      <TemporalHeader
+        activeTab={whenParam}
+        onTabChange={(tab) => updateQueryParams(raceType, tab)}
+      />
 
       {/* Race code + region filters */}
       <RaceCodeFilter
         activeType={raceType}
         activeRegion={regionFilter}
-        onTypeChange={(type) => {
-          setSelectedVenueName(null);
-          setSelectedRaceId(null);
-          window.location.href = `/racing?type=${type}`;
-        }}
+        onTypeChange={(type) => updateQueryParams(type, whenParam)}
         onRegionChange={(region) => {
           setRegionFilter(region);
           setSelectedVenueName(null);

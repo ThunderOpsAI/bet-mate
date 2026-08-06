@@ -16,6 +16,7 @@ import {
 } from "../components/PredictionSignalBadges";
 import BestAflOpportunities from "../components/afl/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
+import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -41,6 +42,8 @@ import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
 import SportCodeFilter from "../components/sport/SportCodeFilter";
+import SportCard from "../components/sport/SportCard";
+import SportMatchupDrawer, { type MatchupDrawerData } from "../components/sport/SportMatchupDrawer";
 
 
 type AFLGame = {
@@ -172,6 +175,7 @@ export default function AFLPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [drawerMatchup, setDrawerMatchup] = useState<MatchupDrawerData | null>(null);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
@@ -399,12 +403,15 @@ export default function AFLPage() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshPage}
-      />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <SectionHeaderToggle activeSection="sport" />
+        <RefreshControls
+          lastUpdated={lastUpdated}
+          nextRefreshAt={nextRefreshAt}
+          isRefreshing={refreshing}
+          onRefresh={refreshPage}
+        />
+      </div>
       <SportCodeFilter activeSport="afl" />
 
       {!hasAflData && refreshFailed ? (
@@ -425,221 +432,86 @@ export default function AFLPage() {
       <ErrorBoundary sectionName="AFL predictions">
         <div className="game-cards-list">
           {games.map((game) => {
-          const prediction = predictions[game.game_id];
-          const liveScore = liveScores[game.game_id];
-          const homeScore = toScore(liveScore?.hscore ?? game.hscore);
-          const awayScore = toScore(liveScore?.ascore ?? game.ascore);
-          const gameComplete = toScore(liveScore?.complete ?? game.complete) ?? 0;
-          const scoreLabel = formatScoreLabel(homeScore, awayScore, gameComplete);
-          if (!prediction) {
+            const prediction = predictions[game.game_id];
+            const liveScore = liveScores[game.game_id];
+            const homeScore = toScore(liveScore?.hscore ?? game.hscore);
+            const awayScore = toScore(liveScore?.ascore ?? game.ascore);
+            const gameComplete = toScore(liveScore?.complete ?? game.complete) ?? 0;
+            const scoreLabel = formatScoreLabel(homeScore, awayScore, gameComplete);
+
+            if (!prediction) {
+              return (
+                <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-4 border border-white/5 rounded-xl bg-white/5 mb-3">
+                  <span className="text-slate-400 font-bold text-xs">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
+                </div>
+              );
+            }
+
+            const homePct = prediction.predictions.home_win_probability;
+            const awayPct = prediction.predictions.away_win_probability;
+            const confidenceSignal = getConfidenceSignal(prediction.ai_insights_context);
+            const urgencySignal = getUrgencySignal({
+              startTime: game.date,
+              isClosed: gameComplete > 0 && gameComplete < 100,
+              isResultPending: gameComplete >= 100,
+            });
+
+            const matchupData: MatchupDrawerData = {
+              id: game.game_id,
+              sport: "afl",
+              title: `${game.home_team} vs ${game.away_team}`,
+              subTitle: scoreLabel ?? formatGameStartLabel(game.date),
+              date: game.date,
+              venue: game.venue,
+              roundOrLeague: game.round ? `Round ${game.round}` : undefined,
+              outcomes: [
+                {
+                  name: game.home_team,
+                  isHome: true,
+                  winProb: homePct,
+                  fairOdds: prediction.predictions.fair_odds_home,
+                  marketOdds: prediction.predictions.market_odds_home,
+                },
+                {
+                  name: game.away_team,
+                  isAway: true,
+                  winProb: awayPct,
+                  fairOdds: prediction.predictions.fair_odds_away,
+                  marketOdds: prediction.predictions.market_odds_away,
+                },
+              ],
+              metadata: {
+                weather: game.features?.weather_condition,
+                restDays: game.features?.home_rest_days ? `Home: ${game.features.home_rest_days}d rest` : undefined,
+                travelDistance: game.features?.travel_distance_away !== undefined ? `Away: ${game.features.travel_distance_away}km travel` : undefined,
+                winStreak: game.features?.home_win_streak !== undefined || game.features?.away_win_streak !== undefined
+                  ? `Home: W${game.features?.home_win_streak ?? 0} / Away: W${game.features?.away_win_streak ?? 0}`
+                  : undefined,
+                squiggleTip: game.squiggle_tip,
+                squiggleConfidence: game.squiggle_confidence,
+                confidenceSignal,
+                urgencySignal,
+              },
+              featureImpact: prediction.feature_impact,
+              aiInsightsContext: prediction.ai_insights_context,
+              modelMetadata: prediction.model_metadata,
+            };
+
             return (
-              <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-6 border border-white/5 rounded-2xl bg-white/5 mb-3">
-                <span className="text-slate-400 font-bold text-sm">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
-              </div>
+              <SportCard
+                key={game.game_id}
+                matchup={matchupData}
+                onOpenDrawer={(m) => setDrawerMatchup(m)}
+              />
             );
-          }
-          const homePct = prediction.predictions.home_win_probability;
-          const awayPct = prediction.predictions.away_win_probability;
-          const homeWins = homePct > awayPct;
-          const isExpanded = expandedGame === game.game_id;
-          const confidenceSignal = prediction
-            ? getConfidenceSignal(prediction.ai_insights_context)
-            : null;
-          const urgencySignal = getUrgencySignal({
-            startTime: game.date,
-            isClosed: gameComplete > 0 && gameComplete < 100,
-            isResultPending: gameComplete >= 100,
-          });
-
-          return (
-            <div
-              key={game.game_id}
-              className={`game-prediction-card ${isExpanded ? "expanded" : ""}`}
-              onClick={() => setExpandedGame(isExpanded ? null : game.game_id)}
-            >
-              <div className="game-matchup-header">
-                <div className={`team-block ${homeWins ? "favoured" : ""}`}>
-                  <span className="team-label">HOME</span>
-                  <span className="team-name-lg">{game.home_team}</span>
-                  <span className="team-prob-lg">{homePct.toFixed(1)}%</span>
-                  {prediction ? (
-                    <span className="team-odds">
-                      Fair: ${prediction.predictions.fair_odds_home}
-                    </span>
-                  ) : null}
-                  {prediction?.predictions.market_odds_home ? (
-                    <span className="team-odds market">
-                      Betfair: ${prediction.predictions.market_odds_home.toFixed(2)}
-                    </span>
-                  ) : null}
-                  {prediction ? (
-                    <PaperBetAction
-                      variant="phase1"
-                      label="Log Selection Home"
-                      loggedLabel="Home Logged"
-                      cancelLabel="Cancel"
-                      openBetslipOnAdd={false}
-                      fullWidth
-                      bet={{
-                        sport: "afl",
-                        event_id: game.game_id,
-                        event_name: `${game.home_team} vs ${game.away_team}`,
-                        selection: game.home_team,
-                        odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                        bet_type: "head_to_head",
-                        stake: 10,
-                        odds_source: prediction.predictions.market_odds_home ? "market" : "model_fair",
-                        current_odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                        can_compare_odds: Boolean(prediction.predictions.market_odds_home && prediction.predictions.market_odds_home > 1),
-                        event_start_time: game.date,
-                        is_closed: gameComplete > 0 && gameComplete < 100,
-                      }}
-                    />
-                  ) : null}
-                </div>
-
-                <div className="matchup-center-block">
-                  <span className="matchup-center-kicker">AFL Matchup</span>
-                  <span className="matchup-center-title">
-                    {game.home_team} vs {game.away_team}
-                  </span>
-                  <span className="matchup-center-subtitle">
-                    {scoreLabel ?? formatGameStartLabel(game.date)}
-                  </span>
-                  <span className="matchup-center-subtitle subtle">
-                    Live scores: {formatLiveStatus(liveStatus)}
-                  </span>
-                </div>
-
-                <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
-                  <span className="team-label">AWAY</span>
-                  <span className="team-name-lg">{game.away_team}</span>
-                  <span className="team-prob-lg">{awayPct.toFixed(1)}%</span>
-                  {prediction ? (
-                    <span className="team-odds">
-                      Fair: ${prediction.predictions.fair_odds_away}
-                    </span>
-                  ) : null}
-                  {prediction?.predictions.market_odds_away ? (
-                    <span className="team-odds market">
-                      Betfair: ${prediction.predictions.market_odds_away.toFixed(2)}
-                    </span>
-                  ) : null}
-                  {prediction ? (
-                    <PaperBetAction
-                      variant="phase1"
-                      label="Log Selection Away"
-                      loggedLabel="Away Logged"
-                      cancelLabel="Cancel"
-                      openBetslipOnAdd={false}
-                      fullWidth
-                      bet={{
-                        sport: "afl",
-                        event_id: game.game_id,
-                        event_name: `${game.home_team} vs ${game.away_team}`,
-                        selection: game.away_team,
-                        odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                        bet_type: "head_to_head",
-                        stake: 10,
-                        odds_source: prediction.predictions.market_odds_away ? "market" : "model_fair",
-                        current_odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                        can_compare_odds: Boolean(prediction.predictions.market_odds_away && prediction.predictions.market_odds_away > 1),
-                        event_start_time: game.date,
-                        is_closed: gameComplete > 0 && gameComplete < 100,
-                      }}
-                    />
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="game-prob-bar large">
-                <div className="prob-fill home" style={{ width: `${homePct}%` }} />
-                <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
-              </div>
-
-              <div className="game-context-row">
-                <span className="context-chip">
-                  {weatherMap[game.features.weather_condition] ?? "☀️ Clear"}
-                </span>
-                {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                <span className="context-chip">
-                  🏠 {game.features.home_rest_days}d rest
-                </span>
-                <span className="context-chip">
-                  ✈️ {game.features.travel_distance_away}km travel
-                </span>
-                <span className="context-chip">
-                  🔥 H:W{game.features.home_win_streak} / A:W
-                  {game.features.away_win_streak}
-                </span>
-                {game.squiggle_tip ? (
-                  <span className="context-chip">
-                    Squiggle: {game.squiggle_tip}{" "}
-                    {formatSquiggleConfidence(game.squiggle_confidence)}
-                  </span>
-                ) : null}
-                {prediction ? (
-                  <>
-                    <button
-                      type="button"
-                      className="why-pick-button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setActiveExplanation(
-                          buildBobExplanation({
-                            sport: "afl",
-                            selectionName: homeWins ? game.home_team : game.away_team,
-                            opponentName: homeWins ? game.away_team : game.home_team,
-                            probability: homeWins ? homePct : awayPct,
-                            fairOdds: homeWins
-                              ? prediction.predictions.fair_odds_home
-                              : prediction.predictions.fair_odds_away,
-                            featureImpact: prediction.feature_impact,
-                            aiInsightsContext: prediction.ai_insights_context,
-                            modelMetadata: prediction.model_metadata,
-                          }),
-                        );
-                      }}
-                    >
-                      <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
-                    </button>
-                    <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
-                      <FeedbackButtons 
-                        sport="afl" 
-                        eventId={game.game_id} 
-                        selection={homeWins ? game.home_team : game.away_team}
-                      />
-                    </div>
-                  </>
-                ) : null}
-              </div>
-
-              {isExpanded && prediction ? (
-                <div className="game-expanded-section">
-                  <div className="feature-impact-section">
-                    <h4>
-                      <BarChart3 size={16} /> Bob explainability
-                    </h4>
-                    <p className="muted-copy">
-                      Open the "Why" drawer for the model lean to see what is helping,
-                      what is dragging, and how much trust Bob is putting in the read.
-                    </p>
-                  </div>
-
-                  <div className="explain-inline-card">
-                    <span>
-                      Model lean: {homeWins ? game.home_team : game.away_team} at{" "}
-                      {(homeWins ? homePct : awayPct).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          );
           })}
         </div>
       </ErrorBoundary>
+      <SportMatchupDrawer
+        isOpen={drawerMatchup !== null}
+        onClose={() => setDrawerMatchup(null)}
+        matchup={drawerMatchup}
+      />
         </>
       )}
 

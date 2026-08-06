@@ -16,6 +16,7 @@ import {
 } from "../components/PredictionSignalBadges";
 import BestSoccerOpportunities from "../components/soccer/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
+import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -41,6 +42,8 @@ import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
 import SportCodeFilter from "../components/sport/SportCodeFilter";
+import SportCard from "../components/sport/SportCard";
+import SportMatchupDrawer, { type MatchupDrawerData, type DrawerOutcome } from "../components/sport/SportMatchupDrawer";
 
 
 type SoccerGame = {
@@ -176,6 +179,7 @@ export default function SoccerPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [drawerMatchup, setDrawerMatchup] = useState<MatchupDrawerData | null>(null);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
@@ -418,12 +422,15 @@ export default function SoccerPage() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshPage}
-      />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <SectionHeaderToggle activeSection="sport" />
+        <RefreshControls
+          lastUpdated={lastUpdated}
+          nextRefreshAt={nextRefreshAt}
+          isRefreshing={refreshing}
+          onRefresh={refreshPage}
+        />
+      </div>
       <SportCodeFilter activeSport="soccer" />
 
       {!hasSoccerData && refreshFailed ? (
@@ -454,208 +461,86 @@ export default function SoccerPage() {
 
                 if (!prediction) {
                   return (
-                    <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-6 border border-white/5 rounded-2xl bg-white/5 mb-3">
-                      <span className="text-slate-400 font-bold text-sm">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
+                    <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-4 border border-white/5 rounded-xl bg-white/5 mb-3">
+                      <span className="text-slate-400 font-bold text-xs">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
                     </div>
                   );
                 }
+
                 const drawPct = prediction.predictions.draw_probability ?? 0;
                 const homePct = prediction.predictions.home_win_probability;
                 const awayPct = prediction.predictions.away_win_probability;
-                const isExpanded = expandedGame === game.game_id;
-                const confidenceSignal = prediction
-                  ? getConfidenceSignal(prediction.ai_insights_context)
-                  : null;
+                const confidenceSignal = getConfidenceSignal(prediction.ai_insights_context);
                 const urgencySignal = getUrgencySignal({
                   startTime: game.date,
                   isClosed: gameComplete > 0 && gameComplete < 100,
                   isResultPending: gameComplete >= 100,
                 });
 
+                const startDateLabel = game.date
+                  ? new Date(game.date).toLocaleString("en-AU", { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : "Start time pending";
+
+                const outcomes: DrawerOutcome[] = [
+                  {
+                    name: game.home_team,
+                    isHome: true,
+                    winProb: homePct,
+                    fairOdds: prediction.predictions.fair_odds_home,
+                    marketOdds: prediction.predictions.market_odds_home,
+                  },
+                ];
+
+                if (prediction.predictions.draw_probability !== undefined && prediction.predictions.fair_odds_draw) {
+                  outcomes.push({
+                    name: "Draw",
+                    isDraw: true,
+                    winProb: drawPct,
+                    fairOdds: prediction.predictions.fair_odds_draw,
+                    marketOdds: null,
+                  });
+                }
+
+                outcomes.push({
+                  name: game.away_team,
+                  isAway: true,
+                  winProb: awayPct,
+                  fairOdds: prediction.predictions.fair_odds_away,
+                  marketOdds: prediction.predictions.market_odds_away,
+                });
+
+                const matchupData: MatchupDrawerData = {
+                  id: game.game_id,
+                  sport: "soccer",
+                  title: `${game.home_team} vs ${game.away_team}`,
+                  subTitle: scoreLabel ?? startDateLabel,
+                  date: game.date,
+                  roundOrLeague: game.league,
+                  outcomes,
+                  metadata: {
+                    confidenceSignal,
+                    urgencySignal,
+                  },
+                  featureImpact: prediction.feature_impact,
+                  aiInsightsContext: prediction.ai_insights_context,
+                  modelMetadata: prediction.model_metadata,
+                };
+
                 return (
-                  <div
+                  <SportCard
                     key={game.game_id}
-                    className={`game-prediction-card ${isExpanded ? "expanded" : ""}`}
-                    onClick={() => setExpandedGame(isExpanded ? null : game.game_id)}
-                  >
-                    <div className="game-matchup-header">
-                      <div className="team-block">
-                        <span className="team-label">HOME</span>
-                        <span className="team-name-lg">{game.home_team}</span>
-                        <span className="team-prob-lg">{homePct.toFixed(1)}%</span>
-                        {prediction ? (
-                          <span className="team-odds">
-                            Fair: ${prediction.predictions.fair_odds_home.toFixed(2)}
-                          </span>
-                        ) : null}
-                        {prediction?.predictions.market_odds_home ? (
-                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_home.toFixed(2)}</span>
-                        ) : null}
-                        {prediction ? (
-                          <PaperBetAction
-                            variant="phase1"
-                            label="Log Home Win"
-                            loggedLabel="Home Logged"
-                            cancelLabel="Cancel"
-                            openBetslipOnAdd={false}
-                            fullWidth
-                            bet={{
-                              sport: "soccer",
-                              event_id: game.game_id,
-                              event_name: `${game.home_team} vs ${game.away_team}`,
-                              selection: game.home_team,
-                              odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                              bet_type: "head_to_head",
-                              stake: 10,
-                              odds_source: prediction.predictions.market_odds_home ? "market" : "model_fair",
-                              current_odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                              can_compare_odds: Boolean(prediction.predictions.market_odds_home && prediction.predictions.market_odds_home > 1),
-                              event_start_time: game.date,
-                              is_closed: gameComplete > 0 && gameComplete < 100,
-                            }}
-                          />
-                        ) : null}
-                      </div>
-
-                      {prediction?.predictions?.draw_probability !== undefined && (
-                        <div className="team-block">
-                          <span className="team-label">DRAW</span>
-                          <span className="team-name-lg">Draw</span>
-                          <span className="team-prob-lg">{drawPct.toFixed(1)}%</span>
-                          <span className="team-odds">
-                            Fair: ${prediction.predictions.fair_odds_draw?.toFixed(2) ?? "3.00"}
-                          </span>
-                          <PaperBetAction
-                            variant="phase1"
-                            label="Log Draw"
-                            loggedLabel="Draw Logged"
-                            cancelLabel="Cancel"
-                            openBetslipOnAdd={false}
-                            fullWidth
-                            bet={{
-                              sport: "soccer",
-                              event_id: game.game_id,
-                              event_name: `${game.home_team} vs ${game.away_team}`,
-                              selection: "Draw",
-                              odds: prediction.predictions.fair_odds_draw ?? 3.0,
-                              bet_type: "head_to_head",
-                              stake: 10,
-                              odds_source: "model_fair",
-                              current_odds: prediction.predictions.fair_odds_draw ?? 3.0,
-                              can_compare_odds: false,
-                              event_start_time: game.date,
-                              is_closed: gameComplete > 0 && gameComplete < 100,
-                            }}
-                          />
-                        </div>
-                      )}
-
-                      <div className="team-block">
-                        <span className="team-label">AWAY</span>
-                        <span className="team-name-lg">{game.away_team}</span>
-                        <span className="team-prob-lg">{awayPct.toFixed(1)}%</span>
-                        {prediction ? (
-                          <span className="team-odds">
-                            Fair: ${prediction.predictions.fair_odds_away.toFixed(2)}
-                          </span>
-                        ) : null}
-                        {prediction?.predictions.market_odds_away ? (
-                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_away.toFixed(2)}</span>
-                        ) : null}
-                        {prediction ? (
-                          <PaperBetAction
-                            variant="phase1"
-                            label="Log Away Win"
-                            loggedLabel="Away Logged"
-                            cancelLabel="Cancel"
-                            openBetslipOnAdd={false}
-                            fullWidth
-                            bet={{
-                              sport: "soccer",
-                              event_id: game.game_id,
-                              event_name: `${game.home_team} vs ${game.away_team}`,
-                              selection: game.away_team,
-                              odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                              bet_type: "head_to_head",
-                              stake: 10,
-                              odds_source: prediction.predictions.market_odds_away ? "market" : "model_fair",
-                              current_odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                              can_compare_odds: Boolean(prediction.predictions.market_odds_away && prediction.predictions.market_odds_away > 1),
-                              event_start_time: game.date,
-                              is_closed: gameComplete > 0 && gameComplete < 100,
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="game-prob-bar large">
-                      <div className="prob-fill home" style={{ width: `${homePct}%` }} />
-                      {prediction?.predictions?.draw_probability !== undefined && (
-                        <div className="prob-fill draw" style={{ width: `${drawPct}%`, backgroundColor: "var(--border-primary)" }} />
-                      )}
-                      <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
-                    </div>
-
-                    <div className="game-context-row">
-                      {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                      {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                      {game.league ? <span className="context-chip">🏆 {game.league}</span> : null}
-                      {scoreLabel ? <span className="context-chip accent">{scoreLabel}</span> : <span className="context-chip">{game.date ? new Date(game.date).toLocaleString("en-AU", { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : "Start time pending"}</span>}
-                      {prediction ? (
-                        <>
-                          <button
-                            type="button"
-                            className="why-pick-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setActiveExplanation(
-                                buildBobExplanation({
-                                  sport: "soccer",
-                                  selectionName: homePct > awayPct ? game.home_team : game.away_team,
-                                  opponentName: homePct > awayPct ? game.away_team : game.home_team,
-                                  probability: Math.max(homePct, awayPct),
-                                  fairOdds: homePct > awayPct
-                                    ? prediction.predictions.fair_odds_home
-                                    : prediction.predictions.fair_odds_away,
-                                  featureImpact: prediction.feature_impact,
-                                  aiInsightsContext: prediction.ai_insights_context,
-                                  modelMetadata: prediction.model_metadata,
-                                }),
-                              );
-                            }}
-                          >
-                            <Brain size={14} /> Why this model lean?
-                          </button>
-                          <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
-                            <FeedbackButtons 
-                              sport="soccer" 
-                              eventId={game.game_id} 
-                              selection={homePct > awayPct ? game.home_team : game.away_team}
-                            />
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-
-                    {isExpanded && prediction ? (
-                      <div className="game-expanded-section">
-                        <div className="feature-impact-section">
-                          <h4>
-                            <BarChart3 size={16} /> Bob explainability
-                          </h4>
-                          <p className="muted-copy">
-                            Open the "Why" drawer for the model lean to see what is helping,
-                            what is dragging, and how much trust Bob is putting in the read.
-                          </p>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                    matchup={matchupData}
+                    onOpenDrawer={(m) => setDrawerMatchup(m)}
+                  />
                 );
               })}
             </div>
           </ErrorBoundary>
+          <SportMatchupDrawer
+            isOpen={drawerMatchup !== null}
+            onClose={() => setDrawerMatchup(null)}
+            matchup={drawerMatchup}
+          />
         </>
       )}
 

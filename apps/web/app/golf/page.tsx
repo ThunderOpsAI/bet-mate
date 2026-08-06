@@ -16,6 +16,7 @@ import {
 } from "../components/PredictionSignalBadges";
 import BestGolfOpportunities from "../components/golf/BestOpportunities";
 import RefreshControls from "../components/RefreshControls";
+import SectionHeaderToggle from "../components/SectionHeaderToggle";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
@@ -41,6 +42,8 @@ import { getEdgePercent, rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
 import SportCodeFilter from "../components/sport/SportCodeFilter";
+import SportCard from "../components/sport/SportCard";
+import SportMatchupDrawer, { type MatchupDrawerData } from "../components/sport/SportMatchupDrawer";
 
 type GolfPlayer = {
   player_id: string;
@@ -161,6 +164,7 @@ export default function GolfPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedTournament, setExpandedTournament] = useState<string | null>(null);
+  const [drawerMatchup, setDrawerMatchup] = useState<MatchupDrawerData | null>(null);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
@@ -351,12 +355,15 @@ export default function GolfPage() {
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshPage}
-      />
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <SectionHeaderToggle activeSection="sport" />
+        <RefreshControls
+          lastUpdated={lastUpdated}
+          nextRefreshAt={nextRefreshAt}
+          isRefreshing={refreshing}
+          onRefresh={refreshPage}
+        />
+      </div>
       <SportCodeFilter activeSport="golf" />
 
       {!hasGolfData && refreshFailed ? (
@@ -374,10 +381,9 @@ export default function GolfPage() {
           </ErrorBoundary>
 
           <ErrorBoundary sectionName="Golf predictions">
-            <div className="tournament-list" style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            <div className="tournament-list">
               {tournaments.map((tournament) => {
                 const prediction = predictions[tournament.tournament_id];
-                const isExpanded = expandedTournament === tournament.tournament_id;
                 const topPicks = prediction?.predictions?.slice(0, 5) ?? [];
                 
                 const confidenceSignal = prediction
@@ -388,122 +394,51 @@ export default function GolfPage() {
                   eventDate: tournament.meeting_date,
                 });
 
+                const outcomes = topPicks.map((pick) => {
+                  const player = tournament.players.find(
+                    (candidate) => candidate.player_id === pick.player_id,
+                  );
+                  const marketPrice = pick.market_odds ?? player?.betfair_back_price;
+
+                  return {
+                    name: pick.name,
+                    winProb: pick.win_probability,
+                    fairOdds: pick.fair_odds,
+                    marketOdds: marketPrice,
+                  };
+                });
+
+                const matchupData: MatchupDrawerData = {
+                  id: tournament.tournament_id,
+                  sport: "golf",
+                  title: tournament.name,
+                  subTitle: tournament.meeting_date || tournament.start_time || undefined,
+                  venue: tournament.venue,
+                  outcomes,
+                  metadata: {
+                    confidenceSignal,
+                    urgencySignal,
+                  },
+                  featureImpact: prediction?.feature_impact,
+                  aiInsightsContext: prediction?.ai_insights_context,
+                  modelMetadata: prediction?.model_metadata,
+                };
+
                 return (
-                  <div key={tournament.tournament_id} className="card" style={{ padding: 0, overflow: "hidden" }}>
-                    <div 
-                      onClick={() => setExpandedTournament(isExpanded ? null : tournament.tournament_id)}
-                      style={{ 
-                        padding: "1.25rem", 
-                        cursor: "pointer", 
-                        display: "flex", 
-                        justifyContent: "space-between", 
-                        alignItems: "center",
-                        background: "rgba(255, 255, 255, 0.02)"
-                      }}
-                    >
-                      <div>
-                        <h4 style={{ margin: 0, fontSize: "1.1rem", fontWeight: 700 }}>
-                          ⛳ {tournament.name}
-                        </h4>
-                        <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem", flexWrap: "wrap" }}>
-                          {tournament.venue && <span className="context-chip">📍 {tournament.venue}</span>}
-                          {confidenceSignal && <ConfidenceBadge signal={confidenceSignal} />}
-                          {urgencySignal && <UrgencyBadge signal={urgencySignal} />}
-                        </div>
-                      </div>
-                      <div>
-                        {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                      </div>
-                    </div>
-
-                    {isExpanded && (
-                      <div style={{ padding: "1.25rem", borderTop: "1px solid var(--border-primary)" }}>
-                        <div className="table-responsive">
-                          <table className="table" style={{ width: "100%" }}>
-                            <thead>
-                              <tr>
-                                <th style={{ textAlign: "left" }}>Player</th>
-                                <th style={{ textAlign: "right" }}>Win Prob</th>
-                                <th style={{ textAlign: "right" }}>Fair Odds</th>
-                                <th style={{ textAlign: "right" }}>Betfair Odds</th>
-                                <th style={{ textAlign: "right" }}>Edge</th>
-                                <th style={{ textAlign: "center" }}>Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {topPicks.map((pick) => {
-                                const player = tournament.players.find(
-                                  (candidate) => candidate.player_id === pick.player_id,
-                                );
-                                const marketPrice = pick.market_odds ?? player?.betfair_back_price;
-                                const edge = getEdgePercent(pick.fair_odds, marketPrice);
-
-                                return (
-                                  <tr key={pick.player_id}>
-                                    <td style={{ fontWeight: 600 }}>{pick.name}</td>
-                                    <td style={{ textAlign: "right", color: "var(--yellow)" }}>
-                                      {pick.win_probability.toFixed(1)}%
-                                    </td>
-                                    <td style={{ textAlign: "right" }}>${pick.fair_odds.toFixed(2)}</td>
-                                    <td style={{ textAlign: "right" }}>
-                                      {marketPrice ? `$${marketPrice.toFixed(2)}` : "—"}
-                                    </td>
-                                    <td style={{ textAlign: "right" }}>
-                                      {edge && edge > 0 ? (
-                                        <span className="value-badge positive">+{edge.toFixed(0)}%</span>
-                                      ) : "—"}
-                                    </td>
-                                    <td style={{ textAlign: "center" }}>
-                                      <div style={{ display: "flex", gap: "0.5rem", justifyContent: "center" }}>
-                                        <button
-                                          type="button"
-                                          className="why-pick-button btn btn-xs"
-                                          onClick={() => {
-                                            setActiveExplanation(
-                                              buildBobExplanation({
-                                                sport: "golf",
-                                                selectionName: pick.name,
-                                                probability: pick.win_probability,
-                                                fairOdds: pick.fair_odds,
-                                                featureImpact: prediction?.feature_impact,
-                                                aiInsightsContext: prediction?.ai_insights_context,
-                                                modelMetadata: prediction?.model_metadata,
-                                              }),
-                                            );
-                                          }}
-                                        >
-                                          Why?
-                                        </button>
-                                        <PaperBetAction
-                                          bet={{
-                                            sport: "golf",
-                                            event_id: tournament.tournament_id,
-                                            event_name: tournament.name,
-                                            selection: pick.name,
-                                            odds: marketPrice ?? pick.fair_odds,
-                                            bet_type: "win",
-                                            stake: 10,
-                                            odds_source: marketPrice ? "market" : "model_fair",
-                                            current_odds: marketPrice ?? pick.fair_odds,
-                                            can_compare_odds: Boolean(marketPrice && marketPrice > 1),
-                                            event_start_time: tournament.start_time,
-                                          }}
-                                        />
-                                      </div>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <SportCard
+                    key={tournament.tournament_id}
+                    matchup={matchupData}
+                    onOpenDrawer={(m) => setDrawerMatchup(m)}
+                  />
                 );
               })}
             </div>
           </ErrorBoundary>
+          <SportMatchupDrawer
+            isOpen={drawerMatchup !== null}
+            onClose={() => setDrawerMatchup(null)}
+            matchup={drawerMatchup}
+          />
         </>
       )}
 

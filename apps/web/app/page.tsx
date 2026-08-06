@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Trophy, Zap, Shield, Globe, Bot, BookOpen, Sparkles } from "lucide-react";
 import { ML_API } from "./lib/mlApi";
 import { safeResponseJson } from "./lib/api";
@@ -40,8 +41,10 @@ type RacePrediction = {
   ai_insights_context?: any;
 };
 
-export default function HomePage() {
+function HomePageContent() {
   const { token, user } = useAuth();
+  const searchParams = useSearchParams();
+  const raceType = searchParams?.get("type") || "T";
   const isGuest = !user || user.id === "guest";
 
   // High EV state
@@ -72,9 +75,20 @@ export default function HomePage() {
       setRacesError(null);
 
       try {
-        const racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 5000 });
+        let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 5000 });
+        if (!racesRes.ok && raceType !== "T") {
+          racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 5000 });
+        }
         if (!racesRes.ok) throw new Error("Racing feed unavailable");
-        const racesData: Race[] = (await safeResponseJson(racesRes)) || [];
+
+        let racesData: Race[] = (await safeResponseJson(racesRes)) || [];
+
+        if (racesData.length === 0 && raceType !== "T") {
+          const fallbackRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 5000 });
+          if (fallbackRes.ok) {
+            racesData = (await safeResponseJson(fallbackRes)) || [];
+          }
+        }
 
         if (racesData.length > 0) {
           const predsRes = await fetchWithTimeout(
@@ -112,7 +126,7 @@ export default function HomePage() {
                   marketOdds: horse?.betfair_back_price ?? null,
                   confidenceSignal,
                   urgencySignal,
-                  href: "/racing",
+                  href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
                 };
               });
             });
@@ -166,7 +180,7 @@ export default function HomePage() {
     }
 
     void loadRacingData();
-  }, []);
+  }, [raceType]);
 
   // Fetch Blackbook data
   useEffect(() => {
@@ -272,6 +286,8 @@ export default function HomePage() {
     void loadSportsData();
   }, []);
 
+  const racingLinkHref = raceType !== "T" ? `/racing?type=${raceType}` : "/racing";
+
   return (
     <ErrorBoundary sectionName="Home Landing">
       <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4">
@@ -291,7 +307,7 @@ export default function HomePage() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <Link href="/racing" className="btn btn-primary text-sm flex items-center gap-2">
+              <Link href={racingLinkHref} className="btn btn-primary text-sm flex items-center gap-2">
                 <Trophy size={16} />
                 <span>Racing Cards</span>
               </Link>
@@ -305,7 +321,7 @@ export default function HomePage() {
           {/* Quick Sport Links Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 mt-6">
             <Link
-              href="/racing"
+              href={racingLinkHref}
               className="p-3 bg-slate-950/60 border border-slate-800 hover:border-amber-500/50 rounded-xl flex flex-col items-center justify-center text-center transition-all group"
             >
               <Trophy size={20} className="text-amber-400 mb-1 group-hover:scale-110 transition-transform" />
@@ -366,5 +382,22 @@ export default function HomePage() {
         />
       </div>
     </ErrorBoundary>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="dashboard-loading">
+          <div className="loading-pulse">
+            <Trophy size={48} />
+            <p>Loading dashboard...</p>
+          </div>
+        </div>
+      }
+    >
+      <HomePageContent />
+    </Suspense>
   );
 }
