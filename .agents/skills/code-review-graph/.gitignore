@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Graph database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.code-review-graph/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
+# VS Code extension build artifacts
+code-review-graph-vscode/dist/
+*.vsix
+
+# Claude Code
+.claude/
+.claude-plugin/
+
+# Qoder
+.qoder/
+QODER.md
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+
+# pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+
+# Excalidraw source files (PNGs are tracked, sources are not)
+*.excalidraw
+diagrams/export_pngs.mjs
+
+# Evaluation (generated output — test repos and reports are local; canonical
+# CSVs under evaluate/results/ are tracked as evidence for the numbers in
+# docs/REPRODUCING.md, so contributors can verify without rerunning).
+evaluate/test_repos/
+evaluate/reports/
+evaluate/standalone_token_benchmark.json
+evaluate/eval-run.log
+
+# Superpowers brainstorm docs
+.superpowers/
+docs/superpowers/
+
+# Draft/duplicate assets
+docs/assets/marketing-diagram*
+
+# One-off docs (audits, analyses, plans, articles)
+medium/
+Quality-Audit-Report.docx
+accessibility-audit.md
+cross-audit-synthesis.md
+design-critique.md
+design-handoff.md
+design-system-audit.md
+research-synthesis.md
+code-review-graph-analysis.md
+SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
+
+# Local-only pending files (temporary — revisit before tracking)
+.codex/
+2026-06-10-194632-local-command-caveatcaveat-the-messages-below.txt
+OC3_TECHNICAL_CONTRIBUTION.md
+OC3_TECHNICAL_CONTRIBUTION.pdf
+PRESENTATION_BRIEF.md
