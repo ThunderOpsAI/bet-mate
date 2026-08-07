@@ -2572,9 +2572,15 @@ tr:hover td {
 
 /* ---- Game Prediction Card (Full Page) ---- */
 .game-cards-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .game-cards-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 .game-prediction-card {
