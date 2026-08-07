@@ -81,12 +81,28 @@ function HomePageContent() {
         }
         if (!racesRes.ok) throw new Error("Racing feed unavailable");
 
-        let racesData: Race[] = (await safeResponseJson(racesRes)) || [];
+        let responseJson = racesRes.ok ? await safeResponseJson(racesRes) : null;
+        let racesData: Race[] = (Array.isArray(responseJson?.races)
+          ? responseJson.races
+          : Array.isArray(responseJson)
+          ? responseJson
+          : []) as Race[];
 
-        if (racesData.length === 0 && raceType !== "T") {
-          const fallbackRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 10000 });
+        if (racesData.length === 0) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          const fallbackDateStr = tomorrow.toISOString().split("T")[0];
+          const fallbackRes = await fetchWithTimeout(
+            `${ML_API}/api/races/today?type=${raceType}&date=${fallbackDateStr}`,
+            { timeoutMs: 10000 }
+          );
           if (fallbackRes.ok) {
-            racesData = (await safeResponseJson(fallbackRes)) || [];
+            const fallbackJson = await safeResponseJson(fallbackRes);
+            racesData = (Array.isArray(fallbackJson?.races)
+              ? fallbackJson.races
+              : Array.isArray(fallbackJson)
+              ? fallbackJson
+              : []) as Race[];
           }
         }
 
