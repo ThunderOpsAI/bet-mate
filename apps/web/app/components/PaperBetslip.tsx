@@ -350,10 +350,12 @@ export default function PaperBetslip() {
                           <input
                             type="number"
                             min="1"
-                            value={bet.stake}
-                            onChange={(e) =>
-                              updateBet(bet.id, { stake: Number(e.target.value) })
-                            }
+                            value={bet.stake === 0 ? "" : bet.stake}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                              updateBet(bet.id, { stake: cleanNum });
+                            }}
                           />
                         </div>
                       </div>
@@ -366,6 +368,20 @@ export default function PaperBetslip() {
                         <span className="font-bold text-emerald-400">(Total Stake: ${totalItemStake})</span>
                       </div>
                     )}
+
+                    {/* Potential Collect for Individual Bet */}
+                    {bet.odds && bet.odds > 1 ? (
+                      <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
+                        <span className="text-[11px] text-slate-300">Est. Collect:</span>
+                        <strong className="text-emerald-400 font-bold text-sm">
+                          ${(
+                            isEachWay
+                              ? unitStake * bet.odds + unitStake * (1 + (bet.odds - 1) * 0.25)
+                              : unitStake * bet.odds
+                          ).toFixed(2)}
+                        </strong>
+                      </div>
+                    ) : null}
 
                     {issues.length > 0 ? (
                       <div className="betslip-issues">
@@ -401,6 +417,20 @@ export default function PaperBetslip() {
                     )}
                   </div>
                 </div>
+                <div className="summary-row total-collect flex items-center justify-between pt-2 mt-1 border-t border-emerald-500/30 text-emerald-400 font-bold">
+                  <span>Est. Total Collect</span>
+                  <strong className="text-base text-emerald-400">
+                    ${bets.reduce((sum, b) => {
+                      const isEW = b.bet_type === "each_way";
+                      const uStake = b.stake || 0;
+                      const odds = b.odds || 1;
+                      const est = isEW
+                        ? uStake * odds + uStake * (1 + (odds - 1) * 0.25)
+                        : uStake * odds;
+                      return sum + est;
+                    }, 0).toFixed(2)}
+                  </strong>
+                </div>
                 <div className="summary-row default-stake-row">
                   <span style={{ fontSize: "0.8rem" }}>Default Stake</span>
                   <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
@@ -409,8 +439,12 @@ export default function PaperBetslip() {
                       <input
                         type="number"
                         min="1"
-                        value={defaultStake}
-                        onChange={(e) => setDefaultStake(Number(e.target.value))}
+                        value={defaultStake === 0 ? "" : defaultStake}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                          setDefaultStake(cleanNum);
+                        }}
                         className="footer-stake-input"
                         title="Default stake applied to new picks"
                       />
