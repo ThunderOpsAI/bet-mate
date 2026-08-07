@@ -35,6 +35,8 @@ function RegisterForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const [registeredEmail, setRegisteredEmail] = useState("");
+
   useEffect(() => {
     if (user && user.id !== "guest") {
       router.replace(returnUrl);
@@ -73,11 +75,9 @@ function RegisterForm() {
 
     setSubmitting(true);
     try {
-      await register(email.trim(), username.trim(), password, startingBankroll, marketingOptIn);
-      setSuccess("Account created successfully! Redirecting to home...");
-      setTimeout(() => {
-        router.push(returnUrl);
-      }, 500);
+      const res = await register(email.trim(), username.trim(), password, startingBankroll, marketingOptIn);
+      setRegisteredEmail(email.trim());
+      setSuccess("Account created! Please check your email inbox to confirm your address before signing in.");
     } catch (err: any) {
       setError(err.message || "Registration failed. Email or username may already be in use.");
     } finally {
@@ -109,19 +109,42 @@ function RegisterForm() {
           </Link>
         </div>
 
-        {error && (
-          <div className="error-message" role="alert">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{error}</span>
+        {registeredEmail ? (
+          <div className="p-6 bg-slate-900 border border-emerald-500/40 rounded-2xl text-center space-y-4 my-4">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto text-2xl">
+              ✉️
+            </div>
+            <h3 className="text-xl font-bold text-slate-100">Check Your Email Inbox</h3>
+            <p className="text-sm text-slate-300">
+              We sent a confirmation link to <strong className="text-emerald-400">{registeredEmail}</strong>.
+            </p>
+            <p className="text-xs text-slate-400">
+              You must confirm your email address before logging in to prevent spam accounts.
+            </p>
+            <div className="pt-2">
+              <Link
+                href={`/login?confirmEmail=${encodeURIComponent(registeredEmail)}&returnUrl=${encodeURIComponent(returnUrl)}`}
+                className="btn btn-primary w-full py-2.5 text-sm font-semibold flex items-center justify-center gap-2"
+              >
+                Go to Sign In <ArrowRight size={16} />
+              </Link>
+            </div>
           </div>
-        )}
+        ) : (
+          <>
+            {error && (
+              <div className="error-message" role="alert">
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+            )}
 
-        {success && (
-          <div className="success-message" role="status">
-            <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
-            <span>{success}</span>
-          </div>
-        )}
+            {success && (
+              <div className="success-message" role="status">
+                <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+                <span>{success}</span>
+              </div>
+            )}
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="form-group">
@@ -307,6 +330,8 @@ function RegisterForm() {
             </Link>
           </p>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

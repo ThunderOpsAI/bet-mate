@@ -20,13 +20,16 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnUrl = searchParams.get("returnUrl") || "/";
+  const confirmEmailParam = searchParams.get("confirmEmail");
 
-  const { user, login } = useAuth();
+  const { user, login, resendConfirmationEmail } = useAuth();
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -37,10 +40,34 @@ function LoginForm() {
     }
   }, [user, router, returnUrl]);
 
+  // Handle email confirmation parameter from email links
+  useEffect(() => {
+    if (!confirmEmailParam) return;
+    async function confirmUserEmail() {
+      try {
+        const res = await fetch("/api/auth/confirm-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: confirmEmailParam }),
+        });
+        if (res.ok) {
+          setSuccess(`Email ${confirmEmailParam} confirmed successfully! You may now sign in.`);
+          setEmailOrUsername(confirmEmailParam ?? "");
+        } else {
+          setError("Failed to confirm email address. Link may be invalid or expired.");
+        }
+      } catch (err) {
+        console.error("Email confirmation error:", err);
+      }
+    }
+    void confirmUserEmail();
+  }, [confirmEmailParam]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     setSuccess("");
+    setUnconfirmedEmail(null);
 
     if (!emailOrUsername.trim()) {
       setError("Please enter your email or username.");
@@ -63,9 +90,36 @@ function LoginForm() {
         router.push(returnUrl);
       }, 500);
     } catch (err: any) {
-      setError(err.message || "Invalid email/username or password. Please try again.");
+      if (err.requireConfirmation) {
+        setUnconfirmedEmail(err.email || emailOrUsername.trim());
+        setError(err.message || "Please confirm your email address before logging in.");
+      } else {
+        setError(err.message || "Invalid email/username or password. Please try again.");
+      }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const targetEmail = unconfirmedEmail || emailOrUsername.trim();
+    if (!targetEmail) return;
+    setResending(true);
+    try {
+      const res = await fetch("/api/auth/resend-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      if (res.ok) {
+        setSuccess(`Confirmation email re-sent to ${targetEmail}. Please check your inbox.`);
+      } else {
+        setError("Failed to resend confirmation email. Please try again.");
+      }
+    } catch (err) {
+      setError("Error dispatching email.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -100,9 +154,21 @@ function LoginForm() {
         </div>
 
         {error && (
-          <div className="error-message" role="alert">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{error}</span>
+          <div className="error-message flex flex-col gap-2" role="alert">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={18} style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
+            {unconfirmedEmail && (
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                disabled={resending}
+                className="mt-1 text-xs font-bold text-amber-400 hover:underline text-left"
+              >
+                {resending ? "Sending Email..." : `Resend Confirmation Email to ${unconfirmedEmail}`}
+              </button>
+            )}
           </div>
         )}
 

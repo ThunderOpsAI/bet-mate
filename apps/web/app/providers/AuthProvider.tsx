@@ -95,11 +95,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     const data = await safeResponseJson(res);
     if (!res.ok || !data) {
-      throw new Error(data?.error || "Login failed");
+      const err = new Error(data?.error || "Login failed") as Error & { requireConfirmation?: boolean; email?: string };
+      if (data?.requireConfirmation) {
+        err.requireConfirmation = true;
+        err.email = data.email;
+      }
+      throw err;
     }
     const userData: User = {
       ...data.user,
-      emailConfirmed: data.user.emailConfirmed ?? false,
+      emailConfirmed: data.user.emailConfirmed ?? true,
     };
     setUser(userData);
     setToken(data.accessToken);
@@ -133,25 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!res.ok || !data) {
         throw new Error(data?.error || "Registration failed");
       }
-      const userData: User = {
-        ...data.user,
-        emailConfirmed: data.user.emailConfirmed ?? false,
-      };
-      setUser(userData);
-      setToken(data.accessToken);
-      localStorage.setItem("betmate_token", data.accessToken);
-      localStorage.setItem("betmate_user", JSON.stringify(userData));
-
-      identifyUser(userData.id, {
-        username: userData.username,
-        email: userData.email,
-      });
-      trackEvent(ANALYTICS_EVENTS.USER_REGISTERED, {
-        userId: userData.id,
-        username: userData.username,
-        startingBankroll,
-        marketingOptIn,
-      });
+      return data;
     },
     []
   );

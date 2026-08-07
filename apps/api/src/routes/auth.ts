@@ -56,16 +56,19 @@ router.post("/register", async (req, res) => {
       },
     });
 
+    void sendConfirmationEmail(user.email);
+
     return res.status(201).json({
+      success: true,
+      requireConfirmation: true,
+      email: user.email,
+      message: "Account created! Please check your email inbox to confirm your account before logging in.",
       user: {
         id: user.id,
         email: user.email,
         username: user.username,
-        currentBankroll: Number(user.currentBankroll),
-        emailConfirmed: user.emailConfirmed,
-        marketingOptIn: user.marketingOptIn,
+        emailConfirmed: false,
       },
-      accessToken: makeToken(user.id),
     });
   } catch (dbErr) {
     console.warn("Prisma user creation fallback:", dbErr);
@@ -87,16 +90,19 @@ router.post("/register", async (req, res) => {
     };
     memoryUsers.set(id, u);
 
+    void sendConfirmationEmail(u.email);
+
     return res.status(201).json({
+      success: true,
+      requireConfirmation: true,
+      email: u.email,
+      message: "Account created! Please check your email inbox to confirm your account before logging in.",
       user: {
-        id,
+        id: u.id,
         email: u.email,
         username: u.username,
-        currentBankroll: u.currentBankroll,
-        emailConfirmed: u.emailConfirmed,
-        marketingOptIn: u.marketingOptIn,
+        emailConfirmed: false,
       },
-      accessToken: makeToken(id),
       mode: "fallback",
     });
   }
@@ -117,6 +123,14 @@ router.post("/login", async (req, res) => {
 
     const isMatch = await bcrypt.compare(parsed.data.password, user.passwordHash);
     if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Please confirm your email address before logging in. Check your inbox or click below to resend confirmation email.",
+        requireConfirmation: true,
+        email: user.email,
+      });
+    }
 
     return res.json({
       user: {
@@ -139,6 +153,14 @@ router.post("/login", async (req, res) => {
     const isMatch = await bcrypt.compare(parsed.data.password, user.passwordHash);
     if (!isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Please confirm your email address before logging in. Check your inbox or click below to resend confirmation email.",
+        requireConfirmation: true,
+        email: user.email,
+      });
+    }
+
     return res.json({
       user: {
         id: user.id,
@@ -154,6 +176,55 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// Helper to send transactional confirmation emails via Resend
+async function sendConfirmationEmail(email: string): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromAddr = process.env.NOTIFY_EMAIL_FROM || "onboarding@resend.dev";
+  const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+  const confirmUrl = `${appBaseUrl}/login?confirmEmail=${encodeURIComponent(email)}`;
+
+  if (!apiKey) {
+    console.log(`[Auth Email] RESEND_API_KEY not configured. Confirmation link for ${email}: ${confirmUrl}`);
+    return false;
+  }
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: fromAddr,
+        to: [email],
+        subject: "Confirm your BetMate Account",
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #0f172a; color: #f8fafc; border-radius: 12px;">
+            <h2 style="color: #10b981; margin-top: 0;">Welcome to BetMate!</h2>
+            <p style="color: #cbd5e1; line-height: 1.6;">Please confirm your email address to unlock full paper betting and Blackbook watch rules.</p>
+            <div style="margin: 24px 0;">
+              <a href="${confirmUrl}" style="background: #10b981; color: #020617; font-weight: bold; padding: 12px 24px; border-radius: 8px; text-decoration: none; display: inline-block;">Confirm Email Address</a>
+            </div>
+            <p style="color: #64748b; font-size: 12px; margin-bottom: 0;">If you didn't create a BetMate account, you can safely ignore this message.</p>
+          </div>
+        `,
+      }),
+    });
+    if (res.ok) {
+      console.log(`[Auth Email] Confirmation email sent successfully to ${email}`);
+      return true;
+    } else {
+      const errText = await res.text();
+      console.error(`[Auth Email] Resend API error (${res.status}): ${errText}`);
+      return false;
+    }
+  } catch (err) {
+    console.error("[Auth Email] Failed to dispatch confirmation email:", err);
+    return false;
+  }
+}
+
 // POST /api/auth/resend-confirmation
 router.post("/resend-confirmation", async (req, res) => {
   const { email } = req.body;
@@ -166,9 +237,14 @@ router.post("/resend-confirmation", async (req, res) => {
       if (!memUser) return res.status(404).json({ error: "User not found" });
     }
 
+    const emailSent = await sendConfirmationEmail(email);
+
     return res.json({
       success: true,
-      message: `Confirmation email re-sent to ${email}.`,
+      emailSent,
+      message: emailSent
+        ? `Confirmation email dispatched to ${email}.`
+        : `Resend API key not set. In dev mode, confirm directly at /api/auth/confirm-email.`,
     });
   } catch (err) {
     return res.status(500).json({ error: "Failed to resend confirmation email" });
