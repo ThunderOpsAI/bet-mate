@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Bookmark, Check, Plus, User, Award, X } from "lucide-react";
 import { useBlackbookQuickAdd } from "../../lib/useBlackbookQuickAdd";
 import PaperBetAction from "../PaperBetAction";
+import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { calculatePlaceOdds } from "./LiveOddsButton";
 
@@ -53,7 +54,8 @@ export default function RunnerRow({
   race,
 }: RunnerRowProps) {
   const { isSaved, addToBlackbook } = useBlackbookQuickAdd();
-  
+  const { addBet } = usePaperBetslip();
+
   // State for Jockey/Trainer micro-modal
   const [microModalTarget, setMicroModalTarget] = useState<{
     name: string;
@@ -62,7 +64,7 @@ export default function RunnerRow({
 
   const runnerName = prediction?.name || horse?.name || "Unknown Runner";
   const isHorseSaved = isSaved(runnerName);
-  
+
   const jockeyName = horse?.jockey_name || null;
   const trainerName = horse?.trainer_name || null;
 
@@ -71,13 +73,35 @@ export default function RunnerRow({
       ? getEdgePercent(prediction.fair_odds, horse.betfair_back_price)
       : null;
   const hasMarketPrice =
-    typeof horse?.betfair_back_price === "number" && horse.betfair_back_price > 1;
+    typeof horse?.betfair_back_price === "number" &&
+    horse.betfair_back_price > 1;
 
   const handleQuickAddHorse = () => {
     void addToBlackbook({
       runner: runnerName,
       type: "runner",
       sport: "racing",
+    });
+  };
+
+  const addExoticRunner = (
+    exotic_bet_type: "QUINELLA" | "EXACTA" | "TRIFECTA" | "FIRST4",
+  ) => {
+    addBet({
+      sport: "racing",
+      event_id: race.race_id,
+      event_name: `${race.venue} R${race.race_number}`,
+      selection_id: horse?.horse_id || runnerName,
+      selection: runnerName,
+      runner_name: runnerName,
+      odds: 1,
+      bet_type: `exotic_${exotic_bet_type.toLowerCase()}`,
+      bet_family: "exotic",
+      exotic_bet_type,
+      stake: 10,
+      odds_source: "missing",
+      event_start_time: race.start_time,
+      event_date: race.meeting_date,
     });
   };
 
@@ -94,13 +118,17 @@ export default function RunnerRow({
   return (
     <div
       className={`runner-row relative p-3 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
-        index < 3 && hasTopPrediction ? "runner-top border-purple-500/30 bg-purple-950/10" : ""
+        index < 3 && hasTopPrediction
+          ? "runner-top border-purple-500/30 bg-purple-950/10"
+          : ""
       }`}
     >
       {/* Left section: Rank/Barrier & Runner Details */}
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <div className="runner-number flex items-center justify-center w-8 h-8 rounded-full bg-slate-800 font-bold text-xs text-slate-300">
-          <span className={`runner-rank ${index < 3 && hasTopPrediction ? `rank-${index + 1} text-amber-400` : ""}`}>
+          <span
+            className={`runner-rank ${index < 3 && hasTopPrediction ? `rank-${index + 1} text-amber-400` : ""}`}
+          >
             {horse?.barrier ?? index + 1}
           </span>
         </div>
@@ -133,13 +161,17 @@ export default function RunnerRow({
             {jockeyName ? (
               <button
                 type="button"
-                onClick={() => setMicroModalTarget({ name: jockeyName, type: "jockey" })}
+                onClick={() =>
+                  setMicroModalTarget({ name: jockeyName, type: "jockey" })
+                }
                 className="inline-flex items-center gap-1 text-slate-300 hover:text-purple-300 hover:underline cursor-pointer transition-colors"
                 title="Click to bookmark Jockey to Blackbook"
               >
                 <User size={11} className="text-slate-400" />
                 <span>J: {jockeyName}</span>
-                {isSaved(jockeyName) && <Check size={10} className="text-emerald-400 ml-0.5" />}
+                {isSaved(jockeyName) && (
+                  <Check size={10} className="text-emerald-400 ml-0.5" />
+                )}
               </button>
             ) : (
               <span className="text-slate-500">J: TBA</span>
@@ -148,13 +180,17 @@ export default function RunnerRow({
             {trainerName ? (
               <button
                 type="button"
-                onClick={() => setMicroModalTarget({ name: trainerName, type: "trainer" })}
+                onClick={() =>
+                  setMicroModalTarget({ name: trainerName, type: "trainer" })
+                }
                 className="inline-flex items-center gap-1 text-slate-300 hover:text-purple-300 hover:underline cursor-pointer transition-colors"
                 title="Click to bookmark Trainer to Blackbook"
               >
                 <Award size={11} className="text-slate-400" />
                 <span>T: {trainerName}</span>
-                {isSaved(trainerName) && <Check size={10} className="text-emerald-400 ml-0.5" />}
+                {isSaved(trainerName) && (
+                  <Check size={10} className="text-emerald-400 ml-0.5" />
+                )}
               </button>
             ) : null}
 
@@ -172,6 +208,21 @@ export default function RunnerRow({
 
       {/* Right section: Odds & Betslip Action */}
       <div className="runner-odds-section flex items-center justify-between md:justify-end gap-2.5 min-w-[200px]">
+        <div className="hidden lg:flex items-center gap-1 mr-1">
+          {(["QUINELLA", "EXACTA", "TRIFECTA", "FIRST4"] as const).map(
+            (type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => addExoticRunner(type)}
+                className="px-2 py-1 rounded border border-amber-500/30 bg-amber-950/30 text-[10px] font-bold text-amber-200 hover:bg-amber-900/40"
+                title={`Add ${runnerName} to ${type} exotic slip`}
+              >
+                {type === "FIRST4" ? "F4" : type.slice(0, 3)}
+              </button>
+            ),
+          )}
+        </div>
         {hasMarketPrice ? (
           <div className="runner-odds-buttons flex items-center gap-2">
             <PaperBetAction
@@ -208,11 +259,17 @@ export default function RunnerRow({
                 event_name: `${race.venue} R${race.race_number}`,
                 selection_id: horse?.horse_id || runnerName,
                 selection: runnerName,
-                odds: calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price),
+                odds: calculatePlaceOdds(
+                  horse!.betfair_back_price!,
+                  horse?.betfair_place_price,
+                ),
                 bet_type: "place",
                 stake: 10,
                 odds_source: "market",
-                current_odds: calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price),
+                current_odds: calculatePlaceOdds(
+                  horse!.betfair_back_price!,
+                  horse?.betfair_place_price,
+                ),
                 can_compare_odds: true,
                 event_start_time: race.start_time,
                 event_date: race.meeting_date,
@@ -283,7 +340,11 @@ export default function RunnerRow({
           <div className="flex items-center gap-2">
             <Bookmark size={14} className="text-purple-400" />
             <span className="text-xs text-slate-200">
-              Add <strong className="text-purple-300">{microModalTarget.name}</strong> ({microModalTarget.type}) to Blackbook?
+              Add{" "}
+              <strong className="text-purple-300">
+                {microModalTarget.name}
+              </strong>{" "}
+              ({microModalTarget.type}) to Blackbook?
             </span>
           </div>
 

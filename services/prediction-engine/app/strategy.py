@@ -66,19 +66,6 @@ class StrategyService:
         candidates.extend(self._racing_candidates(run_date))
         candidates.extend(self._afl_candidates(run_date))
         candidates.extend(self._nba_candidates(run_date))
-
-        # Fallback to tomorrow's slate if today's slate has concluded or is empty
-        if not candidates:
-            from datetime import datetime, timedelta
-            try:
-                dt = datetime.strptime(run_date, "%Y-%m-%d")
-                tomorrow_str = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
-                candidates.extend(self._racing_candidates(tomorrow_str))
-                candidates.extend(self._afl_candidates(tomorrow_str))
-                candidates.extend(self._nba_candidates(tomorrow_str))
-            except Exception:
-                pass
-
         return candidates
 
 

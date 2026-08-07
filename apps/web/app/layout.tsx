@@ -1,7 +1,4 @@
-import { Inter } from "next/font/google";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
 import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { QueryProvider } from "./providers/QueryProvider";
@@ -13,19 +10,20 @@ import { AnalyticsProvider } from "./components/analytics/AnalyticsProvider";
 
 export const metadata: Metadata = {
   title: "BetMate — AI-Powered Multi-Sport Predictions",
-  description: "XGBoost ML-powered predictions for racing, AFL, and NBA. Explainable AI insights, fair odds calculations, and feature importance analysis.",
+  description:
+    "XGBoost ML-powered predictions for racing, AFL, and NBA. Explainable AI insights, fair odds calculations, and feature importance analysis.",
 };
 
-export const viewport = { 
-  width: 'device-width', 
-  initialScale: 1, 
-  maximumScale: 1, 
-  userScalable: false 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={inter.className}>
+    <html lang="en">
       <body className="overflow-x-hidden">
         <AnalyticsProvider />
         <QueryProvider>

@@ -28,6 +28,19 @@ type BetIssue = {
   requiresReview: boolean;
 };
 
+function AwaitingExoticPool() {
+  return (
+    <div className="betslip-empty">
+      <ShoppingCart size={28} />
+      <p>Awaiting exotic pool data</p>
+      <p className="small">
+        Select live runners to calculate combinations; no synthetic dividends
+        are shown.
+      </p>
+    </div>
+  );
+}
+
 export default function PaperBetslip() {
   const { user } = useAuth();
   const [showGuestModal, setShowGuestModal] = useState(false);
@@ -46,11 +59,15 @@ export default function PaperBetslip() {
   } = usePaperBetslip();
 
   const [placing, setPlacing] = useState(false);
-  const [result, setResult] = useState<{ success: number; failed: number } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{
+    success: number;
+    failed: number;
+  } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [acknowledgeOddsChanges, setAcknowledgeOddsChanges] = useState(false);
+  const [activeTab, setActiveTab] = useState<
+    "singles" | "exotics" | "quaddie" | "sgm"
+  >("singles");
 
   const warnings = useMemo(() => {
     const counts = bets.reduce<Record<string, number>>((acc, bet) => {
@@ -78,7 +95,8 @@ export default function PaperBetslip() {
       if ((counts[key] ?? 0) > 1) {
         issues.push({
           tone: "warning",
-          message: "Duplicate selection in slip. Review your stake before logging twice.",
+          message:
+            "Duplicate selection in slip. Review your stake before logging twice.",
           blocking: false,
           requiresReview: false,
         });
@@ -93,7 +111,8 @@ export default function PaperBetslip() {
       ) {
         issues.push({
           tone: "danger",
-          message: "Event already started. Remove this pick before logging the slip.",
+          message:
+            "Event already started. Remove this pick before logging the slip.",
           blocking: true,
           requiresReview: false,
         });
@@ -111,10 +130,15 @@ export default function PaperBetslip() {
         });
       }
 
-      if (!bet.odds || bet.odds <= 1) {
+      if (
+        bet.bet_family !== "exotic" &&
+        bet.bet_family !== "quaddie" &&
+        (!bet.odds || bet.odds <= 1)
+      ) {
         issues.push({
           tone: "danger",
-          message: "Missing usable odds. This selection cannot be logged from the slip yet.",
+          message:
+            "Missing usable odds. This selection cannot be logged from the slip yet.",
           blocking: true,
           requiresReview: false,
         });
@@ -136,7 +160,11 @@ export default function PaperBetslip() {
         });
       }
 
-      if (snapshot && !snapshot.can_compare_odds && bet.odds_source !== "market") {
+      if (
+        snapshot &&
+        !snapshot.can_compare_odds &&
+        bet.odds_source !== "market"
+      ) {
         issues.push({
           tone: "info",
           message:
@@ -155,6 +183,41 @@ export default function PaperBetslip() {
   }, [bets]);
 
   if (bets.length === 0 && !isBetslipOpen && !result) return null;
+
+  const tabBets = bets.filter((bet) => {
+    if (activeTab === "singles")
+      return (
+        !bet.bet_family ||
+        bet.bet_family === "single" ||
+        bet.bet_family === "srm"
+      );
+    if (activeTab === "exotics") return bet.bet_family === "exotic";
+    if (activeTab === "quaddie") return bet.bet_family === "quaddie";
+    return bet.bet_family === "sgm";
+  });
+
+  const exoticCombinationCount = (items: typeof bets) => {
+    const runnerCount = new Set(
+      items.map((bet) => bet.selection_id ?? bet.selection),
+    ).size;
+    const type = items[0]?.exotic_bet_type;
+    if (type === "QUINELLA")
+      return runnerCount >= 2 ? (runnerCount * (runnerCount - 1)) / 2 : 0;
+    if (type === "EXACTA")
+      return runnerCount >= 2 ? runnerCount * (runnerCount - 1) : 0;
+    if (type === "TRIFECTA")
+      return runnerCount >= 3
+        ? runnerCount * (runnerCount - 1) * (runnerCount - 2)
+        : 0;
+    if (type === "FIRST4")
+      return runnerCount >= 4
+        ? runnerCount *
+            (runnerCount - 1) *
+            (runnerCount - 2) *
+            (runnerCount - 3)
+        : 0;
+    return 0;
+  };
 
   const totalStake = bets.reduce((sum, b) => {
     const isEachWay = b.bet_type === "each_way";
@@ -205,8 +268,13 @@ export default function PaperBetslip() {
   };
 
   return (
-    <div className={`betslip-container ${isBetslipOpen ? "open" : "collapsed"}`}>
-      <div className="betslip-header" onClick={() => setIsBetslipOpen(!isBetslipOpen)}>
+    <div
+      className={`betslip-container ${isBetslipOpen ? "open" : "collapsed"}`}
+    >
+      <div
+        className="betslip-header"
+        onClick={() => setIsBetslipOpen(!isBetslipOpen)}
+      >
         <div className="betslip-title">
           <div className="betslip-icon-wrap">
             <ShoppingCart size={18} />
@@ -223,7 +291,10 @@ export default function PaperBetslip() {
       <div className="betslip-content">
         {result ? (
           <div className="betslip-result">
-            <CheckCircle2 size={48} className={result.failed === 0 ? "text-green" : "text-yellow"} />
+            <CheckCircle2
+              size={48}
+              className={result.failed === 0 ? "text-green" : "text-yellow"}
+            />
             <h3>{result.failed === 0 ? "Bets Logged!" : "Partial Success"}</h3>
             <p>{result.success} bets recorded successfully.</p>
           </div>
@@ -231,7 +302,9 @@ export default function PaperBetslip() {
           <div className="betslip-empty">
             <ShoppingCart size={32} />
             <p>Your betslip is empty</p>
-            <p className="small">Add predictions to track multiple bets at once.</p>
+            <p className="small">
+              Add predictions to track multiple bets at once.
+            </p>
           </div>
         ) : (
           <>
@@ -248,12 +321,17 @@ export default function PaperBetslip() {
               ) : null}
 
               {reviewIssues.length > 0 ? (
-                <label className="betslip-banner warning" htmlFor="ack-odds-changes">
+                <label
+                  className="betslip-banner warning"
+                  htmlFor="ack-odds-changes"
+                >
                   <input
                     id="ack-odds-changes"
                     type="checkbox"
                     checked={acknowledgeOddsChanges}
-                    onChange={(event) => setAcknowledgeOddsChanges(event.target.checked)}
+                    onChange={(event) =>
+                      setAcknowledgeOddsChanges(event.target.checked)
+                    }
                   />
                   <span>
                     {reviewIssues.length} selection
@@ -266,139 +344,213 @@ export default function PaperBetslip() {
               <div className="betslip-banner info">
                 <AlertTriangle size={16} />
                 <span>
-                  Live stale-odds checks only work where this tab has a fresh frontend
-                  price snapshot. Racing can compare live Betfair prices; AFL and NBA
-                  stay model-led for now.
+                  Live stale-odds checks only work where this tab has a fresh
+                  frontend price snapshot. Racing can compare live Betfair
+                  prices; AFL and NBA stay model-led for now.
                 </span>
               </div>
             </div>
 
+            <div className="betslip-tabs">
+              {(
+                [
+                  ["singles", "Singles"],
+                  ["exotics", "Exotics"],
+                  ["quaddie", "Quaddie"],
+                  ["sgm", "SGM"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`betslip-tab ${activeTab === key ? "active" : ""}`}
+                  onClick={() => setActiveTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {(activeTab === "exotics" || activeTab === "quaddie") &&
+            tabBets.length === 0 ? (
+              <AwaitingExoticPool />
+            ) : null}
+
+            {activeTab === "exotics" && tabBets.length > 0 ? (
+              <div className="betslip-exotic-summary">
+                <span>
+                  {tabBets[0]?.exotic_bet_type ?? "EXOTIC"} boxed selections
+                </span>
+                <strong>{exoticCombinationCount(tabBets)} combinations</strong>
+                <span>
+                  Flexi % updates from stake / combinations when logged.
+                </span>
+              </div>
+            ) : null}
+
+            {activeTab === "sgm" && tabBets.length === 0 ? (
+              <div className="betslip-empty">
+                <p>Awaiting same-game markets.</p>
+                <p className="small">
+                  Add live-priced legs from one match to calculate an SGM.
+                </p>
+              </div>
+            ) : null}
+
             <div className="betslip-list">
-              {warnings.map(({ bet, issues }) => {
-                const key = buildPaperBetKey({
-                  sport: bet.sport,
-                  eventId: bet.event_id,
-                  selection: bet.selection,
-                  betType: bet.bet_type,
-                });
-                const snapshot = selectionSnapshots[key];
-                const latestOdds = snapshot?.current_odds;
-                const isRacing = (bet.sport || "").toLowerCase() === "racing";
-                const isEachWay = bet.bet_type === "each_way";
-                const unitStake = bet.stake || 0;
-                const totalItemStake = isEachWay ? unitStake * 2 : unitStake;
+              {warnings
+                .filter(({ bet }) =>
+                  tabBets.some((tabBet) => tabBet.id === bet.id),
+                )
+                .map(({ bet, issues }) => {
+                  const key = buildPaperBetKey({
+                    sport: bet.sport,
+                    eventId: bet.event_id,
+                    selection: bet.selection,
+                    betType: bet.bet_type,
+                  });
+                  const snapshot = selectionSnapshots[key];
+                  const latestOdds = snapshot?.current_odds;
+                  const isRacing = (bet.sport || "").toLowerCase() === "racing";
+                  const isEachWay = bet.bet_type === "each_way";
+                  const unitStake = bet.stake || 0;
+                  const totalItemStake = isEachWay ? unitStake * 2 : unitStake;
 
-                return (
-                  <div key={bet.id} className="betslip-item">
-                    <div className="betslip-item-header">
-                      <div className="betslip-item-info">
-                        <strong className="betslip-selection">{bet.selection}</strong>
-                        <span className="betslip-event">{bet.event_name}</span>
-                      </div>
-                      <button
-                        className="betslip-remove"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeBet(bet.id);
-                        }}
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-
-                    {/* Racing Each-Way (E/W) Toggle */}
-                    {isRacing && (
-                      <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
-                        <label
-                          htmlFor={`ew-toggle-${bet.id}`}
-                          className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
-                        >
-                          <input
-                            id={`ew-toggle-${bet.id}`}
-                            type="checkbox"
-                            checked={isEachWay}
-                            onChange={(e) => {
-                              const nextType = e.target.checked ? "each_way" : "win";
-                              updateBet(bet.id, { bet_type: nextType });
-                            }}
-                            className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
-                          />
-                          <span>Each-Way (E/W)</span>
-                        </label>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="betslip-item-details">
-                      <div className="betslip-item-meta">
-                        <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
-                        <span className="badge badge-accent font-semibold">
-                          {(bet.bet_type || "WIN").toUpperCase().replace("_", "-")} @ ${bet.odds?.toFixed(2) || "0.00"}
-                        </span>
-                        {latestOdds && latestOdds > 1 ? (
-                          <span className="badge badge-blue">
-                            Now ${latestOdds.toFixed(2)}
+                  return (
+                    <div key={bet.id} className="betslip-item">
+                      <div className="betslip-item-header">
+                        <div className="betslip-item-info">
+                          <strong className="betslip-selection">
+                            {bet.selection}
+                          </strong>
+                          <span className="betslip-event">
+                            {bet.event_name}
                           </span>
-                        ) : null}
+                        </div>
+                        <button
+                          className="betslip-remove"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeBet(bet.id);
+                          }}
+                        >
+                          <X size={14} />
+                        </button>
                       </div>
-                      <div className="betslip-item-stake">
-                        <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
-                        <div className="stake-input-wrap">
-                          <span>$</span>
-                          <input
-                            type="number"
-                            min="1"
-                            value={bet.stake === 0 ? "" : bet.stake}
-                            onChange={(e) => {
-                              const raw = e.target.value;
-                              const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
-                              updateBet(bet.id, { stake: cleanNum });
-                            }}
-                          />
+
+                      {/* Racing Each-Way (E/W) Toggle */}
+                      {isRacing && (
+                        <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
+                          <label
+                            htmlFor={`ew-toggle-${bet.id}`}
+                            className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
+                          >
+                            <input
+                              id={`ew-toggle-${bet.id}`}
+                              type="checkbox"
+                              checked={isEachWay}
+                              onChange={(e) => {
+                                const nextType = e.target.checked
+                                  ? "each_way"
+                                  : "win";
+                                updateBet(bet.id, { bet_type: nextType });
+                              }}
+                              className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                            />
+                            <span>Each-Way (E/W)</span>
+                          </label>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="betslip-item-details">
+                        <div className="betslip-item-meta">
+                          <span className="badge badge-muted">
+                            {bet.sport.toUpperCase()}
+                          </span>
+                          <span className="badge badge-accent font-semibold">
+                            {(bet.bet_type || "WIN")
+                              .toUpperCase()
+                              .replace("_", "-")}{" "}
+                            @ ${bet.odds?.toFixed(2) || "0.00"}
+                          </span>
+                          {latestOdds && latestOdds > 1 ? (
+                            <span className="badge badge-blue">
+                              Now ${latestOdds.toFixed(2)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="betslip-item-stake">
+                          <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
+                          <div className="stake-input-wrap">
+                            <span>$</span>
+                            <input
+                              type="number"
+                              min="1"
+                              value={bet.stake === 0 ? "" : bet.stake}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const cleanNum =
+                                  raw === ""
+                                    ? 0
+                                    : Math.max(
+                                        0,
+                                        Number(raw.replace(/^0+/, "") || 0),
+                                      );
+                                updateBet(bet.id, { stake: cleanNum });
+                              }}
+                            />
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Each-Way Breakdown Text */}
-                    {isEachWay && (
-                      <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
-                        <span>${unitStake} Win + ${unitStake} Place</span>
-                        <span className="font-bold text-emerald-400">(Total Stake: ${totalItemStake})</span>
-                      </div>
-                    )}
+                      {/* Each-Way Breakdown Text */}
+                      {isEachWay && (
+                        <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
+                          <span>
+                            ${unitStake} Win + ${unitStake} Place
+                          </span>
+                          <span className="font-bold text-emerald-400">
+                            (Total Stake: ${totalItemStake})
+                          </span>
+                        </div>
+                      )}
 
-                    {/* Potential Collect for Individual Bet */}
-                    {bet.odds && bet.odds > 1 ? (
-                      <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
-                        <span className="text-[11px] text-slate-300">Est. Collect:</span>
-                        <strong className="text-emerald-400 font-bold text-sm">
-                          ${(
-                            isEachWay
-                              ? unitStake * bet.odds + unitStake * (1 + (bet.odds - 1) * 0.25)
+                      {/* Potential Collect for Individual Bet */}
+                      {bet.odds && bet.odds > 1 ? (
+                        <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
+                          <span className="text-[11px] text-slate-300">
+                            Est. Collect:
+                          </span>
+                          <strong className="text-emerald-400 font-bold text-sm">
+                            $
+                            {(isEachWay
+                              ? unitStake * bet.odds +
+                                unitStake * (1 + (bet.odds - 1) * 0.25)
                               : unitStake * bet.odds
-                          ).toFixed(2)}
-                        </strong>
-                      </div>
-                    ) : null}
+                            ).toFixed(2)}
+                          </strong>
+                        </div>
+                      ) : null}
 
-                    {issues.length > 0 ? (
-                      <div className="betslip-issues">
-                        {issues.map((issue, index) => (
-                          <div
-                            key={`${bet.id}-${index}`}
-                            className={`betslip-issue ${issue.tone}`}
-                          >
-                            <AlertTriangle size={13} />
-                            <span>{issue.message}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
+                      {issues.length > 0 ? (
+                        <div className="betslip-issues">
+                          {issues.map((issue, index) => (
+                            <div
+                              key={`${bet.id}-${index}`}
+                              className={`betslip-issue ${issue.tone}`}
+                            >
+                              <AlertTriangle size={13} />
+                              <span>{issue.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
             </div>
             <div className="betslip-footer">
               <div className="betslip-summary">
@@ -420,20 +572,29 @@ export default function PaperBetslip() {
                 <div className="summary-row total-collect flex items-center justify-between pt-2 mt-1 border-t border-emerald-500/30 text-emerald-400 font-bold">
                   <span>Est. Total Collect</span>
                   <strong className="text-base text-emerald-400">
-                    ${bets.reduce((sum, b) => {
-                      const isEW = b.bet_type === "each_way";
-                      const uStake = b.stake || 0;
-                      const odds = b.odds || 1;
-                      const est = isEW
-                        ? uStake * odds + uStake * (1 + (odds - 1) * 0.25)
-                        : uStake * odds;
-                      return sum + est;
-                    }, 0).toFixed(2)}
+                    $
+                    {bets
+                      .reduce((sum, b) => {
+                        const isEW = b.bet_type === "each_way";
+                        const uStake = b.stake || 0;
+                        const odds = b.odds || 1;
+                        const est = isEW
+                          ? uStake * odds + uStake * (1 + (odds - 1) * 0.25)
+                          : uStake * odds;
+                        return sum + est;
+                      }, 0)
+                      .toFixed(2)}
                   </strong>
                 </div>
                 <div className="summary-row default-stake-row">
                   <span style={{ fontSize: "0.8rem" }}>Default Stake</span>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
                     <div className="footer-stake-input-wrap">
                       <span>$</span>
                       <input
@@ -442,7 +603,13 @@ export default function PaperBetslip() {
                         value={defaultStake === 0 ? "" : defaultStake}
                         onChange={(e) => {
                           const raw = e.target.value;
-                          const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                          const cleanNum =
+                            raw === ""
+                              ? 0
+                              : Math.max(
+                                  0,
+                                  Number(raw.replace(/^0+/, "") || 0),
+                                );
                           setDefaultStake(cleanNum);
                         }}
                         className="footer-stake-input"
@@ -452,8 +619,13 @@ export default function PaperBetslip() {
                     <button
                       type="button"
                       onClick={() => {
-                        bets.forEach((b) => updateBet(b.id, { stake: defaultStake }));
-                        addToast(`Applied stake of $${defaultStake} to all bets`, "success");
+                        bets.forEach((b) =>
+                          updateBet(b.id, { stake: defaultStake }),
+                        );
+                        addToast(
+                          `Applied stake of $${defaultStake} to all bets`,
+                          "success",
+                        );
                       }}
                       className="btn btn-secondary btn-xs apply-all-btn"
                       title="Apply default stake to all current picks"
@@ -483,7 +655,11 @@ export default function PaperBetslip() {
                         : "Log the current paper betslip."
                   }
                 >
-                  {placing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+                  {placing ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <Send size={16} />
+                  )}
                   {placing
                     ? "Logging..."
                     : blockingIssues.length > 0
@@ -499,6 +675,37 @@ export default function PaperBetslip() {
       </div>
 
       <style jsx global>{`
+        .betslip-tabs {
+          display: grid;
+          grid-template-columns: repeat(4, 1fr);
+          gap: 0.35rem;
+          margin-bottom: 0.75rem;
+        }
+        .betslip-tab {
+          border: 1px solid var(--border);
+          background: rgba(15, 23, 42, 0.85);
+          color: var(--text-secondary);
+          border-radius: 0.6rem;
+          padding: 0.4rem 0.25rem;
+          font-size: 0.72rem;
+          font-weight: 800;
+        }
+        .betslip-tab.active {
+          border-color: rgba(16, 185, 129, 0.6);
+          color: rgb(110, 231, 183);
+          background: rgba(6, 78, 59, 0.35);
+        }
+        .betslip-exotic-summary {
+          display: grid;
+          gap: 0.25rem;
+          padding: 0.65rem;
+          border: 1px solid rgba(245, 158, 11, 0.35);
+          border-radius: 0.75rem;
+          background: rgba(120, 53, 15, 0.22);
+          color: rgb(253, 230, 138);
+          font-size: 0.75rem;
+          margin-bottom: 0.75rem;
+        }
         .betslip-container {
           position: fixed;
           bottom: 1.5rem;
@@ -510,7 +717,7 @@ export default function PaperBetslip() {
           box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
           z-index: 10000;
           overflow: hidden;
-          transition: 
+          transition:
             width 0.45s cubic-bezier(0.16, 1, 0.3, 1),
             max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1),
             border-radius 0.45s cubic-bezier(0.16, 1, 0.3, 1),
@@ -570,9 +777,15 @@ export default function PaperBetslip() {
         }
 
         @keyframes pulse-green {
-          0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-          70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
-          100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+          0% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+          }
+          70% {
+            box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+          }
+          100% {
+            box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+          }
         }
 
         .betslip-count {
@@ -590,7 +803,9 @@ export default function PaperBetslip() {
           flex-direction: column;
           min-height: 220px;
           background: var(--bg-primary);
-          transition: opacity 0.3s ease, max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+          transition:
+            opacity 0.3s ease,
+            max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1);
           opacity: 1;
           max-height: 650px;
           overflow-y: hidden;
@@ -869,6 +1084,37 @@ export default function PaperBetslip() {
         }
 
         @media (max-width: 768px) {
+          .betslip-tabs {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 0.35rem;
+            margin-bottom: 0.75rem;
+          }
+          .betslip-tab {
+            border: 1px solid var(--border);
+            background: rgba(15, 23, 42, 0.85);
+            color: var(--text-secondary);
+            border-radius: 0.6rem;
+            padding: 0.4rem 0.25rem;
+            font-size: 0.72rem;
+            font-weight: 800;
+          }
+          .betslip-tab.active {
+            border-color: rgba(16, 185, 129, 0.6);
+            color: rgb(110, 231, 183);
+            background: rgba(6, 78, 59, 0.35);
+          }
+          .betslip-exotic-summary {
+            display: grid;
+            gap: 0.25rem;
+            padding: 0.65rem;
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            border-radius: 0.75rem;
+            background: rgba(120, 53, 15, 0.22);
+            color: rgb(253, 230, 138);
+            font-size: 0.75rem;
+            margin-bottom: 0.75rem;
+          }
           .betslip-container {
             left: 1rem;
             right: 1rem;
@@ -878,7 +1124,10 @@ export default function PaperBetslip() {
           }
         }
       `}</style>
-      <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
+      <GuestModal
+        open={showGuestModal}
+        onClose={() => setShowGuestModal(false)}
+      />
     </div>
   );
 }

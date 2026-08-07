@@ -1,5 +1,12 @@
 "use client";
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "./AuthProvider";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
@@ -30,6 +37,19 @@ export interface PaperBet {
   is_closed?: boolean;
   is_unavailable?: boolean;
   unavailable_reason?: string;
+  bet_family?: "single" | "exotic" | "quaddie" | "sgm" | "srm";
+  exotic_bet_type?:
+    | "QUINELLA"
+    | "EXACTA"
+    | "TRIFECTA"
+    | "FIRST4"
+    | "QUADDIE"
+    | "EARLY_QUADDIE"
+    | "TREBLE"
+    | "RUNNING_DOUBLE";
+  leg_number?: number;
+  position?: number;
+  runner_name?: string;
 }
 
 export interface PaperBetSelectionSnapshot {
@@ -62,19 +82,32 @@ interface PaperBetslipContextType {
   updateBet: (id: string, updates: Partial<PaperBet>) => void;
   registerSelectionSnapshot: (snapshot: PaperBetSelectionSnapshot) => void;
   selectionSnapshots: Record<string, PaperBetSelectionSnapshot>;
-  toasts: Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>;
-  addToast: (message: string, type?: "warning" | "success" | "error" | "info") => void;
+  toasts: Array<{
+    id: string;
+    message: string;
+    type: "warning" | "success" | "error" | "info";
+  }>;
+  addToast: (
+    message: string,
+    type?: "warning" | "success" | "error" | "info",
+  ) => void;
   removeToast: (id: string) => void;
   defaultStake: number;
   setDefaultStake: (stake: number) => void;
 }
 
-const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
+const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(
+  undefined,
+);
 
 import { API_BASE } from "../lib/api";
 import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
-export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
+export function PaperBetslipProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [bets, setBets] = useState<PaperBet[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
   const [selectionSnapshots, setSelectionSnapshots] = useState<
@@ -85,19 +118,29 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   const { token, updateBankroll, refreshUser } = useAuth();
 
   const [toasts, setToasts] = useState<
-    Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>
+    Array<{
+      id: string;
+      message: string;
+      type: "warning" | "success" | "error" | "info";
+    }>
   >([]);
 
   const [defaultStake, setDefaultStakeState] = useState<number>(10);
   const defaultStakeRef = useRef<number>(10);
 
-  const addToast = useCallback((message: string, type: "warning" | "success" | "error" | "info" = "info") => {
-    const id = Math.random().toString(36).slice(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
+  const addToast = useCallback(
+    (
+      message: string,
+      type: "warning" | "success" | "error" | "info" = "info",
+    ) => {
+      const id = Math.random().toString(36).slice(2, 9);
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4000);
+    },
+    [],
+  );
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -118,7 +161,9 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     setBets(persistedBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
 
-    const persistedStake = window.localStorage.getItem("paper_betslip_default_stake");
+    const persistedStake = window.localStorage.getItem(
+      "paper_betslip_default_stake",
+    );
     if (persistedStake) {
       const val = Number(persistedStake);
       if (!isNaN(val) && val > 0) {
@@ -151,10 +196,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   }, [isBetslipOpen, hasHydrated]);
 
   const addBet = useCallback(
-    (
-      newBet: Omit<PaperBet, "id">,
-      options?: { openBetslip?: boolean },
-    ) => {
+    (newBet: Omit<PaperBet, "id">, options?: { openBetslip?: boolean }) => {
       const key = buildPaperBetKey({
         sport: newBet.sport,
         eventId: newBet.event_id,
@@ -189,7 +231,10 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       }
 
       if (betsRef.current.length >= 50) {
-        addToast("Betslip limit reached. Maximum capacity is 50 bets.", "warning");
+        addToast(
+          "Betslip limit reached. Maximum capacity is 50 bets.",
+          "warning",
+        );
         return { status: "limit_reached" as const };
       }
 
@@ -200,7 +245,12 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
       const nextBets = [
         ...betsRef.current,
-        { ...newBet, stake: defaultStakeRef.current, id, added_at: new Date().toISOString() },
+        {
+          ...newBet,
+          stake: defaultStakeRef.current,
+          id,
+          added_at: new Date().toISOString(),
+        },
       ];
       betsRef.current = nextBets;
       setBets(nextBets);
@@ -258,68 +308,157 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     if (bets.length === 0) return { success: 0, failed: 0 };
 
     try {
-      const mlPayload = bets.map((bet) => ({
-        sport: bet.sport,
-        event_id: bet.event_id,
-        event_name: bet.event_name,
-        selection: bet.selection,
-        stake: bet.stake,
-        odds: bet.odds,
-        bet_type: bet.bet_type,
-        notes: bet.notes,
-      }));
+      const mlPayload = bets
+        .filter((bet) => !bet.bet_family || bet.bet_family === "single")
+        .map((bet) => ({
+          sport: bet.sport,
+          event_id: bet.event_id,
+          event_name: bet.event_name,
+          selection: bet.selection,
+          stake: bet.stake,
+          odds: bet.odds,
+          bet_type: bet.bet_type,
+          notes: bet.notes,
+        }));
 
-      const apiPayload = {
-        bets: bets.map((b) => {
-          let eventType = "race";
-          const s = (b.sport || "").toLowerCase();
-          if (s === "afl") eventType = "afl_game";
-          else if (s === "nba") eventType = "nba_game";
-          else if (s === "nrl") eventType = "nrl_game";
-          else if (s === "soccer") eventType = "soccer_game";
-          else if (s === "golf") eventType = "golf_event";
-          else if (s === "mma") eventType = "mma_fight";
-
-          return {
-            eventType,
-            eventId: b.event_id,
-            eventName: b.event_name,
-            betType: b.bet_type || "win",
-            selection: b.selection,
-            odds: Number(b.odds) || 1.0,
-            stake: Number(b.stake) || 0,
-            wasAIRecommended: true,
-            notes: b.notes || "",
-          };
-        }),
+      const toEventType = (sport: string) => {
+        const s = (sport || "").toLowerCase();
+        if (s === "afl") return "afl_game";
+        if (s === "nba") return "nba_game";
+        if (s === "nrl") return "nrl_game";
+        if (s === "soccer") return "soccer_game";
+        if (s === "golf") return "golf_event";
+        if (s === "mma") return "mma_fight";
+        return "race";
       };
 
-      const mlPromise = fetch(`${ML_API}/api/paper-bets/batch`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token || "guest"}`,
-        },
-        body: JSON.stringify(mlPayload),
-      });
+      const singleBets = bets.filter(
+        (b) =>
+          !b.bet_family || b.bet_family === "single" || b.bet_family === "srm",
+      );
+      const exoticBets = bets.filter(
+        (b) => b.bet_family === "exotic" || b.bet_family === "quaddie",
+      );
+      const sgmBets = bets.filter((b) => b.bet_family === "sgm");
 
-      const expressPromise =
-        token && token !== "guest"
-          ? fetch(`${API_BASE}/bets/batch`, {
+      const apiPayload = {
+        bets: singleBets.map((b) => ({
+          eventType: toEventType(b.sport),
+          eventId: b.event_id,
+          eventName: b.event_name,
+          betType: b.bet_type || "win",
+          selection: b.selection,
+          odds: Number(b.odds) || 1.0,
+          stake: Number(b.stake) || 0,
+          wasAIRecommended: true,
+          notes: b.notes || "",
+        })),
+      };
+
+      const mlPromise =
+        mlPayload.length > 0
+          ? fetch(`${ML_API}/api/paper-bets/batch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token || "guest"}`,
+              },
+              body: JSON.stringify(mlPayload),
+            })
+          : Promise.resolve(null);
+
+      const expressRequests: Promise<Response>[] = [];
+      if (token && token !== "guest") {
+        if (apiPayload.bets.length > 0) {
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/batch`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
               },
               body: JSON.stringify(apiPayload),
-            })
+            }),
+          );
+        }
+
+        if (exoticBets.length > 0) {
+          const first = exoticBets[0];
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/exotics`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                betType: first.exotic_bet_type ?? "QUINELLA",
+                eventName: first.event_name,
+                raceId: first.event_id,
+                stake: exoticBets.reduce(
+                  (sum, bet) => sum + (Number(bet.stake) || 0),
+                  0,
+                ),
+                legs: exoticBets.map((bet) => ({
+                  raceId: bet.event_id,
+                  legNumber: bet.leg_number ?? 1,
+                  position: bet.position,
+                  runnerId: bet.selection_id ?? bet.selection,
+                  runnerName: bet.runner_name ?? bet.selection,
+                  selectionMode: "BOXED",
+                })),
+              }),
+            }),
+          );
+        }
+
+        if (sgmBets.length > 1) {
+          const first = sgmBets[0];
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/sgm`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                multiType: "SGM",
+                eventType: toEventType(first.sport),
+                eventId: first.event_id,
+                eventName: first.event_name,
+                stake: sgmBets.reduce(
+                  (sum, bet) => sum + (Number(bet.stake) || 0),
+                  0,
+                ),
+                legs: sgmBets.map((bet) => ({
+                  marketType: bet.bet_type,
+                  selectionId: bet.selection_id,
+                  selectionLabel: bet.selection,
+                  odds: Number(bet.odds),
+                })),
+              }),
+            }),
+          );
+        }
+      }
+
+      const expressPromise =
+        expressRequests.length > 0
+          ? Promise.all(expressRequests)
           : Promise.resolve(null);
 
-      const [mlResult, expressResult] = await Promise.allSettled([mlPromise, expressPromise]);
+      const [mlResult, expressResult] = await Promise.allSettled([
+        mlPromise,
+        expressPromise,
+      ]);
 
       let isMlSuccess = false;
       let mlData: any = null;
-      if (mlResult.status === "fulfilled" && mlResult.value && mlResult.value.ok) {
+      if (
+        mlResult.status === "fulfilled" &&
+        mlResult.value &&
+        mlResult.value.ok
+      ) {
         isMlSuccess = true;
         mlData = await mlResult.value.json().catch(() => ({}));
       }
@@ -327,12 +466,20 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       let isExpressSuccess = false;
       let expressData: any = null;
       if (expressResult.status === "fulfilled" && expressResult.value) {
-        if (expressResult.value.ok) {
-          isExpressSuccess = true;
-          expressData = await expressResult.value.json().catch(() => ({}));
+        const responses = Array.isArray(expressResult.value)
+          ? expressResult.value
+          : [expressResult.value];
+        isExpressSuccess =
+          responses.length > 0 && responses.every((response) => response.ok);
+        if (isExpressSuccess) {
+          expressData = await Promise.all(
+            responses.map((response) => response.json().catch(() => ({}))),
+          );
           if (refreshUser) void refreshUser();
-        } else if (expressResult.value.status === 401) {
-          console.warn("Express API returned 401 Unauthorized during bet placement. Falling back to local paper engine.");
+        } else if (responses.some((response) => response.status === 401)) {
+          console.warn(
+            "Express API returned 401 Unauthorized during bet placement. Falling back to local paper engine.",
+          );
         }
       }
 
@@ -340,7 +487,10 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
       if (isOverallSuccess) {
         const count = bets.length;
-        const totalStakePlaced = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
+        const totalStakePlaced = bets.reduce(
+          (sum, b) => sum + (b.stake || 0),
+          0,
+        );
 
         trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
           totalBets: count,
@@ -361,7 +511,10 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
         return { success: count, failed: 0 };
       } else {
-        console.error("Batch bet placement failed on both services", { mlResult, expressResult });
+        console.error("Batch bet placement failed on both services", {
+          mlResult,
+          expressResult,
+        });
         return { success: 0, failed: bets.length };
       }
     } catch (e) {
@@ -398,7 +551,9 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 export function usePaperBetslip() {
   const context = useContext(PaperBetslipContext);
   if (context === undefined) {
-    throw new Error("usePaperBetslip must be used within a PaperBetslipProvider");
+    throw new Error(
+      "usePaperBetslip must be used within a PaperBetslipProvider",
+    );
   }
   return context;
 }

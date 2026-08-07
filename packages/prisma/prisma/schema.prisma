@@ -273,6 +273,8 @@ model User {
   createdAt        DateTime          @default(now()) @db.Timestamptz(6)
   updatedAt        DateTime          @updatedAt @db.Timestamptz(6)
   bets             Bet[]
+  exoticBets       ExoticBet[]
+  multiBets        MultiBet[]
   bankrollHistory  BankrollHistory[]
 
   @@schema("public")
@@ -302,6 +304,88 @@ model Bet {
   @@schema("public")
 }
 
+model ExoticBet {
+  id                String      @id @default(cuid())
+  userId            String
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  betType           String
+  eventName         String
+  raceId            String?
+  meetingId         String?
+  stake             Float
+  combinations      Int
+  flexiPercentage   Float
+  estimatedDividend Float?
+  estimatedCollect  Float?
+  poolStatus        String      @default("AWAITING_EXOTIC_POOL")
+  status            String      @default("PENDING")
+  legs              ExoticLeg[]
+  createdAt         DateTime    @default(now()) @db.Timestamptz(6)
+  settledAt         DateTime?   @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([betType, status])
+  @@schema("public")
+}
+
+model ExoticLeg {
+  id            String    @id @default(cuid())
+  exoticBetId   String
+  exoticBet     ExoticBet @relation(fields: [exoticBetId], references: [id], onDelete: Cascade)
+  raceId        String
+  legNumber     Int       @default(1)
+  position      Int?
+  runnerId      String
+  runnerName    String
+  selectionMode String    @default("POSITIONAL")
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([exoticBetId, legNumber])
+  @@index([raceId])
+  @@schema("public")
+}
+
+model MultiBet {
+  id                 String     @id @default(cuid())
+  userId             String
+  user               User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  multiType          String
+  eventType          String
+  eventId            String
+  eventName          String
+  stake              Float
+  fairOdds           Float
+  adjustedOdds       Float
+  impliedProbability Float
+  correlationHaircut Float
+  calculationStatus  String     @default("CALCULATED")
+  status             String     @default("PENDING")
+  legs               MultiLeg[]
+  createdAt          DateTime   @default(now()) @db.Timestamptz(6)
+  settledAt          DateTime?  @db.Timestamptz(6)
+
+  @@index([userId, createdAt])
+  @@index([multiType, eventId])
+  @@schema("public")
+}
+
+model MultiLeg {
+  id               String   @id @default(cuid())
+  multiBetId       String
+  multiBet         MultiBet @relation(fields: [multiBetId], references: [id], onDelete: Cascade)
+  marketType       String
+  selectionId      String?
+  selectionLabel   String
+  odds             Float
+  probability      Float
+  correlationGroup String?
+  line             Float?
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([multiBetId])
+  @@schema("public")
+}
+
 model BankrollHistory {
   id        String   @id @default(cuid())
   userId    String
@@ -315,18 +399,18 @@ model BankrollHistory {
 }
 
 model Syndicate {
-  id              String            @id @default(cuid())
-  name            String
-  code            String            @unique
-  ownerId         String
-  buyInTier       Float             @default(50.0) // 20, 50, 100 paper currency
-  paperBalance    Float             @default(0.0)
-  maxStakeLimit   Float             @default(50.0)
-  createdAt       DateTime          @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime          @updatedAt @db.Timestamptz(6)
-  members         SyndicateMember[]
-  ledgers         SyndicateLedger[]
-  messages        SyndicateMessage[]
+  id            String             @id @default(cuid())
+  name          String
+  code          String             @unique
+  ownerId       String
+  buyInTier     Float              @default(50.0) // 20, 50, 100 paper currency
+  paperBalance  Float              @default(0.0)
+  maxStakeLimit Float              @default(50.0)
+  createdAt     DateTime           @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime           @updatedAt @db.Timestamptz(6)
+  members       SyndicateMember[]
+  ledgers       SyndicateLedger[]
+  messages      SyndicateMessage[]
 
   @@schema("public")
 }
@@ -349,7 +433,7 @@ model SyndicateLedger {
   id          String    @id @default(cuid())
   syndicateId String
   userId      String
-  type        String    // BUY_IN, PAPER_BET, DIVIDEND, ADJUSTMENT
+  type        String // BUY_IN, PAPER_BET, DIVIDEND, ADJUSTMENT
   amount      Float
   description String
   createdAt   DateTime  @default(now()) @db.Timestamptz(6)
@@ -374,5 +458,3 @@ model SyndicateMessage {
   @@index([syndicateId, createdAt])
   @@schema("public")
 }
-
-
