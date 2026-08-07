@@ -9,6 +9,12 @@ import racesRoutes from "./routes/races";
 import userRoutes from "./routes/user";
 import leaderboardsRoutes from "./routes/leaderboards";
 import cronRoutes from "./routes/cron";
+import blackbookRoutes from "./routes/blackbook";
+import searchRoutes from "./routes/search";
+import combinationsRoutes from "./routes/combinations";
+import notificationsRoutes from "./routes/notifications";
+import chatRoutes from "./routes/chat";
+import syndicatesRoutes from "./routes/syndicates";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
 
@@ -27,5 +33,11 @@ app.use("/api/bets", betsRoutes);
 app.use("/api/user", userRoutes);
 app.use("/api/leaderboards", leaderboardsRoutes);
 app.use("/api/cron", cronRoutes);
+app.use("/api/blackbook", blackbookRoutes);
+app.use("/api/search", searchRoutes);
+app.use("/api/combinations", combinationsRoutes);
+app.use("/api/notifications", notificationsRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/syndicates", syndicatesRoutes);
 
 export default app;

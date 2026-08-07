@@ -1,6 +1,10 @@
 "use client";
 import { useState } from "react";
+import { Activity, ChevronDown, Compass } from "lucide-react";
+import RunnerRow from "./RunnerRow";
 import PaperBetAction from "../PaperBetAction";
+import SectionalMetricsDrawer from "./SectionalMetricsDrawer";
+import SpeedMapVisualization from "./SpeedMapVisualization";
 import { ConfidenceBadge, UrgencyBadge } from "../PredictionSignalBadges";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
@@ -11,14 +15,19 @@ type HorseData = {
   name: string;
   barrier: number;
   weight: number;
-  past_win_rate: number;
-  jockey_win_rate: number;
-  track_condition: number;
-  days_since_last_race: number;
+  past_win_rate?: number;
+  jockey_win_rate?: number;
+  track_condition?: number;
+  days_since_last_race?: number;
   betfair_back_price?: number;
   betfair_implied_prob?: number;
   jockey_name?: string | null;
+  trainer_name?: string | null;
   data_source?: "betfair" | "racing_australia";
+  sectional_data?: any;
+  settling_position?: "leader" | "on_pace" | "midfield" | "backmarker";
+  wide_position?: 1 | 2 | 3;
+  early_speed_score?: number;
 };
 
 type Prediction = {
@@ -46,6 +55,7 @@ interface RaceData {
   meeting_region?: string;
   meeting_date?: string;
   horses: HorseData[];
+  predicted_pace?: "Fast" | "Moderate" | "Slow" | "Extreme";
 }
 
 interface SingleRaceCardProps {
@@ -59,11 +69,20 @@ interface SingleRaceCardProps {
 const trackConditions: Record<number, string> = { 1: "Fast", 2: "Good", 3: "Soft", 4: "Heavy" };
 
 export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitchRace }: SingleRaceCardProps) {
-  const [activeTab, setActiveTab] = useState<"win" | "multi" | "exotics">("win");
+  const [activeTab, setActiveTab] = useState<"win" | "multi" | "exotics" | "speed_map">("win");
+  const [openSectionalRunnerIds, setOpenSectionalRunnerIds] = useState<Record<string, boolean>>({});
+
   const sorted = [...siblingRaces].sort((a, b) => a.race_number - b.race_number);
   const trackCond = race.horses[0]?.track_condition;
   const confidenceSignal = prediction ? getConfidenceSignal(prediction.ai_insights_context) : null;
   const urgencySignal = getUrgencySignal({ startTime: race.start_time, eventDate: race.meeting_date });
+
+  const toggleSectionalDrawer = (horseId: string) => {
+    setOpenSectionalRunnerIds((prev) => ({
+      ...prev,
+      [horseId]: !prev[horseId],
+    }));
+  };
 
   return (
     <div className="single-race-card">
@@ -98,10 +117,16 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
         </div>
       </div>
 
-      {/* Betting tabs */}
+      {/* Betting & Speed Map tabs */}
       <div className="race-bet-tabs">
         <button type="button" className={`race-bet-tab ${activeTab === "win" ? "active" : ""}`} onClick={() => setActiveTab("win")}>
           Win / Place
+        </button>
+        <button type="button" className={`race-bet-tab ${activeTab === "speed_map" ? "active" : ""}`} onClick={() => setActiveTab("speed_map")}>
+          <span className="inline-flex items-center gap-1.5">
+            <Compass size={14} className="text-purple-400" />
+            Speed Map
+          </span>
         </button>
         <button type="button" className={`race-bet-tab ${activeTab === "multi" ? "active" : ""}`} onClick={() => setActiveTab("multi")}>
           Same Race Multi
@@ -111,94 +136,52 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
         </button>
       </div>
 
-      {/* Runner list */}
+      {/* Main Tab Content */}
       {activeTab === "win" ? (
-        <div className="runner-list">
+        <div className="runner-list flex flex-col gap-3">
           {(prediction?.predictions ?? race.horses.map((h) => ({ horse_id: h.horse_id, name: h.name, win_probability: 0, fair_odds: 0 }))).map((pick, index) => {
             const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
-            const edgePercent = getEdgePercent(pick.fair_odds, horse?.betfair_back_price);
-            const hasMarketPrice = typeof horse?.betfair_back_price === "number" && horse.betfair_back_price > 1;
+            const isDrawerOpen = Boolean(openSectionalRunnerIds[pick.horse_id]);
 
             return (
-              <div key={pick.horse_id} className={`runner-row ${index < 3 && prediction ? "runner-top" : ""}`}>
-                <div className="runner-number">
-                  <span className={`runner-rank ${index < 3 && prediction ? `rank-${index + 1}` : ""}`}>
-                    {horse?.barrier ?? index + 1}
-                  </span>
-                </div>
-                <div className="runner-info">
-                  <div className="runner-name">{pick.name}</div>
-                  <div className="runner-meta">
-                    <span>{horse?.jockey_name ?? "TBA"}</span>
-                    <span>B{horse?.barrier ?? "-"}</span>
-                    <span>{horse?.weight ?? "-"}kg</span>
-                    {pick.win_probability > 0 ? (
-                      <span className="runner-prob">{pick.win_probability}%</span>
-                    ) : null}
+              <div key={pick.horse_id} className="runner-card-container flex flex-col">
+                <div className="flex flex-col">
+                  <RunnerRow
+                    horse={horse}
+                    prediction={pick}
+                    index={index}
+                    hasTopPrediction={Boolean(prediction)}
+                    race={race}
+                  />
+
+                  {/* Expandable "Sectionals & Speed" toggle button */}
+                  <div className="flex justify-end px-2 py-1 bg-slate-900/40 border-x border-b border-slate-800/80 rounded-b-md">
+                    <button
+                      type="button"
+                      onClick={() => toggleSectionalDrawer(pick.horse_id)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded transition-colors ${
+                        isDrawerOpen
+                          ? "bg-purple-950/80 text-purple-300 border border-purple-500/40"
+                          : "text-slate-400 hover:text-purple-300 hover:bg-slate-800/60"
+                      }`}
+                    >
+                      <Activity size={13} className="text-purple-400" />
+                      <span>Sectionals & Speed</span>
+                      <ChevronDown size={13} className={`transition-transform duration-200 ${isDrawerOpen ? "rotate-180" : ""}`} />
+                    </button>
                   </div>
                 </div>
-                <div className="runner-odds-section">
-                  {hasMarketPrice ? (
-                    <div className="runner-odds-buttons">
-                      <PaperBetAction
-                        variant="odds-button"
-                        label={`$${horse!.betfair_back_price!.toFixed(2)}`}
-                        loggedLabel="✓"
-                        cancelLabel="✕"
-                        openBetslipOnAdd={true}
-                        bet={{
-                          sport: "racing",
-                          event_id: race.race_id,
-                          event_name: `${race.venue} R${race.race_number}`,
-                          selection_id: pick.horse_id,
-                          selection: pick.name,
-                          odds: horse!.betfair_back_price!,
-                          bet_type: "win",
-                          stake: 10,
-                          odds_source: "market",
-                          current_odds: horse!.betfair_back_price,
-                          can_compare_odds: true,
-                          event_start_time: race.start_time,
-                          event_date: race.meeting_date,
-                        }}
-                      />
-                    </div>
-                  ) : pick.fair_odds > 0 ? (
-                    <div className="runner-odds-buttons">
-                      <PaperBetAction
-                        variant="odds-button"
-                        label={`$${pick.fair_odds.toFixed(2)}`}
-                        loggedLabel="✓"
-                        cancelLabel="✕"
-                        openBetslipOnAdd={true}
-                        bet={{
-                          sport: "racing",
-                          event_id: race.race_id,
-                          event_name: `${race.venue} R${race.race_number}`,
-                          selection_id: pick.horse_id,
-                          selection: pick.name,
-                          odds: pick.fair_odds,
-                          bet_type: "win",
-                          stake: 10,
-                          odds_source: "model_fair",
-                          current_odds: pick.fair_odds,
-                          can_compare_odds: false,
-                          event_start_time: race.start_time,
-                          event_date: race.meeting_date,
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <span className="runner-odds-pending">—</span>
-                  )}
-                  {edgePercent ? (
-                    <span className="runner-edge">+{edgePercent.toFixed(0)}%</span>
-                  ) : null}
-                </div>
+
+                {/* Sectional Metrics Drawer rendered beneath runner row */}
+                {isDrawerOpen && (
+                  <SectionalMetricsDrawer horse={horse} />
+                )}
               </div>
             );
           })}
         </div>
+      ) : activeTab === "speed_map" ? (
+        <SpeedMapVisualization race={race} />
       ) : (
         <div className="race-tab-placeholder">
           <p className="muted-copy">Same Race Multi and Exotics are coming soon.</p>

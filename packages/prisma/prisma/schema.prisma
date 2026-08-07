@@ -210,15 +210,21 @@ model Bankroll {
 }
 
 model BlackbookItem {
-  id         String          @id @default(cuid())
-  userId     String
-  targetType String
-  targetId   String
-  targetName String
-  notes      String?
-  createdAt  DateTime        @default(now()) @db.Timestamptz(6)
-  updatedAt  DateTime        @updatedAt @db.Timestamptz(6)
-  rules      BlackbookRule[]
+  id               String          @id @default(cuid())
+  userId           String
+  targetType       String
+  targetId         String
+  targetName       String
+  entityType       String          @default("RUNNER")
+  notes            String?
+  alertPreferences Json?           @default("{}")
+  jockeyName       String?
+  trainerName      String?
+  horseName        String?
+  trackName        String?
+  createdAt        DateTime        @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime        @updatedAt @db.Timestamptz(6)
+  rules            BlackbookRule[]
 
   @@unique([userId, targetId, targetType])
   @@schema("public")
@@ -305,6 +311,67 @@ model BankrollHistory {
   createdAt DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([userId, createdAt])
+  @@schema("public")
+}
+
+model Syndicate {
+  id              String            @id @default(cuid())
+  name            String
+  code            String            @unique
+  ownerId         String
+  buyInTier       Float             @default(50.0) // 20, 50, 100 paper currency
+  paperBalance    Float             @default(0.0)
+  maxStakeLimit   Float             @default(50.0)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(6)
+  members         SyndicateMember[]
+  ledgers         SyndicateLedger[]
+  messages        SyndicateMessage[]
+
+  @@schema("public")
+}
+
+model SyndicateMember {
+  id          String    @id @default(cuid())
+  syndicateId String
+  userId      String
+  username    String
+  role        String    @default("MEMBER") // OWNER, ADMIN, MEMBER
+  buyInAmount Float     @default(50.0)
+  joinedAt    DateTime  @default(now()) @db.Timestamptz(6)
+  syndicate   Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+
+  @@unique([syndicateId, userId])
+  @@schema("public")
+}
+
+model SyndicateLedger {
+  id          String    @id @default(cuid())
+  syndicateId String
+  userId      String
+  type        String    // BUY_IN, PAPER_BET, DIVIDEND, ADJUSTMENT
+  amount      Float
+  description String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  syndicate   Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+
+  @@index([syndicateId, createdAt])
+  @@schema("public")
+}
+
+model SyndicateMessage {
+  id          String    @id @default(cuid())
+  syndicateId String
+  userId      String
+  username    String
+  text        String
+  betPayload  Json?
+  isSystem    Boolean   @default(false)
+  isReported  Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(6)
+  syndicate   Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+
+  @@index([syndicateId, createdAt])
   @@schema("public")
 }
 
