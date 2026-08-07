@@ -7,6 +7,12 @@
       "use": "@vercel/node"
     }
   ],
+  "crons": [
+    {
+      "path": "/api/cron/settle-bets",
+      "schedule": "0 18 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

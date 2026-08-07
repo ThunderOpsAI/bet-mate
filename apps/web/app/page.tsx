@@ -88,7 +88,7 @@ function HomePageContent() {
           ? responseJson
           : []) as Race[];
 
-        if (racesData.length === 0) {
+        if (racesData.length < 6) {
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
           const fallbackDateStr = tomorrow.toISOString().split("T")[0];
@@ -98,11 +98,16 @@ function HomePageContent() {
           );
           if (fallbackRes.ok) {
             const fallbackJson = await safeResponseJson(fallbackRes);
-            racesData = (Array.isArray(fallbackJson?.races)
+            const tomorrowRaces = (Array.isArray(fallbackJson?.races)
               ? fallbackJson.races
               : Array.isArray(fallbackJson)
               ? fallbackJson
               : []) as Race[];
+            
+            // Deduplicate by race_id
+            const existingIds = new Set(racesData.map((r) => r.race_id));
+            const newRaces = tomorrowRaces.filter((r) => !existingIds.has(r.race_id));
+            racesData = [...racesData, ...newRaces];
           }
         }
 
@@ -409,8 +414,7 @@ function HomePageContent() {
       <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4">
         {/* Clean Dashboard Header */}
         <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm shadow-xl">
-          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-xs sm:text-sm mb-1">
-            <Sparkles size={16} />
+          <div className="text-emerald-400 font-semibold text-xs sm:text-sm mb-1">
             <span>AI-Powered Betting Intelligence</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 tracking-tight">

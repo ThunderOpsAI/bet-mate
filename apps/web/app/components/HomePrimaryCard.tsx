@@ -123,21 +123,16 @@ export default function HomePrimaryCard({
       <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm">
-                <Zap size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>High EV Chances</span>
-                  {opportunities.length > 0 && (
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      {opportunities.length}
-                    </span>
-                  )}
-                </h2>
-                <p className="text-[11px] text-slate-400">Top algorithmic value picks today</p>
-              </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <span>High EV Chances</span>
+                {opportunities.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    {opportunities.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-slate-400">Top algorithmic value picks today</p>
             </div>
             <Link href={racingLinkHref} className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">
               <span>View All</span>
@@ -234,21 +229,16 @@ export default function HomePrimaryCard({
       <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-sm">
-                <BookOpen size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>Next Blackbookers</span>
-                  {blackbookItems.length > 0 && (
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                      {blackbookItems.length}
-                    </span>
-                  )}
-                </h2>
-                <p className="text-[11px] text-slate-400">Tracked runners matching alert rules</p>
-              </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <span>Next Blackbookers</span>
+                {blackbookItems.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    {blackbookItems.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-slate-400">Tracked runners matching alert rules</p>
             </div>
             <Link
               href="/blackbook"
@@ -320,21 +310,16 @@ export default function HomePrimaryCard({
       <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm">
-                <Trophy size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>Next Racing</span>
-                  {upcomingRaces.length > 0 && (
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      {upcomingRaces.length}
-                    </span>
-                  )}
-                </h2>
-                <p className="text-[11px] text-slate-400">Upcoming race cards & top runners</p>
-              </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <span>Next Racing</span>
+                {upcomingRaces.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {upcomingRaces.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-slate-400">Upcoming race cards & top runners</p>
             </div>
             <Link href={racingLinkHref} className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors">
               <span>View All Racing</span>
@@ -443,21 +428,16 @@ export default function HomePrimaryCard({
       <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20 shadow-sm">
-                <Activity size={18} />
-              </div>
-              <div>
-                <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-                  <span>Next Sport</span>
-                  {upcomingSports.length > 0 && (
-                    <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                      {upcomingSports.length}
-                    </span>
-                  )}
-                </h2>
-                <p className="text-[11px] text-slate-400">Upcoming AFL, NBA, NRL & Soccer</p>
-              </div>
+            <div>
+              <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <span>Next Sport</span>
+                {upcomingSports.length > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                    {upcomingSports.length}
+                  </span>
+                )}
+              </h2>
+              <p className="text-[11px] text-slate-400">Upcoming AFL, NBA, NRL & Soccer</p>
             </div>
             <Link href="/nba" className="text-xs font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
               <span>View Sports</span>
