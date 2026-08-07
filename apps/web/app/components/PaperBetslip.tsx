@@ -156,7 +156,11 @@ export default function PaperBetslip() {
 
   if (bets.length === 0 && !isBetslipOpen && !result) return null;
 
-  const totalStake = bets.reduce((sum, b) => sum + b.stake, 0);
+  const totalStake = bets.reduce((sum, b) => {
+    const isEachWay = b.bet_type === "each_way";
+    return sum + (isEachWay ? (b.stake || 0) * 2 : b.stake || 0);
+  }, 0);
+  const hasEachWayBet = bets.some((b) => b.bet_type === "each_way");
   const blockingIssues = warnings.flatMap((entry) =>
     entry.issues.filter((issue) => issue.blocking),
   );
@@ -279,6 +283,10 @@ export default function PaperBetslip() {
                 });
                 const snapshot = selectionSnapshots[key];
                 const latestOdds = snapshot?.current_odds;
+                const isRacing = (bet.sport || "").toLowerCase() === "racing";
+                const isEachWay = bet.bet_type === "each_way";
+                const unitStake = bet.stake || 0;
+                const totalItemStake = isEachWay ? unitStake * 2 : unitStake;
 
                 return (
                   <div key={bet.id} className="betslip-item">
@@ -297,11 +305,37 @@ export default function PaperBetslip() {
                         <X size={14} />
                       </button>
                     </div>
+
+                    {/* Racing Each-Way (E/W) Toggle */}
+                    {isRacing && (
+                      <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
+                        <label
+                          htmlFor={`ew-toggle-${bet.id}`}
+                          className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
+                        >
+                          <input
+                            id={`ew-toggle-${bet.id}`}
+                            type="checkbox"
+                            checked={isEachWay}
+                            onChange={(e) => {
+                              const nextType = e.target.checked ? "each_way" : "win";
+                              updateBet(bet.id, { bet_type: nextType });
+                            }}
+                            className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                          />
+                          <span>Each-Way (E/W)</span>
+                        </label>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
+                        </span>
+                      </div>
+                    )}
+
                     <div className="betslip-item-details">
                       <div className="betslip-item-meta">
                         <span className="badge badge-muted">{bet.sport.toUpperCase()}</span>
-                        <span className="badge badge-accent">
-                          ${bet.odds?.toFixed(2) || "0.00"}
+                        <span className="badge badge-accent font-semibold">
+                          {(bet.bet_type || "WIN").toUpperCase().replace("_", "-")} @ ${bet.odds?.toFixed(2) || "0.00"}
                         </span>
                         {latestOdds && latestOdds > 1 ? (
                           <span className="badge badge-blue">
@@ -310,7 +344,7 @@ export default function PaperBetslip() {
                         ) : null}
                       </div>
                       <div className="betslip-item-stake">
-                        <label>Stake</label>
+                        <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
                         <div className="stake-input-wrap">
                           <span>$</span>
                           <input
@@ -324,6 +358,15 @@ export default function PaperBetslip() {
                         </div>
                       </div>
                     </div>
+
+                    {/* Each-Way Breakdown Text */}
+                    {isEachWay && (
+                      <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
+                        <span>${unitStake} Win + ${unitStake} Place</span>
+                        <span className="font-bold text-emerald-400">(Total Stake: ${totalItemStake})</span>
+                      </div>
+                    )}
+
                     {issues.length > 0 ? (
                       <div className="betslip-issues">
                         {issues.map((issue, index) => (
@@ -349,7 +392,14 @@ export default function PaperBetslip() {
                 </div>
                 <div className="summary-row total">
                   <span>Total Stake</span>
-                  <strong>${totalStake.toFixed(2)}</strong>
+                  <div className="text-right">
+                    <strong>${totalStake.toFixed(2)}</strong>
+                    {hasEachWayBet && (
+                      <span className="block text-[10px] text-purple-300 font-normal">
+                        (includes 2 units for E/W picks)
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="summary-row default-stake-row">
                   <span style={{ fontSize: "0.8rem" }}>Default Stake</span>

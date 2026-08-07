@@ -5,6 +5,7 @@ import { Bookmark, Check, Plus, User, Award, X } from "lucide-react";
 import { useBlackbookQuickAdd } from "../../lib/useBlackbookQuickAdd";
 import PaperBetAction from "../PaperBetAction";
 import { getEdgePercent } from "../../lib/opportunityScore";
+import { calculatePlaceOdds } from "./LiveOddsButton";
 
 export type HorseData = {
   horse_id: string;
@@ -16,6 +17,7 @@ export type HorseData = {
   track_condition?: number;
   days_since_last_race?: number;
   betfair_back_price?: number;
+  betfair_place_price?: number;
   betfair_implied_prob?: number;
   jockey_name?: string | null;
   trainer_name?: string | null;
@@ -169,13 +171,13 @@ export default function RunnerRow({
       </div>
 
       {/* Right section: Odds & Betslip Action */}
-      <div className="runner-odds-section flex items-center justify-between md:justify-end gap-3 min-w-[140px]">
+      <div className="runner-odds-section flex items-center justify-between md:justify-end gap-2.5 min-w-[200px]">
         {hasMarketPrice ? (
-          <div className="runner-odds-buttons">
+          <div className="runner-odds-buttons flex items-center gap-2">
             <PaperBetAction
               variant="odds-button"
-              label={`$${horse!.betfair_back_price!.toFixed(2)}`}
-              loggedLabel="✓"
+              label={`WIN $${horse!.betfair_back_price!.toFixed(2)}`}
+              loggedLabel="✓ WIN"
               cancelLabel="✕"
               openBetslipOnAdd={true}
               bet={{
@@ -194,13 +196,35 @@ export default function RunnerRow({
                 event_date: race.meeting_date,
               }}
             />
-          </div>
-        ) : prediction && prediction.fair_odds > 0 ? (
-          <div className="runner-odds-buttons">
             <PaperBetAction
               variant="odds-button"
-              label={`$${prediction.fair_odds.toFixed(2)}`}
-              loggedLabel="✓"
+              label={`PLACE $${calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price).toFixed(2)}`}
+              loggedLabel="✓ PLACE"
+              cancelLabel="✕"
+              openBetslipOnAdd={true}
+              bet={{
+                sport: "racing",
+                event_id: race.race_id,
+                event_name: `${race.venue} R${race.race_number}`,
+                selection_id: horse?.horse_id || runnerName,
+                selection: runnerName,
+                odds: calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price),
+                bet_type: "place",
+                stake: 10,
+                odds_source: "market",
+                current_odds: calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price),
+                can_compare_odds: true,
+                event_start_time: race.start_time,
+                event_date: race.meeting_date,
+              }}
+            />
+          </div>
+        ) : prediction && prediction.fair_odds > 0 ? (
+          <div className="runner-odds-buttons flex items-center gap-2">
+            <PaperBetAction
+              variant="odds-button"
+              label={`WIN $${prediction.fair_odds.toFixed(2)}`}
+              loggedLabel="✓ WIN"
               cancelLabel="✕"
               openBetslipOnAdd={true}
               bet={{
@@ -214,6 +238,28 @@ export default function RunnerRow({
                 stake: 10,
                 odds_source: "model_fair",
                 current_odds: prediction.fair_odds,
+                can_compare_odds: false,
+                event_start_time: race.start_time,
+                event_date: race.meeting_date,
+              }}
+            />
+            <PaperBetAction
+              variant="odds-button"
+              label={`PLACE $${calculatePlaceOdds(prediction.fair_odds).toFixed(2)}`}
+              loggedLabel="✓ PLACE"
+              cancelLabel="✕"
+              openBetslipOnAdd={true}
+              bet={{
+                sport: "racing",
+                event_id: race.race_id,
+                event_name: `${race.venue} R${race.race_number}`,
+                selection_id: horse?.horse_id || runnerName,
+                selection: runnerName,
+                odds: prediction.fair_odds,
+                bet_type: "place",
+                stake: 10,
+                odds_source: "model_fair",
+                current_odds: calculatePlaceOdds(prediction.fair_odds),
                 can_compare_odds: false,
                 event_start_time: race.start_time,
                 event_date: race.meeting_date,

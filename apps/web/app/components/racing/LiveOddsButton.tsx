@@ -11,9 +11,24 @@ export interface FlucPoint {
   odds: number;
 }
 
+/**
+ * Standard Australian racing dividend formula for place odds:
+ * If explicit place price is present, use it. Otherwise, place odds = 1 + (Win - 1) * 0.25 (minimum $1.04).
+ */
+export function calculatePlaceOdds(winOdds: number, explicitPlaceOdds?: number): number {
+  if (typeof explicitPlaceOdds === "number" && explicitPlaceOdds > 1) {
+    return Number(explicitPlaceOdds.toFixed(2));
+  }
+  if (!winOdds || winOdds <= 1) return 1.04;
+  const derived = 1 + (winOdds - 1) * 0.25;
+  return Number(Math.max(1.04, derived).toFixed(2));
+}
+
 export interface LiveOddsButtonProps {
-  /** Current odds value */
+  /** Current odds value (Win odds) */
   odds: number;
+  /** Optional explicit place odds value */
+  placeOdds?: number;
   /** Opening odds or previous odds value for change calculation */
   openingOdds?: number;
   previousOdds?: number;
@@ -33,6 +48,8 @@ export interface LiveOddsButtonProps {
   variant?: "default" | "compact" | "badge" | "outline";
   /** Flash duration in ms (default 1500ms) */
   flashDuration?: number;
+  /** Render side-by-side Place odds button alongside Win odds button */
+  showPlaceButton?: boolean;
   /** Paper bet payload for instant betting action */
   bet?: {
     sport: string;
@@ -41,6 +58,7 @@ export interface LiveOddsButtonProps {
     selection_id: string;
     selection: string;
     odds: number;
+    place_odds?: number;
     bet_type?: string;
     stake?: number;
     odds_source?: string;
@@ -50,13 +68,14 @@ export interface LiveOddsButtonProps {
     event_date?: string;
   };
   /** Callback triggered when button is clicked (if paper bet action not handling it) */
-  onClick?: (odds: number) => void;
+  onClick?: (odds: number, betType?: "win" | "place") => void;
   /** Custom additional CSS classes */
   className?: string;
 }
 
 export default function LiveOddsButton({
   odds,
+  placeOdds,
   openingOdds,
   previousOdds,
   flucHistory = [],
@@ -67,6 +86,7 @@ export default function LiveOddsButton({
   raceId,
   variant = "default",
   flashDuration = 1500,
+  showPlaceButton = true,
   bet,
   onClick,
   className = "",
@@ -75,6 +95,11 @@ export default function LiveOddsButton({
   const [showHistoryTooltip, setShowHistoryTooltip] = useState(false);
   const prevOddsRef = useRef<number>(odds);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Calculate place odds using explicit value or standard dividend formula
+  const computedPlaceOdds = useMemo(() => {
+    return calculatePlaceOdds(odds, placeOdds ?? bet?.place_odds);
+  }, [odds, placeOdds, bet?.place_odds]);
 
   // Monitor odds changes to trigger green (lengthening) or red (shortening) flashes
   useEffect(() => {
@@ -147,42 +172,74 @@ export default function LiveOddsButton({
     flashClasses = "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 transition-all";
   }
 
-  const formattedOddsLabel = label || `$${odds.toFixed(2)}`;
+  const formattedWinLabel = label ? `WIN ${label}` : `WIN $${odds.toFixed(2)}`;
+  const formattedPlaceLabel = `PLACE $${computedPlaceOdds.toFixed(2)}`;
 
   return (
-    <div className={`relative inline-flex items-center gap-1 group ${className}`}>
+    <div className={`relative inline-flex items-center gap-1.5 group ${className}`}>
       {/* If bet payload is provided, use PaperBetAction for click handling while keeping flash UI */}
       {bet ? (
-        <PaperBetAction
-          variant="odds-button"
-          label={formattedOddsLabel}
-          loggedLabel="✓"
-          cancelLabel="✕"
-          openBetslipOnAdd={true}
-          bet={{
-            ...bet,
-            bet_type: bet.bet_type || "win",
-            stake: bet.stake ?? 10,
-            odds: odds,
-            current_odds: odds,
-            odds_source: (bet.odds_source as any) || "market",
-          }}
-        />
+        <div className="flex items-center gap-1.5">
+          <PaperBetAction
+            variant="odds-button"
+            label={formattedWinLabel}
+            loggedLabel="✓ WIN"
+            cancelLabel="✕"
+            openBetslipOnAdd={true}
+            bet={{
+              ...bet,
+              bet_type: "win",
+              stake: bet.stake ?? 10,
+              odds: odds,
+              current_odds: odds,
+              odds_source: (bet.odds_source as any) || "market",
+            }}
+          />
+          {showPlaceButton && (
+            <PaperBetAction
+              variant="odds-button"
+              label={formattedPlaceLabel}
+              loggedLabel="✓ PLACE"
+              cancelLabel="✕"
+              openBetslipOnAdd={true}
+              bet={{
+                ...bet,
+                bet_type: "place",
+                stake: bet.stake ?? 10,
+                odds: computedPlaceOdds,
+                current_odds: computedPlaceOdds,
+                odds_source: (bet.odds_source as any) || "market",
+              }}
+            />
+          )}
+        </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => onClick?.(odds)}
-          className={`px-3 py-1.5 rounded-md font-semibold text-sm border flex items-center gap-1.5 ${flashClasses}`}
-        >
-          <span>{formattedOddsLabel}</span>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onClick?.(odds, "win")}
+            className={`px-3 py-1.5 rounded-md font-semibold text-sm border flex items-center gap-1.5 ${flashClasses}`}
+          >
+            <span>{formattedWinLabel}</span>
 
-          {priceMoveMetrics?.direction === "shortening" && (
-            <TrendingDown size={14} className="text-rose-400 animate-bounce-subtle" />
+            {priceMoveMetrics?.direction === "shortening" && (
+              <TrendingDown size={14} className="text-rose-400 animate-bounce-subtle" />
+            )}
+            {priceMoveMetrics?.direction === "lengthening" && (
+              <TrendingUp size={14} className="text-emerald-400 animate-bounce-subtle" />
+            )}
+          </button>
+
+          {showPlaceButton && (
+            <button
+              type="button"
+              onClick={() => onClick?.(computedPlaceOdds, "place")}
+              className="px-3 py-1.5 rounded-md font-semibold text-sm border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-emerald-300 flex items-center gap-1.5 transition-all"
+            >
+              <span>{formattedPlaceLabel}</span>
+            </button>
           )}
-          {priceMoveMetrics?.direction === "lengthening" && (
-            <TrendingUp size={14} className="text-emerald-400 animate-bounce-subtle" />
-          )}
-        </button>
+        </div>
       )}
 
       {/* Market Mover flame icon badge if odds shortened significantly */}

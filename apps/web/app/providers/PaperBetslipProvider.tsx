@@ -258,7 +258,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     if (bets.length === 0) return { success: 0, failed: 0 };
 
     try {
-      const payload = bets.map((bet) => ({
+      const mlPayload = bets.map((bet) => ({
         sport: bet.sport,
         event_id: bet.event_id,
         event_name: bet.event_name,
@@ -269,21 +269,87 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         notes: bet.notes,
       }));
 
-      const res = await fetch(`${ML_API}/api/paper-bets/batch`, {
+      const apiPayload = {
+        bets: bets.map((b) => {
+          let eventType = "race";
+          const s = (b.sport || "").toLowerCase();
+          if (s === "afl") eventType = "afl_game";
+          else if (s === "nba") eventType = "nba_game";
+          else if (s === "nrl") eventType = "nrl_game";
+          else if (s === "soccer") eventType = "soccer_game";
+          else if (s === "golf") eventType = "golf_event";
+          else if (s === "mma") eventType = "mma_fight";
+
+          return {
+            eventType,
+            eventId: b.event_id,
+            eventName: b.event_name,
+            betType: b.bet_type || "win",
+            selection: b.selection,
+            odds: Number(b.odds) || 1.0,
+            stake: Number(b.stake) || 0,
+            wasAIRecommended: true,
+            notes: b.notes || "",
+          };
+        }),
+      };
+
+      const mlPromise = fetch(`${ML_API}/api/paper-bets/batch`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token || "guest"}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(mlPayload),
       });
 
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
+      const expressPromise =
+        token && token !== "guest"
+          ? fetch(`${API_BASE}/bets/batch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(apiPayload),
+            })
+          : Promise.resolve(null);
+
+      const [mlResult, expressResult] = await Promise.allSettled([mlPromise, expressPromise]);
+
+      let isMlSuccess = false;
+      let mlData: any = null;
+      if (mlResult.status === "fulfilled" && mlResult.value && mlResult.value.ok) {
+        isMlSuccess = true;
+        mlData = await mlResult.value.json().catch(() => ({}));
+      }
+
+      let isExpressSuccess = false;
+      let expressData: any = null;
+      if (expressResult.status === "fulfilled" && expressResult.value && expressResult.value.ok) {
+        isExpressSuccess = true;
+        expressData = await expressResult.value.json().catch(() => ({}));
+        if (refreshUser) void refreshUser();
+      }
+
+      const isOverallSuccess = isMlSuccess || isExpressSuccess;
+
+      if (isOverallSuccess) {
         const count = bets.length;
-        const createdBets = Array.isArray(data?.bets) ? data.bets : [];
-        const successCount = data?.count ?? createdBets.length ?? count;
-        const failedCount = count - successCount;
+        const createdBets = Array.isArray(mlData?.bets)
+          ? mlData.bets
+          : Array.isArray(expressData?.bets)
+          ? expressData.bets
+          : [];
+        const successCount =
+          typeof expressData?.success === "number"
+            ? expressData.success
+            : typeof mlData?.count === "number"
+            ? mlData.count
+            : createdBets.length > 0
+            ? createdBets.length
+            : count;
+        const failedCount = Math.max(0, count - successCount);
         const totalStakePlaced = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
 
         trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
@@ -296,44 +362,6 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
         if (successCount > 0 && updateBankroll) {
           updateBankroll(-totalStakePlaced);
-        }
-
-        if (token && token !== "guest" && successCount > 0) {
-          const apiPayload = bets.map((b) => {
-            let eventType = "race";
-            const s = (b.sport || "").toLowerCase();
-            if (s === "afl") eventType = "afl_game";
-            else if (s === "nba") eventType = "nba_game";
-            else if (s === "nrl") eventType = "nrl_game";
-            else if (s === "soccer") eventType = "soccer_game";
-            else if (s === "golf") eventType = "golf_event";
-            else if (s === "mma") eventType = "mma_fight";
-
-            return {
-              eventType,
-              eventId: b.event_id,
-              eventName: b.event_name,
-              betType: b.bet_type || "win",
-              selection: b.selection,
-              odds: Number(b.odds) || 1.0,
-              stake: Number(b.stake) || 0,
-              wasAIRecommended: true,
-              notes: b.notes || "",
-            };
-          });
-
-          fetch(`${API_BASE}/bets/batch`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(apiPayload),
-          })
-            .then(() => {
-              if (refreshUser) void refreshUser();
-            })
-            .catch((err) => console.error("Failed to sync API bets:", err));
         }
 
         if (failedCount <= 0) {
@@ -367,8 +395,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         }
         return { success: successCount, failed: failedCount };
       } else {
-        const data = await res.json().catch(() => ({}));
-        console.error("Batch placement failed", data);
+        console.error("Batch bet placement failed on both services", { mlResult, expressResult });
         return { success: 0, failed: bets.length };
       }
     } catch (e) {

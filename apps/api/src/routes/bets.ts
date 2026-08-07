@@ -107,14 +107,23 @@ router.post("/", async (req: AuthRequest, res) => {
 
 // POST /api/bets/batch — log multiple bets at once (Betslip support)
 router.post("/batch", async (req: AuthRequest, res) => {
-  const batchSchema = z.array(createBetSchema);
-  const parsed = batchSchema.safeParse(req.body);
+  const batchBodySchema = z.union([
+    z.object({ bets: z.array(createBetSchema) }),
+    z.array(createBetSchema),
+  ]);
+
+  const parsed = batchBodySchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const userId = req.userId!;
-  const betsData = parsed.data;
+  const betsData = Array.isArray(parsed.data) ? parsed.data : parsed.data.bets;
+
+  if (betsData.length === 0) {
+    return res.status(200).json({ success: 0, count: 0, bets: [] });
+  }
+
   const totalStake = betsData.reduce((sum, b) => sum + b.stake, 0);
 
   try {
@@ -193,7 +202,7 @@ router.post("/batch", async (req: AuthRequest, res) => {
       return bets;
     });
 
-    return res.status(201).json({ success: true, count: result.length, bets: result });
+    return res.status(201).json({ success: result.length, count: result.length, bets: result });
   } catch (err: any) {
     console.error("Batch creation failed:", err);
     return res.status(500).json({ error: "Failed to create batch bets" });
