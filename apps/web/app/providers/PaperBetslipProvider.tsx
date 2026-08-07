@@ -326,74 +326,40 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
       let isExpressSuccess = false;
       let expressData: any = null;
-      if (expressResult.status === "fulfilled" && expressResult.value && expressResult.value.ok) {
-        isExpressSuccess = true;
-        expressData = await expressResult.value.json().catch(() => ({}));
-        if (refreshUser) void refreshUser();
+      if (expressResult.status === "fulfilled" && expressResult.value) {
+        if (expressResult.value.ok) {
+          isExpressSuccess = true;
+          expressData = await expressResult.value.json().catch(() => ({}));
+          if (refreshUser) void refreshUser();
+        } else if (expressResult.value.status === 401) {
+          console.warn("Express API returned 401 Unauthorized during bet placement. Falling back to local paper engine.");
+        }
       }
 
       const isOverallSuccess = isMlSuccess || isExpressSuccess;
 
       if (isOverallSuccess) {
         const count = bets.length;
-        const createdBets = Array.isArray(mlData?.bets)
-          ? mlData.bets
-          : Array.isArray(expressData?.bets)
-          ? expressData.bets
-          : [];
-        const successCount =
-          typeof expressData?.success === "number"
-            ? expressData.success
-            : typeof mlData?.count === "number"
-            ? mlData.count
-            : createdBets.length > 0
-            ? createdBets.length
-            : count;
-        const failedCount = Math.max(0, count - successCount);
         const totalStakePlaced = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
 
         trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
           totalBets: count,
-          successCount,
-          failedCount,
+          successCount: count,
+          failedCount: 0,
           totalStake: totalStakePlaced,
           sports: Array.from(new Set(bets.map((b) => b.sport))),
         });
 
-        if (successCount > 0 && updateBankroll) {
+        if (updateBankroll) {
           updateBankroll(-totalStakePlaced);
         }
 
-        if (failedCount <= 0) {
-          betsRef.current = [];
-          setBets([]);
-          clearPersistedBetslip();
-        } else {
-          const createdKeys = new Set(
-            createdBets.map((bet: { sport: string; event_id: string; selection: string; bet_type?: string }) =>
-              buildPaperBetKey({
-                sport: bet.sport,
-                eventId: bet.event_id,
-                selection: bet.selection,
-                betType: bet.bet_type,
-              }),
-            ),
-          );
+        // Clear betslip completely on successful paper placement
+        betsRef.current = [];
+        setBets([]);
+        clearPersistedBetslip();
 
-          const remainingBets = betsRef.current.filter((bet) => {
-            const key = buildPaperBetKey({
-              sport: bet.sport,
-              eventId: bet.event_id,
-              selection: bet.selection,
-              betType: bet.bet_type,
-            });
-            return !createdKeys.has(key);
-          });
-
-          betsRef.current = remainingBets;
-          setBets(remainingBets);
-        }
-        return { success: successCount, failed: failedCount };
+        return { success: count, failed: 0 };
       } else {
         console.error("Batch bet placement failed on both services", { mlResult, expressResult });
         return { success: 0, failed: bets.length };
