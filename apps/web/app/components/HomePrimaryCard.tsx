@@ -120,7 +120,7 @@ export default function HomePrimaryCard({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
       {/* Card 1: High EV Chances */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
+      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5 transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
             <div>
@@ -226,7 +226,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 2: Next Blackbookers */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
+      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5 transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
             <div>
@@ -307,7 +307,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 3: Next Racing */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
+      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5 transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
             <div>
@@ -425,7 +425,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 4: Next Sport */}
-      <section className="bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5">
+      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-4 sm:p-5 transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800/80">
             <div>

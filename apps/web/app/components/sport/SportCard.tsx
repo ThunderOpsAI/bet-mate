@@ -64,7 +64,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
   return (
     <div
       onClick={() => onOpenDrawer(matchup)}
-      className="group bg-slate-900/90 border border-slate-800 hover:border-emerald-500/40 rounded-xl p-3 sm:p-4 transition-all duration-200 cursor-pointer shadow-md hover:shadow-lg hover:shadow-emerald-950/20 mb-3"
+      className="group bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl p-4 sm:p-5 transition-all duration-200 cursor-pointer shadow-xl hover:shadow-2xl hover:shadow-slate-950/40 mb-3"
     >
       {/* Header Row: Matchup Name & Details trigger */}
       <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
