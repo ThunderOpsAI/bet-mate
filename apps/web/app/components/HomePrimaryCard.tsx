@@ -199,7 +199,7 @@ export default function HomePrimaryCard({
                         )
                       }
                       disabled={inBetslip}
-                      className={`btn text-[11px] py-1.5 px-2.5 flex items-center gap-1 transition-all shrink-0 ${
+                      className={`btn text-[11px] py-1 px-1.5 flex items-center gap-1 transition-all shrink-0 ${
                         inBetslip
                           ? "bg-slate-800 text-emerald-400 cursor-default border border-slate-700"
                           : "btn-primary shadow-sm"
@@ -397,7 +397,7 @@ export default function HomePrimaryCard({
                           )
                         }
                         disabled={inBetslip}
-                        className={`btn text-[11px] py-1.5 px-2.5 flex items-center gap-1 transition-all shrink-0 ${
+                        className={`btn text-[11px] py-1 px-1.5 flex items-center gap-1 transition-all shrink-0 ${
                           inBetslip
                             ? "bg-slate-800 text-emerald-400 cursor-default border border-slate-700"
                             : "btn-primary shadow-sm"
@@ -512,7 +512,7 @@ export default function HomePrimaryCard({
                         )
                       }
                       disabled={inBetslip}
-                      className={`btn text-[11px] py-1.5 px-2.5 flex items-center gap-1 transition-all shrink-0 ${
+                      className={`btn text-[11px] py-1 px-1.5 flex items-center gap-1 transition-all shrink-0 ${
                         inBetslip
                           ? "bg-slate-800 text-emerald-400 cursor-default border border-slate-700"
                           : "btn-primary shadow-sm"
