@@ -158,27 +158,25 @@ function HomePageContent() {
             });
             const confidenceSignal = getConfidenceSignal(null);
 
-            return race.horses
-              .filter((h) => (h.betfair_back_price ?? 0) > 1.0)
-              .map((horse) => {
-                const mktOdds = horse.betfair_back_price!;
-                const impliedProb = 1 / mktOdds;
-                const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
-                const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
+            return race.horses.map((horse) => {
+              const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
+              const impliedProb = 1 / mktOdds;
+              const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
+              const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
 
-                return {
-                  id: `${race.race_id}-${horse.horse_id}`,
-                  sport: "racing" as const,
-                  selectionName: horse.name,
-                  eventLabel: `${race.venue} R${race.race_number}`,
-                  probability: winProb,
-                  fairOdds: fairOdds,
-                  marketOdds: mktOdds,
-                  confidenceSignal,
-                  urgencySignal,
-                  href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-                };
-              });
+              return {
+                id: `${race.race_id}-${horse.horse_id}`,
+                sport: "racing" as const,
+                selectionName: horse.name,
+                eventLabel: `${race.venue} R${race.race_number}`,
+                probability: winProb,
+                fairOdds: fairOdds,
+                marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
+                confidenceSignal,
+                urgencySignal,
+                href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
+              };
+            });
           });
 
           const rankedFallback = rankOpportunities(fallbackCandidates);
@@ -186,7 +184,7 @@ function HomePageContent() {
           setOppsLoading(false);
 
           // 3. Asynchronously fetch ML predictions with 10000ms timeout without blocking page render
-          fetchWithTimeout(`${ML_API}/api/predict/racing`, {
+          fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ races: racesData }),

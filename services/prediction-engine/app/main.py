@@ -848,6 +848,21 @@ def predict_race(race: Race):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/predict/racing/batch")
+def predict_racing_batch(payload: Dict[str, Any]):
+    """Batch predict win probabilities for multiple racing fields."""
+    raw_races = payload.get("races", []) if isinstance(payload, dict) else []
+    results = {}
+    for race_data in raw_races:
+        try:
+            race = Race.model_validate(race_data) if isinstance(race_data, dict) else race_data
+            pred = predict_race(race)
+            results[race.race_id] = pred
+        except Exception as exc:
+            race_id = race_data.get("race_id") if isinstance(race_data, dict) else "unknown"
+            LOGGER.error("Error predicting batch race %s: %s", race_id, exc)
+    return results
+
 FALLBACK_AFL_GAMES = [
     {
         "game_id": "afl_fb_1",
