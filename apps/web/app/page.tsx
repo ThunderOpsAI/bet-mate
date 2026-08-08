@@ -75,13 +75,12 @@ function HomePageContent() {
       setRacesError(null);
 
       try {
-        let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 10000 });
-        if (!racesRes.ok && raceType !== "T") {
-          racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 10000 });
+        let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 15000 }).catch(() => null);
+        if ((!racesRes || !racesRes.ok) && raceType !== "T") {
+          racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 15000 }).catch(() => null);
         }
-        if (!racesRes.ok) throw new Error("Racing feed unavailable");
 
-        let responseJson = racesRes.ok ? await safeResponseJson(racesRes) : null;
+        let responseJson = racesRes && racesRes.ok ? await safeResponseJson(racesRes) : null;
         let racesData: Race[] = (Array.isArray(responseJson?.races)
           ? responseJson.races
           : Array.isArray(responseJson)
@@ -94,9 +93,9 @@ function HomePageContent() {
           const fallbackDateStr = tomorrow.toISOString().split("T")[0];
           const fallbackRes = await fetchWithTimeout(
             `${ML_API}/api/races/today?type=${raceType}&date=${fallbackDateStr}`,
-            { timeoutMs: 10000 }
-          );
-          if (fallbackRes.ok) {
+            { timeoutMs: 15000 }
+          ).catch(() => null);
+          if (fallbackRes && fallbackRes.ok) {
             const fallbackJson = await safeResponseJson(fallbackRes);
             const tomorrowRaces = (Array.isArray(fallbackJson?.races)
               ? fallbackJson.races
@@ -317,73 +316,81 @@ function HomePageContent() {
       try {
         const results = await Promise.allSettled([
           // NBA
-          fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 5000 }).then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `nba-${game.id}`,
-              sport: "nba",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.game_time || game.start_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          }),
+          fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 12000 })
+            .then(async (res) => {
+              if (!res.ok) return [];
+              const data = await safeResponseJson(res);
+              const games = (data?.games ?? []) as any[];
+              return games.map((game) => ({
+                id: game.game_id || `nba-${game.id}`,
+                sport: "nba",
+                home_team: game.home_team,
+                away_team: game.away_team,
+                match_time: game.game_time || game.start_time,
+                predicted_winner: game.predicted_winner || game.home_team,
+                win_probability: game.win_probability ?? 0.55,
+                fair_odds: game.fair_odds ?? 1.82,
+                market_odds: game.market_odds ?? null,
+              }));
+            })
+            .catch(() => []),
           // AFL
-          fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 5000 }).then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `afl-${game.id}`,
-              sport: "afl",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.start_time || game.game_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          }),
+          fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 12000 })
+            .then(async (res) => {
+              if (!res.ok) return [];
+              const data = await safeResponseJson(res);
+              const games = (data?.games ?? []) as any[];
+              return games.map((game) => ({
+                id: game.game_id || `afl-${game.id}`,
+                sport: "afl",
+                home_team: game.home_team,
+                away_team: game.away_team,
+                match_time: game.start_time || game.game_time,
+                predicted_winner: game.predicted_winner || game.home_team,
+                win_probability: game.win_probability ?? 0.55,
+                fair_odds: game.fair_odds ?? 1.82,
+                market_odds: game.market_odds ?? null,
+              }));
+            })
+            .catch(() => []),
           // NRL
-          fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 5000 }).then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `nrl-${game.id}`,
-              sport: "nrl",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.start_time || game.game_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          }),
+          fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 12000 })
+            .then(async (res) => {
+              if (!res.ok) return [];
+              const data = await safeResponseJson(res);
+              const games = (data?.games ?? []) as any[];
+              return games.map((game) => ({
+                id: game.game_id || `nrl-${game.id}`,
+                sport: "nrl",
+                home_team: game.home_team,
+                away_team: game.away_team,
+                match_time: game.start_time || game.game_time,
+                predicted_winner: game.predicted_winner || game.home_team,
+                win_probability: game.win_probability ?? 0.55,
+                fair_odds: game.fair_odds ?? 1.82,
+                market_odds: game.market_odds ?? null,
+              }));
+            })
+            .catch(() => []),
           // Soccer
-          fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 5000 }).then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `soccer-${game.id}`,
-              sport: "soccer",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.match_time || game.start_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          }),
+          fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 12000 })
+            .then(async (res) => {
+              if (!res.ok) return [];
+              const data = await safeResponseJson(res);
+              const games = (data?.games ?? []) as any[];
+              return games.map((game) => ({
+                id: game.game_id || `soccer-${game.id}`,
+                sport: "soccer",
+                home_team: game.home_team,
+                away_team: game.away_team,
+                match_time: game.match_time || game.start_time,
+                predicted_winner: game.predicted_winner || game.home_team,
+                win_probability: game.win_probability ?? 0.55,
+                fair_odds: game.fair_odds ?? 1.82,
+                market_odds: game.market_odds ?? null,
+              }));
+            })
+            .catch(() => []),
         ]);
 
         const items: UpcomingSportItem[] = [];

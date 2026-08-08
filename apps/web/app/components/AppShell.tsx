@@ -18,6 +18,7 @@ import {
   FlaskConical,
   Bot,
   Settings,
+  RotateCw,
   TrendingUp,
   TrendingDown,
   ShieldAlert,
@@ -36,6 +37,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuth();
   const isGuest = !user || user.id === "guest";
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const isAuthPage = pathname === "/login" || pathname === "/register";
@@ -85,7 +87,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <PromoCarousel />
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsRefreshing(true);
+                if (typeof window !== "undefined") {
+                  window.location.reload();
+                }
+              }}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors flex items-center justify-center"
+              title="Refresh Page & Data Feeds"
+              aria-label="Refresh Page & Data Feeds"
+            >
+              <RotateCw size={18} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
+            </button>
+
             <Link
               href="/settings"
               className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors flex items-center justify-center"

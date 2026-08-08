@@ -179,13 +179,10 @@ async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
 
   let response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}`, {
     cache: "no-store",
-    timeoutMs: 8000,
-  });
-  if (!response.ok) {
-    throw new Error(`Racing fixtures request failed with ${response.status}`);
-  }
+    timeoutMs: 15000,
+  }).catch(() => null);
 
-  let data = await safeResponseJson(response);
+  let data = response && response.ok ? await safeResponseJson(response) : null;
   let races = (data?.races ?? []) as Race[];
 
   if (races.length === 0 && (!targetDateStr || targetDateStr === new Date().toISOString().split("T")[0])) {
@@ -195,9 +192,9 @@ async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
     const sep = queryString ? "&" : "?";
     response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}${sep}date=${fallbackDateStr}`, {
       cache: "no-store",
-      timeoutMs: 8000,
-    });
-    if (response.ok) {
+      timeoutMs: 15000,
+    }).catch(() => null);
+    if (response && response.ok) {
       data = await safeResponseJson(response);
       races = (data?.races ?? []) as Race[];
     }
