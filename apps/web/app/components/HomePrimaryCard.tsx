@@ -213,7 +213,7 @@ export default function HomePrimaryCard({
                       ) : (
                         <>
                           <Plus size={13} />
-                          <span>+ Add to Betslip</span>
+                          <span>+ Add</span>
                         </>
                       )}
                     </button>
