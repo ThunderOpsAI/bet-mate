@@ -392,7 +392,7 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
         market_filter = {
             "filter": {
                 "eventTypeIds": event_type_ids,
-                "marketCountries": ["AU"],
+                "marketCountries": ["AU", "NZ", "GB", "IE", "FR", "ZA", "KR", "JP", "HK", "CN", "US", "SG"],
                 "marketTypeCodes": ["WIN"],
                 "marketStartTime": market_start_time,
             },
@@ -476,6 +476,8 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
                 "data_source": "betfair",
             })
 
+        country_code = event.get("countryCode") or market.get("marketCountry") or "AU"
+
         races.append({
             "race_id": market_id,
             "venue": venue_raw,
@@ -483,6 +485,7 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
             "distance": distance,
             "start_time": start_time,
             "market_name": market_name,
+            "country_code": country_code,
             "horses": horses,
             "source": "betfair_live",
         })
@@ -553,7 +556,12 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
     meeting_context = _meeting_context_for_start_time(race.get("start_time") or None)
     meeting_date = meeting_context["date"] if race.get("start_time") else (default_meeting_date or meeting_context["date"])
-    meeting_region = allowlist_entry.get("region", "") if allowlist_entry else ""
+    country_code = race.get("country_code", "AU")
+    meeting_region = (
+        allowlist_entry.get("region", "")
+        if allowlist_entry
+        else country_code
+    )
     meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
     state = allowlist_entry.get("state", "") if allowlist_entry else ""
     canonical_venue = allowlist_entry.get("venue", race.get("venue", "")) if allowlist_entry else race.get("venue", "")
