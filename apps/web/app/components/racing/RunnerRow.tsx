@@ -359,7 +359,7 @@ export default function RunnerRow({
                 onClick={handleQuickAddMicroTarget}
                 className="btn btn-xs btn-primary text-xs bg-purple-600 hover:bg-purple-500 text-white px-2.5 py-1 rounded"
               >
-                + Add
+                Add
               </button>
             )}
             <button

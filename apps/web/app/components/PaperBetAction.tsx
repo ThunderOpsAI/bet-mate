@@ -41,7 +41,7 @@ export default function PaperBetAction({
   label,
   loggedLabel,
   cancelLabel = "Cancel",
-  openBetslipOnAdd = true,
+  openBetslipOnAdd = false,
   fullWidth = false,
 }: PaperBetActionProps) {
   const { user } = useAuth();

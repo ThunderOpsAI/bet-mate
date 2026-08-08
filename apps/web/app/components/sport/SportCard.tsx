@@ -176,7 +176,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
                 ) : (
                   <>
                     <Plus size={13} />
-                    <span>+ Add</span>
+                    <span>Add</span>
                   </>
                 )}
               </button>

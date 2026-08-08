@@ -213,7 +213,7 @@ export default function HomePrimaryCard({
                       ) : (
                         <>
                           <Plus size={13} />
-                          <span>+ Add</span>
+                          <span>Add</span>
                         </>
                       )}
                     </button>
@@ -411,7 +411,7 @@ export default function HomePrimaryCard({
                         ) : (
                           <>
                             <Plus size={13} />
-                            <span>+ Add</span>
+                            <span>Add</span>
                           </>
                         )}
                       </button>
@@ -526,7 +526,7 @@ export default function HomePrimaryCard({
                       ) : (
                         <>
                           <Plus size={13} />
-                          <span>+ Add</span>
+                          <span>Add</span>
                         </>
                       )}
                     </button>
