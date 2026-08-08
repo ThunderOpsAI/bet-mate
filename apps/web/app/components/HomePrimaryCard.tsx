@@ -120,7 +120,7 @@ export default function HomePrimaryCard({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
       {/* Card 1: High EV Chances */}
-      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-5 sm:p-6 md:p-7 transition-all">
+      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -169,7 +169,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={opp.id}
-                    className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -226,7 +226,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 2: Next Blackbookers */}
-      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-5 sm:p-6 md:p-7 transition-all">
+      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -286,7 +286,7 @@ export default function HomePrimaryCard({
               {topBlackbook.map((item, idx) => (
                 <div
                   key={idx}
-                  className="p-3.5 px-4 sm:px-5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-purple-500/40 transition-all"
+                  className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-purple-500/40 transition-all"
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-slate-100 text-xs sm:text-sm truncate">{item.runner}</span>
@@ -307,7 +307,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 3: Next Racing */}
-      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-5 sm:p-6 md:p-7 transition-all">
+      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -355,7 +355,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={race.race_id}
-                    className="p-3.5 px-4 sm:px-5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-0.5">
@@ -425,7 +425,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 4: Next Sport */}
-      <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between p-5 sm:p-6 md:p-7 transition-all">
+      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -473,7 +473,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={sportItem.id}
-                    className="p-3.5 px-4 sm:px-5 rounded-xl bg-slate-950/60 border border-slate-800 hover:border-sky-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-sky-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5">
