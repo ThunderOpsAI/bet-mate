@@ -64,10 +64,10 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
   return (
     <div
       onClick={() => onOpenDrawer(matchup)}
-      className="group bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl p-4 sm:p-5 transition-all duration-200 cursor-pointer shadow-xl hover:shadow-2xl hover:shadow-slate-950/40 mb-3"
+      className="group card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl transition-all duration-200 cursor-pointer shadow-xl hover:shadow-2xl hover:shadow-slate-950/40 mb-4"
     >
       {/* Header Row: Matchup Name & Details trigger */}
-      <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-800/60">
+      <div className="flex items-center justify-between gap-2 mb-2 pb-2.5 border-b border-slate-800/80 px-1">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span className="font-bold text-sm sm:text-base text-slate-100 group-hover:text-emerald-400 transition-colors">
             {title}
@@ -86,7 +86,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
       </div>
 
       {/* Dense Outcome Rows with Breathing Room */}
-      <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-2">
         {outcomes.map((outcome) => {
           const inSlip = bets.some(
             (b) => b.event_id === id && b.selection === outcome.name,
@@ -114,7 +114,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
           return (
             <div
               key={outcome.name}
-              className="flex items-center justify-between gap-2 p-2.5 sm:p-3 bg-slate-950/70 border border-slate-800/70 rounded-lg hover:border-slate-700 transition-colors"
+              className="card-inner-item flex items-center justify-between gap-2 bg-slate-950/70 border border-slate-800/70 rounded-lg hover:border-slate-700 transition-colors px-3 py-2"
             >
               {/* Left: Team Name & Model Win % */}
               <div className="flex items-center gap-2 min-w-0 flex-1">
