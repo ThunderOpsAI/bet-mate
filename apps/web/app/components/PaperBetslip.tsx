@@ -11,6 +11,8 @@ import {
   ShoppingCart,
   Trash2,
   X,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import {
   buildPaperBetKey,
@@ -65,8 +67,9 @@ export default function PaperBetslip() {
   } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [acknowledgeOddsChanges, setAcknowledgeOddsChanges] = useState(false);
+  const [multiStake, setMultiStake] = useState<number>(10);
   const [activeTab, setActiveTab] = useState<
-    "singles" | "exotics" | "quaddie" | "sgm"
+    "singles" | "multi" | "exotics" | "quaddie" | "sgm"
   >("singles");
 
   const warnings = useMemo(() => {
@@ -182,10 +185,26 @@ export default function PaperBetslip() {
     setAcknowledgeOddsChanges(false);
   }, [bets]);
 
-  if (bets.length === 0 && !isBetslipOpen && !result) return null;
+  const singlesBets = useMemo(() => {
+    return bets.filter(
+      (b) => !b.bet_family || b.bet_family === "single" || b.bet_family === "srm"
+    );
+  }, [bets]);
+
+  const combinedMultiOdds = useMemo(() => {
+    if (singlesBets.length < 2) return 0;
+    return singlesBets.reduce((acc, b) => {
+      const o = b.odds && b.odds > 1 ? b.odds : 1.0;
+      return acc * o;
+    }, 1.0);
+  }, [singlesBets]);
+
+  const estMultiCollect = useMemo(() => {
+    return (multiStake || 0) * combinedMultiOdds;
+  }, [multiStake, combinedMultiOdds]);
 
   const tabBets = bets.filter((bet) => {
-    if (activeTab === "singles")
+    if (activeTab === "singles" || activeTab === "multi")
       return (
         !bet.bet_family ||
         bet.bet_family === "single" ||
@@ -355,6 +374,7 @@ export default function PaperBetslip() {
               {(
                 [
                   ["singles", "Singles"],
+                  ["multi", "Multi"],
                   ["exotics", "Exotics"],
                   ["quaddie", "Quaddie"],
                   ["sgm", "SGM"],
@@ -367,9 +387,86 @@ export default function PaperBetslip() {
                   onClick={() => setActiveTab(key)}
                 >
                   {label}
+                  {key === "multi" && singlesBets.length >= 2 && (
+                    <span className="ml-1 text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono">
+                      {singlesBets.length}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
+
+            {/* Dedicated Multi Accumulator View */}
+            {activeTab === "multi" && (
+              singlesBets.length < 2 ? (
+                <div className="betslip-empty p-6 text-center">
+                  <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2 text-emerald-400">
+                    <Sparkles size={20} />
+                  </div>
+                  <p className="font-bold text-slate-200 text-sm">Multi Accumulator</p>
+                  <p className="small text-slate-400 mt-1">
+                    Add 2 or more selections from different races or sports to automatically build a Multi accumulator!
+                  </p>
+                </div>
+              ) : (
+                <div className="betslip-multi-card bg-slate-900/90 border border-emerald-500/40 rounded-xl p-3.5 my-3 shadow-lg">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Zap className="text-emerald-400" size={18} />
+                      <span className="font-extrabold text-sm text-slate-100">
+                        {singlesBets.length}-Leg Multi Accumulator
+                      </span>
+                    </div>
+                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold px-2.5 py-1 rounded-lg font-mono">
+                      Combined @ ${combinedMultiOdds.toFixed(2)}
+                    </span>
+                  </div>
+
+                  {/* Multi Legs List */}
+                  <div className="space-y-2 mb-3">
+                    {singlesBets.map((leg, index) => {
+                      const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
+                      return (
+                        <div key={leg.id} className="flex items-center justify-between text-xs bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <span className="text-[10px] text-emerald-400 font-bold mr-1.5 uppercase">Leg {index + 1}</span>
+                            <span className="font-bold text-slate-200">{leg.selection}</span>
+                            <span className="text-slate-400 text-[11px] block truncate">{leg.event_name}</span>
+                          </div>
+                          <span className="font-bold text-emerald-400 shrink-0 font-mono">${legWinOdds.toFixed(2)}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Multi Stake Input */}
+                  <div className="flex items-center justify-between bg-slate-950/90 p-2.5 rounded-lg border border-slate-800 mb-3">
+                    <span className="text-xs font-semibold text-slate-300">Multi Stake</span>
+                    <div className="stake-input-wrap">
+                      <span>$</span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={multiStake === 0 ? "" : multiStake}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                          setMultiStake(cleanNum);
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Multi Est. Return */}
+                  <div className="flex items-center justify-between bg-emerald-950/50 border border-emerald-500/30 p-2.5 rounded-lg font-mono text-xs text-emerald-300">
+                    <span>Est. Multi Return:</span>
+                    <strong className="text-emerald-400 font-extrabold text-base">
+                      ${estMultiCollect.toFixed(2)}
+                    </strong>
+                  </div>
+                </div>
+              )
+            )}
 
             {(activeTab === "exotics" || activeTab === "quaddie") &&
             tabBets.length === 0 ? (
@@ -397,161 +494,187 @@ export default function PaperBetslip() {
               </div>
             ) : null}
 
-            <div className="betslip-list">
-              {warnings
-                .filter(({ bet }) =>
-                  tabBets.some((tabBet) => tabBet.id === bet.id),
-                )
-                .map(({ bet, issues }) => {
-                  const key = buildPaperBetKey({
-                    sport: bet.sport,
-                    eventId: bet.event_id,
-                    selection: bet.selection,
-                    betType: bet.bet_type,
-                  });
-                  const snapshot = selectionSnapshots[key];
-                  const latestOdds = snapshot?.current_odds;
-                  const isRacing = (bet.sport || "").toLowerCase() === "racing";
-                  const isEachWay = bet.bet_type === "each_way";
-                  const unitStake = bet.stake || 0;
-                  const totalItemStake = isEachWay ? unitStake * 2 : unitStake;
+            {activeTab === "singles" && (
+              <div className="betslip-list">
+                {warnings
+                  .filter(({ bet }) =>
+                    tabBets.some((tabBet) => tabBet.id === bet.id),
+                  )
+                  .map(({ bet, issues }) => {
+                    const key = buildPaperBetKey({
+                      sport: bet.sport,
+                      eventId: bet.event_id,
+                      selection: bet.selection,
+                      betType: bet.bet_type,
+                    });
+                    const snapshot = selectionSnapshots[key];
+                    const latestOdds = snapshot?.current_odds;
+                    const isRacing = (bet.sport || "").toLowerCase() === "racing";
+                    const isEachWay = bet.bet_type === "each_way";
+                    const unitStake = bet.stake || 0;
+                    const totalItemStake = isEachWay ? unitStake * 2 : unitStake;
+                    const winOdds = bet.odds && bet.odds > 1 ? bet.odds : 1.0;
+                    const placeOdds = Number((1 + (winOdds - 1) * 0.25).toFixed(2));
 
-                  return (
-                    <div key={bet.id} className="betslip-item">
-                      <div className="betslip-item-header">
-                        <div className="betslip-item-info">
-                          <strong className="betslip-selection">
-                            {bet.selection}
-                          </strong>
-                          <span className="betslip-event">
-                            {bet.event_name}
-                          </span>
-                        </div>
-                        <button
-                          className="betslip-remove"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeBet(bet.id);
-                          }}
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-
-                      {/* Racing Each-Way (E/W) Toggle */}
-                      {isRacing && (
-                        <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
-                          <label
-                            htmlFor={`ew-toggle-${bet.id}`}
-                            className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
-                          >
-                            <input
-                              id={`ew-toggle-${bet.id}`}
-                              type="checkbox"
-                              checked={isEachWay}
-                              onChange={(e) => {
-                                const nextType = e.target.checked
-                                  ? "each_way"
-                                  : "win";
-                                updateBet(bet.id, { bet_type: nextType });
-                              }}
-                              className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
-                            />
-                            <span>Each-Way (E/W)</span>
-                          </label>
-                          <span className="text-[11px] text-slate-400 font-mono">
-                            {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
-                          </span>
-                        </div>
-                      )}
-
-                      <div className="betslip-item-details">
-                        <div className="betslip-item-meta">
-                          <span className="badge badge-muted">
-                            {bet.sport.toUpperCase()}
-                          </span>
-                          <span className="badge badge-accent font-semibold">
-                            {(bet.bet_type || "WIN")
-                              .toUpperCase()
-                              .replace("_", "-")}{" "}
-                            @ ${bet.odds?.toFixed(2) || "0.00"}
-                          </span>
-                          {latestOdds && latestOdds > 1 ? (
-                            <span className="badge badge-blue">
-                              Now ${latestOdds.toFixed(2)}
+                    return (
+                      <div key={bet.id} className="betslip-item">
+                        <div className="betslip-item-header">
+                          <div className="betslip-item-info">
+                            <strong className="betslip-selection">
+                              {bet.selection}
+                            </strong>
+                            <span className="betslip-event">
+                              {bet.event_name}
                             </span>
-                          ) : null}
+                          </div>
+                          <button
+                            className="betslip-remove"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeBet(bet.id);
+                            }}
+                          >
+                            <X size={14} />
+                          </button>
                         </div>
-                        <div className="betslip-item-stake">
-                          <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
-                          <div className="stake-input-wrap">
-                            <span>$</span>
-                            <input
-                              type="number"
-                              min="1"
-                              value={bet.stake === 0 ? "" : bet.stake}
-                              onChange={(e) => {
-                                const raw = e.target.value;
-                                const cleanNum =
-                                  raw === ""
-                                    ? 0
-                                    : Math.max(
-                                        0,
-                                        Number(raw.replace(/^0+/, "") || 0),
-                                      );
-                                updateBet(bet.id, { stake: cleanNum });
-                              }}
-                            />
+
+                        {/* Racing Each-Way (E/W) Toggle */}
+                        {isRacing && (
+                          <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
+                            <label
+                              htmlFor={`ew-toggle-${bet.id}`}
+                              className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
+                            >
+                              <input
+                                id={`ew-toggle-${bet.id}`}
+                                type="checkbox"
+                                checked={isEachWay}
+                                onChange={(e) => {
+                                  const nextType = e.target.checked
+                                    ? "each_way"
+                                    : "win";
+                                  updateBet(bet.id, { bet_type: nextType });
+                                }}
+                                className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
+                              />
+                              <span>Each-Way (E/W)</span>
+                            </label>
+                            <span className="text-[11px] text-slate-400 font-mono">
+                              {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="betslip-item-details">
+                          <div className="betslip-item-meta">
+                            <span className="badge badge-muted">
+                              {bet.sport.toUpperCase()}
+                            </span>
+                            <span className="badge badge-accent font-semibold">
+                              {isEachWay ? (
+                                `EACH-WAY (WIN $${winOdds.toFixed(2)} / PLACE $${placeOdds.toFixed(2)})`
+                              ) : (
+                                `${(bet.bet_type || "WIN").toUpperCase().replace("_", "-")} @ $${winOdds.toFixed(2)}`
+                              )}
+                            </span>
+                            {latestOdds && latestOdds > 1 ? (
+                              <span className="badge badge-blue">
+                                Now ${latestOdds.toFixed(2)}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="betslip-item-stake">
+                            <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
+                            <div className="stake-input-wrap">
+                              <span>$</span>
+                              <input
+                                type="number"
+                                min="1"
+                                value={bet.stake === 0 ? "" : bet.stake}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const cleanNum =
+                                    raw === ""
+                                      ? 0
+                                      : Math.max(
+                                          0,
+                                          Number(raw.replace(/^0+/, "") || 0),
+                                        );
+                                  updateBet(bet.id, { stake: cleanNum });
+                                }}
+                              />
+                            </div>
                           </div>
                         </div>
+
+                        {/* Each-Way Breakdown Text */}
+                        {isEachWay && (
+                          <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
+                            <span>
+                              ${unitStake} Win @ ${winOdds.toFixed(2)} + ${unitStake} Place @ ${placeOdds.toFixed(2)}
+                            </span>
+                            <span className="font-bold text-emerald-400">
+                              (Total Stake: ${totalItemStake})
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Potential Collect for Individual Bet */}
+                        {bet.odds && bet.odds > 1 ? (
+                          <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
+                            <span className="text-[11px] text-slate-300">
+                              Est. Collect:
+                            </span>
+                            <strong className="text-emerald-400 font-bold text-sm">
+                              $
+                              {(isEachWay
+                                ? unitStake * winOdds + unitStake * placeOdds
+                                : unitStake * winOdds
+                              ).toFixed(2)}
+                            </strong>
+                          </div>
+                        ) : null}
+
+                        {issues.length > 0 ? (
+                          <div className="betslip-issues">
+                            {issues.map((issue, index) => (
+                              <div
+                                key={`${bet.id}-${index}`}
+                                className={`betslip-issue ${issue.tone}`}
+                              >
+                                <AlertTriangle size={13} />
+                                <span>{issue.message}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
+                    );
+                  })}
 
-                      {/* Each-Way Breakdown Text */}
-                      {isEachWay && (
-                        <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
-                          <span>
-                            ${unitStake} Win + ${unitStake} Place
-                          </span>
-                          <span className="font-bold text-emerald-400">
-                            (Total Stake: ${totalItemStake})
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Potential Collect for Individual Bet */}
-                      {bet.odds && bet.odds > 1 ? (
-                        <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
-                          <span className="text-[11px] text-slate-300">
-                            Est. Collect:
-                          </span>
-                          <strong className="text-emerald-400 font-bold text-sm">
-                            $
-                            {(isEachWay
-                              ? unitStake * bet.odds +
-                                unitStake * (1 + (bet.odds - 1) * 0.25)
-                              : unitStake * bet.odds
-                            ).toFixed(2)}
-                          </strong>
-                        </div>
-                      ) : null}
-
-                      {issues.length > 0 ? (
-                        <div className="betslip-issues">
-                          {issues.map((issue, index) => (
-                            <div
-                              key={`${bet.id}-${index}`}
-                              className={`betslip-issue ${issue.tone}`}
-                            >
-                              <AlertTriangle size={13} />
-                              <span>{issue.message}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : null}
+                {/* Auto-Multi Banner in Singles Tab */}
+                {singlesBets.length >= 2 && (
+                  <div className="my-3 p-3 bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl flex items-center justify-between shadow-md">
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                        <Zap size={14} />
+                        <span>{singlesBets.length}-Leg Auto Multi Ready</span>
+                      </div>
+                      <span className="text-[11px] text-slate-300 block font-mono mt-0.5">
+                        Combined @ ${combinedMultiOdds.toFixed(2)} | Est. Return: ${estMultiCollect.toFixed(2)}
+                      </span>
                     </div>
-                  );
-                })}
-            </div>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab("multi")}
+                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm shrink-0"
+                    >
+                      View Multi →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <div className="betslip-footer">
               <div className="betslip-summary">
                 <div className="summary-row">

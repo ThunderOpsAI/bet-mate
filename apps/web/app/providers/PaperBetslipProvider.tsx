@@ -204,12 +204,12 @@ export function PaperBetslipProvider({
         betType: newBet.bet_type,
       });
 
-      let shouldOpenBetslip = options?.openBetslip ?? true;
+      let shouldOpenBetslip = options?.openBetslip ?? false;
       const sportLower = newBet.sport.trim().toLowerCase();
       if (sportLower === "afl" || sportLower === "nba") {
         shouldOpenBetslip = false;
       } else if (sportLower === "racing") {
-        shouldOpenBetslip = true;
+        shouldOpenBetslip = options?.openBetslip ?? false;
       }
 
       const existingBet = betsRef.current.find((bet) => {
