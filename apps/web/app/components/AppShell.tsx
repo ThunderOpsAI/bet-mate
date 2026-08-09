@@ -36,50 +36,109 @@ import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
 function HeaderBetslipControlInner() {
+  const searchParams = useSearchParams();
+  const variant = (searchParams.get("variant") || "a").toLowerCase();
   const { bets, activeBets, isBetslipOpen, activeTab, setIsBetslipOpen, openBetslipTab } = usePaperBetslip();
 
+  const isSlipActive = isBetslipOpen && activeTab === "slip";
+  const isMyBetsActive = isBetslipOpen && (activeTab === "active" || activeTab === "settled");
+
+  if (variant === "b") {
+    return (
+      <div className="flex items-center bg-slate-950/90 backdrop-blur-md border border-emerald-500/30 rounded-full p-1 shadow-lg shadow-emerald-950/20 h-10">
+        <button
+          type="button"
+          onClick={() => {
+            if (isSlipActive) setIsBetslipOpen(false);
+            else openBetslipTab("slip");
+          }}
+          className={`px-3 py-1 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+            isSlipActive
+              ? "bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/30"
+              : "text-slate-300 hover:text-emerald-400 hover:bg-slate-800/50"
+          }`}
+          title="Open Pending Betslip"
+        >
+          <Ticket size={14} />
+          <span>Betslip</span>
+          <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 text-[10px] rounded-full font-mono font-bold">
+            {bets.length}
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            if (isMyBetsActive) setIsBetslipOpen(false);
+            else openBetslipTab("active");
+          }}
+          className={`px-3 py-1 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+            isMyBetsActive
+              ? "bg-sky-500 text-slate-950 font-black shadow-md shadow-sky-500/30"
+              : "text-slate-300 hover:text-sky-400 hover:bg-slate-800/50"
+          }`}
+          title="Open My Bets"
+        >
+          <Receipt size={14} />
+          <span>My Bets</span>
+          <span className="bg-sky-950/80 text-sky-300 border border-sky-500/40 px-1.5 py-0.2 text-[10px] rounded-full font-mono font-bold">
+            {activeBets.length}
+          </span>
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center gap-0.5 bg-slate-900/90 border border-slate-700/80 p-0.5 rounded-lg shadow-sm">
+    <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-full p-1 shadow-md h-10">
       <button
         type="button"
         onClick={() => {
-          if (isBetslipOpen && activeTab === "slip") {
+          if (isSlipActive) {
             setIsBetslipOpen(false);
           } else {
             openBetslipTab("slip");
           }
         }}
-        className={`px-2.5 py-1 rounded text-[11px] font-extrabold transition-all flex items-center gap-1 ${
-          isBetslipOpen && activeTab === "slip"
-            ? "bg-amber-400 text-slate-950 shadow-sm"
-            : "text-slate-200 hover:bg-slate-800"
+        className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 ${
+          isSlipActive
+            ? "bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300/40"
+            : "text-amber-400 hover:bg-slate-800/80"
         }`}
         title="Open Pending Betslip Picks"
       >
+        <Ticket size={14} className={isSlipActive ? "text-slate-950" : "text-amber-400"} />
         <span>Betslip</span>
-        <span className="font-mono text-[10px] px-1 rounded bg-slate-950/20 font-black">
+        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+          isSlipActive ? "bg-slate-950 text-amber-300" : "bg-amber-400/20 text-amber-300"
+        }`}>
           {bets.length}
         </span>
       </button>
 
+      <div className="w-[1px] h-4 bg-slate-800 mx-1" />
+
       <button
         type="button"
         onClick={() => {
-          if (isBetslipOpen && (activeTab === "active" || activeTab === "settled")) {
+          if (isMyBetsActive) {
             setIsBetslipOpen(false);
           } else {
             openBetslipTab("active");
           }
         }}
-        className={`px-2.5 py-1 rounded text-[11px] font-extrabold transition-all flex items-center gap-1 ${
-          isBetslipOpen && (activeTab === "active" || activeTab === "settled")
-            ? "bg-[#002b5c] text-white shadow-sm"
-            : "text-slate-300 hover:text-white hover:bg-slate-800"
+        className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 ${
+          isMyBetsActive
+            ? "bg-[#003b7a] text-white shadow-md ring-2 ring-sky-400/40"
+            : "text-sky-300 hover:bg-slate-800/80"
         }`}
         title="Open My Bets (Active & Settled)"
       >
+        <Receipt size={14} className={isMyBetsActive ? "text-white" : "text-sky-400"} />
         <span>My Bets</span>
-        <span className="font-mono text-[10px] px-1 rounded bg-sky-500/20 text-sky-300 font-extrabold">
+        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+          isMyBetsActive ? "bg-sky-400 text-slate-950" : "bg-sky-500/20 text-sky-300"
+        }`}>
           {activeBets.length}
         </span>
       </button>

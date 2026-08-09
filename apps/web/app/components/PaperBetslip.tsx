@@ -360,60 +360,103 @@ function PaperBetslipContent() {
   return (
     <>
       <div
-        className="betslip-overlay-backdrop fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[100] flex items-start justify-end p-2 sm:p-4 pt-16 sm:pt-16"
+        className="betslip-overlay-backdrop fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[100] transition-opacity animate-in fade-in duration-200 flex justify-end"
         onClick={() => setIsBetslipOpen(false)}
       >
-      <div
-        className="betslip-container w-full sm:w-[420px] bg-slate-900 border border-slate-700/80 shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2 duration-150"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header Modal Bar */}
-        <div className="betslip-header-bar flex items-center justify-between p-3 bg-slate-950 border-b border-slate-800">
-          <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setContextMainTab("slip")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-                contextMainTab === "slip"
-                  ? "bg-amber-400 text-slate-950 shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Ticket size={14} />
-              <span>Bet Slip</span>
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${contextMainTab === "slip" ? "bg-slate-950 text-amber-300 font-black" : "bg-slate-800 text-slate-300"}`}>
-                {bets.length}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setContextMainTab("active")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-                contextMainTab === "active" || contextMainTab === "settled"
-                  ? "bg-[#002b5c] text-white shadow-sm"
-                  : "text-slate-400 hover:text-slate-200"
-              }`}
-            >
-              <Activity size={14} />
-              <span>My Bets</span>
-              {combinedActiveBets.length > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${contextMainTab === "active" || contextMainTab === "settled" ? "bg-sky-500/30 text-sky-200 font-black" : "bg-slate-800 text-slate-300"}`}>
-                  {combinedActiveBets.length}
-                </span>
-              )}
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsBetslipOpen(false)}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            title="Close"
+        <div
+          className={`betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden transition-transform animate-in slide-in-from-right duration-300 ${
+            variant === "b"
+              ? "bg-slate-950/95 backdrop-blur-2xl border-l border-emerald-500/20"
+              : "bg-slate-900 border-l border-slate-700/80"
+          }`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Sportsbet Style Header Bar */}
+          <div
+            className={`betslip-header-bar flex items-center justify-between p-3.5 border-b shadow-md transition-colors ${
+              variant === "a"
+                ? "bg-amber-400 border-amber-500 text-slate-950"
+                : variant === "b"
+                ? "bg-slate-950 border-emerald-500/30 text-white"
+                : "bg-slate-950 border-slate-800 text-white"
+            }`}
           >
-            <X size={18} />
-          </button>
-        </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsBetslipOpen(false)}
+                className={`p-1.5 rounded-full transition-colors ${
+                  variant === "a"
+                    ? "bg-slate-950/10 hover:bg-slate-950/20 text-slate-950"
+                    : "bg-slate-800 hover:bg-slate-700 text-slate-200"
+                }`}
+                title="Close Bet Slip"
+              >
+                <X size={18} />
+              </button>
+              <div className="flex items-center gap-2">
+                <Ticket size={18} className={variant === "a" ? "text-slate-950" : "text-amber-400"} />
+                <span className="font-extrabold text-base tracking-tight">Bet Slip</span>
+              </div>
+            </div>
+
+            {/* Header Main Tabs */}
+            <div className="flex items-center gap-1 p-0.5 bg-slate-950/20 rounded-xl border border-slate-950/10">
+              <button
+                type="button"
+                onClick={() => setContextMainTab("slip")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
+                  contextMainTab === "slip"
+                    ? variant === "a"
+                      ? "bg-slate-950 text-amber-400 shadow-sm"
+                      : "bg-amber-400 text-slate-950 shadow-sm"
+                    : variant === "a"
+                    ? "text-slate-900 hover:bg-slate-950/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <span>Slip</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-800/40 opacity-90">
+                  {bets.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setContextMainTab("active")}
+                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
+                  contextMainTab === "active" || contextMainTab === "settled"
+                    ? variant === "a"
+                      ? "bg-slate-950 text-sky-400 shadow-sm"
+                      : "bg-[#002b5c] text-white shadow-sm"
+                    : variant === "a"
+                    ? "text-slate-900 hover:bg-slate-950/10"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <span>My Bets</span>
+                {combinedActiveBets.length > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300">
+                    {combinedActiveBets.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Sportsbet Style Balance Tag */}
+            <div
+              className={`flex flex-col items-end px-2.5 py-1 rounded-lg ${
+                variant === "a"
+                  ? "bg-slate-950/10 text-slate-950"
+                  : "bg-slate-900 border border-slate-800 text-slate-100"
+              }`}
+            >
+              <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
+              <span className={`text-xs font-black font-mono ${variant === "a" ? "text-slate-950" : "text-emerald-400"}`}>
+                ${user ? (user as any).balance?.toLocaleString() ?? "10,000" : "10,000"}
+              </span>
+            </div>
+          </div>
 
         {/* MY BETS SECTION (Active & Settled Sub-Tabs) */}
         {contextMainTab === "active" || contextMainTab === "settled" ? (
@@ -1035,6 +1078,19 @@ function PaperBetslipContent() {
         )}
       </div>
     )}
+
+    {/* Sportsbet Responsible Gambling Footer Notice */}
+    <div className="mt-auto border-t border-slate-800/80 p-3 bg-slate-950 text-center">
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-2.5">
+        <p className="text-[11px] font-black uppercase text-amber-400 tracking-wide">
+          WHAT'S GAMBLING REALLY COSTING YOU?
+        </p>
+        <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+          For free and confidential support call <span className="text-slate-200 font-bold">1800 858 858</span> or visit{" "}
+          <span className="text-amber-400/90 underline font-medium">gamblinghelponline.org.au</span>
+        </p>
+      </div>
+    </div>
   </div>
 </div>
 
