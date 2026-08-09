@@ -192,6 +192,24 @@ def get_connection():
     if DB_BACKEND == "postgresql":
         pool = _get_pg_pool()
         conn = pool.getconn()
+        # Verify pooled connection is alive; if closed or broken, replace with fresh connection
+        if conn.closed != 0:
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = pool.getconn()
+        else:
+            try:
+                with conn.cursor() as test_cur:
+                    test_cur.execute("SELECT 1")
+            except Exception:
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                conn = pool.getconn()
+
         is_broken = False
         try:
             user_id = user_id_ctx.get()
