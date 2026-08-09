@@ -36,88 +36,14 @@ import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
 function HeaderBetslipControlInner() {
-  const searchParams = useSearchParams();
-  const variant = (searchParams.get("variant") || "a").toLowerCase();
   const { bets, activeBets, isBetslipOpen, activeTab, setIsBetslipOpen, openBetslipTab } = usePaperBetslip();
 
   const isSlipActive = isBetslipOpen && activeTab === "slip";
   const isMyBetsActive = isBetslipOpen && (activeTab === "active" || activeTab === "settled");
 
-  if (variant === "b") {
-    return (
-      <div className="flex items-center bg-slate-950/90 backdrop-blur-md border border-emerald-500/30 rounded-full p-1 shadow-lg shadow-emerald-950/20 h-10">
-        <button
-          type="button"
-          onClick={() => {
-            if (isSlipActive) setIsBetslipOpen(false);
-            else openBetslipTab("slip");
-          }}
-          className={`px-3 py-1 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-            isSlipActive
-              ? "bg-emerald-500 text-slate-950 font-black shadow-md shadow-emerald-500/30"
-              : "text-slate-300 hover:text-emerald-400 hover:bg-slate-800/50"
-          }`}
-          title="Open Pending Betslip"
-        >
-          <Ticket size={14} />
-          <span>Betslip</span>
-          <span className="bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 text-[10px] rounded-full font-mono font-bold">
-            {bets.length}
-          </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (isMyBetsActive) setIsBetslipOpen(false);
-            else openBetslipTab("active");
-          }}
-          className={`px-3 py-1 rounded-full text-xs font-extrabold transition-all flex items-center gap-1.5 ${
-            isMyBetsActive
-              ? "bg-sky-500 text-slate-950 font-black shadow-md shadow-sky-500/30"
-              : "text-slate-300 hover:text-sky-400 hover:bg-slate-800/50"
-          }`}
-          title="Open My Bets"
-        >
-          <Receipt size={14} />
-          <span>My Bets</span>
-          <span className="bg-sky-950/80 text-sky-300 border border-sky-500/40 px-1.5 py-0.2 text-[10px] rounded-full font-mono font-bold">
-            {activeBets.length}
-          </span>
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-full p-1 shadow-md h-10">
-      <button
-        type="button"
-        onClick={() => {
-          if (isSlipActive) {
-            setIsBetslipOpen(false);
-          } else {
-            openBetslipTab("slip");
-          }
-        }}
-        className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 ${
-          isSlipActive
-            ? "bg-amber-400 text-slate-950 shadow-md ring-2 ring-amber-300/40"
-            : "text-amber-400 hover:bg-slate-800/80"
-        }`}
-        title="Open Pending Betslip Picks"
-      >
-        <Ticket size={14} className={isSlipActive ? "text-slate-950" : "text-amber-400"} />
-        <span>Betslip</span>
-        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-          isSlipActive ? "bg-slate-950 text-amber-300" : "bg-amber-400/20 text-amber-300"
-        }`}>
-          {bets.length}
-        </span>
-      </button>
-
-      <div className="w-[1px] h-4 bg-slate-800 mx-1" />
-
+    <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-950 h-10 shrink-0">
+      {/* My Bets Block Button */}
       <button
         type="button"
         onClick={() => {
@@ -127,19 +53,46 @@ function HeaderBetslipControlInner() {
             openBetslipTab("active");
           }
         }}
-        className={`px-3.5 py-1.5 rounded-full text-xs font-black transition-all flex items-center gap-1.5 ${
+        className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
           isMyBetsActive
-            ? "bg-[#003b7a] text-white shadow-md ring-2 ring-sky-400/40"
-            : "text-sky-300 hover:bg-slate-800/80"
+            ? "bg-[#003b7a] text-white font-black"
+            : "bg-[#004899] text-white hover:bg-[#003b7a]"
         }`}
-        title="Open My Bets (Active & Settled)"
+        title={`Open My Bets (${activeBets.length} active)`}
       >
-        <Receipt size={14} className={isMyBetsActive ? "text-white" : "text-sky-400"} />
-        <span>My Bets</span>
-        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
-          isMyBetsActive ? "bg-sky-400 text-slate-950" : "bg-sky-500/20 text-sky-300"
-        }`}>
+        <span className="text-[9px] font-extrabold tracking-tight leading-none text-sky-100 uppercase">
+          My Bets
+        </span>
+        <span className="text-xs font-black font-mono leading-none mt-0.5 text-white">
           {activeBets.length}
+        </span>
+      </button>
+
+      {/* Divider Line */}
+      <div className="w-[1px] h-full bg-slate-950/40" />
+
+      {/* Bet Slip Block Button */}
+      <button
+        type="button"
+        onClick={() => {
+          if (isSlipActive) {
+            setIsBetslipOpen(false);
+          } else {
+            openBetslipTab("slip");
+          }
+        }}
+        className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
+          isSlipActive
+            ? "bg-amber-300 text-slate-950 font-black shadow-inner"
+            : "bg-amber-400 text-slate-950 hover:bg-amber-300"
+        }`}
+        title={`Open Bet Slip (${bets.length} picks)`}
+      >
+        <span className="text-[9px] font-extrabold tracking-tight leading-none text-slate-950 opacity-90 uppercase">
+          Bet Slip
+        </span>
+        <span className="text-xs font-black font-mono leading-none mt-0.5 text-slate-950">
+          {bets.length}
         </span>
       </button>
     </div>
@@ -148,7 +101,7 @@ function HeaderBetslipControlInner() {
 
 function HeaderBetslipControl() {
   return (
-    <Suspense fallback={<div className="h-7 w-28 bg-slate-800 animate-pulse rounded-xl" />}>
+    <Suspense fallback={<div className="h-10 w-32 bg-slate-800 animate-pulse rounded-full" />}>
       <HeaderBetslipControlInner />
     </Suspense>
   );
@@ -156,9 +109,9 @@ function HeaderBetslipControl() {
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { bets, isBetslipOpen, setIsBetslipOpen, toasts, removeToast } = usePaperBetslip();
   const { user, logout } = useAuth();
   const isGuest = !user || user.id === "guest";
+  const { bets, isBetslipOpen, setIsBetslipOpen, toasts, removeToast } = usePaperBetslip();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -188,7 +141,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell flex flex-col min-h-screen">
       <div className="main-area flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
         <header className="top-header">
           <div className="top-header-primary">
             <Link href="/" className="flex items-center gap-2 group">
@@ -210,7 +162,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <PromoCarousel />
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Right Header Control Group */}
+          <div className="flex items-center gap-1.5 sm:gap-2 max-w-[50%] justify-end">
+            {/* 1. Refresh Button */}
             <button
               type="button"
               onClick={() => {
@@ -219,127 +173,125 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   window.location.reload();
                 }
               }}
-              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors flex items-center justify-center"
+              className="h-10 w-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
               title="Refresh Page & Data Feeds"
               aria-label="Refresh Page & Data Feeds"
             >
-              <RotateCw size={18} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
+              <RotateCw size={20} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
             </button>
 
+            {/* 2. Settings Button */}
             <Link
               href="/settings"
-              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors flex items-center justify-center"
+              className="h-10 w-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0"
               title="Settings"
               aria-label="Settings"
             >
-              <Settings size={18} />
+              <Settings size={20} />
             </Link>
 
-            {/* Header Betslip & Active Bets Control (Prototype Switcher Supported) */}
-            <HeaderBetslipControl />
-
+            {/* 3. User Profile Capsule (Bankroll in Middle) */}
             <div className="relative" ref={dropdownRef}>
               {!isGuest ? (
                 <div>
                   <button
                     type="button"
                     onClick={() => setProfileDropdownOpen((prev) => !prev)}
-                    className="user-badge flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 text-slate-200 transition-all text-xs font-medium"
+                    className="user-badge flex items-center gap-2 px-3.5 h-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition-all text-xs font-bold shadow-sm cursor-pointer"
                     aria-expanded={profileDropdownOpen}
                     aria-label="User Profile Menu"
+                    title={`User: ${user.username} | Balance: $${currentBalance.toLocaleString()}`}
                   >
-                    <UserIcon size={16} className="text-emerald-400 shrink-0" />
-                    <div className="flex flex-col text-left leading-tight">
-                      <span className="max-w-[100px] truncate text-xs font-semibold text-slate-200">
-                        {user.username}
-                      </span>
-                      <span className="text-[11px] font-bold text-emerald-400">
-                        ${currentBalance.toLocaleString()}
-                      </span>
-                    </div>
+                    <UserIcon size={18} className="text-emerald-400 shrink-0" />
+                    <span className="text-xs font-black font-mono text-emerald-400 tracking-tight">
+                      ${currentBalance.toLocaleString()}
+                    </span>
                   </button>
 
-                {/* Profile Dropdown */}
-                {profileDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-slate-700/80 shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                      <div>
-                        <p className="text-sm font-bold text-white">{user.username}</p>
-                        <p className="text-xs text-slate-400 truncate max-w-[180px]">
-                          {user.email || "Virtual Strategy Trader"}
-                        </p>
+                  {/* Profile Dropdown */}
+                  {profileDropdownOpen && (
+                    <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-slate-700/80 shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                        <div>
+                          <p className="text-sm font-bold text-white">{user.username}</p>
+                          <p className="text-xs text-slate-400 truncate max-w-[180px]">
+                            {user.email || "Virtual Strategy Trader"}
+                          </p>
+                        </div>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Active
+                        </span>
                       </div>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Active
-                      </span>
-                    </div>
 
-                    {/* Bankroll Summary Card */}
-                    <div className="my-3 p-3 rounded-lg bg-slate-950/70 border border-slate-800">
-                      <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                        <span>Starting Baseline</span>
-                        <span className="font-semibold text-slate-300">
-                          ${startingBaseline.toLocaleString()}
-                        </span>
+                      {/* Bankroll Summary Card */}
+                      <div className="my-3 p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+                        <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                          <span>Starting Baseline</span>
+                          <span className="font-semibold text-slate-300">
+                            ${startingBaseline.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
+                          <span>Virtual Balance</span>
+                          <span className="font-bold text-emerald-400 text-sm">
+                            ${currentBalance.toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Net Return</span>
+                          <span
+                            className={`font-semibold flex items-center gap-1 ${
+                              pnl >= 0 ? "text-emerald-400" : "text-rose-400"
+                            }`}
+                          >
+                            {pnl >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+                            {pnl >= 0 ? "+" : ""}
+                            ${pnl.toLocaleString()}
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-                        <span>Virtual Balance</span>
-                        <span className="font-bold text-emerald-400 text-sm">
-                          ${currentBalance.toLocaleString()}
-                        </span>
-                      </div>
-                      <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Net Return</span>
-                        <span
-                          className={`font-semibold flex items-center gap-1 ${
-                            pnl >= 0 ? "text-emerald-400" : "text-rose-400"
-                          }`}
+
+                      {/* Links */}
+                      <div className="space-y-1">
+                        <Link
+                          href="/settings"
+                          onClick={() => setProfileDropdownOpen(false)}
+                          className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
                         >
-                          {pnl >= 0 ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
-                          {pnl >= 0 ? "+" : ""}
-                          ${pnl.toLocaleString()}
-                        </span>
+                          <Settings size={14} className="text-slate-400" />
+                          <span>Profile & Settings</span>
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfileDropdownOpen(false);
+                            logout();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                        >
+                          <LogOut size={14} />
+                          <span>Sign Out</span>
+                        </button>
                       </div>
                     </div>
+                  )}
+                </div>
+              ) : (
+                <Link
+                  href={`/login?returnUrl=${encodeURIComponent(pathname)}`}
+                  className="btn btn-sm btn-primary"
+                  style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
+                >
+                  <LogIn size={15} />
+                  <span>Sign In</span>
+                </Link>
+              )}
+            </div>
 
-                    {/* Links */}
-                    <div className="space-y-1">
-                      <Link
-                        href="/settings"
-                        onClick={() => setProfileDropdownOpen(false)}
-                        className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
-                      >
-                        <Settings size={14} className="text-slate-400" />
-                        <span>Profile & Settings</span>
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setProfileDropdownOpen(false);
-                          logout();
-                        }}
-                        className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
-                      >
-                        <LogOut size={14} />
-                        <span>Sign Out</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <Link
-                href={`/login?returnUrl=${encodeURIComponent(pathname)}`}
-                className="btn btn-sm btn-primary"
-                style={{ display: "inline-flex", alignItems: "center", gap: "0.4rem" }}
-              >
-                <LogIn size={15} />
-                <span>Sign In</span>
-              </Link>
-            )}
+            {/* 4. Header Betslip & Active Bets Dual Block Control (Far Right Corner!) */}
+            <HeaderBetslipControl />
           </div>
-        </div>
-      </header>
+        </header>
 
         <WeeklyChampionBanner />
 

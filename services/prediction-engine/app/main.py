@@ -744,10 +744,11 @@ def get_today_races(
     selected_type = type or race_type
     try:
         races = racing_scraper.fetch_today_races(run_date=date, race_type=selected_type)
-        if len(races) <= 1 and not date:
+        if len(races) == 0:
             import datetime
             from app.time_utils import today_melbourne
-            tomorrow = (today_melbourne() + datetime.timedelta(days=1)).isoformat()
+            req_date = datetime.date.fromisoformat(date) if date else today_melbourne()
+            tomorrow = (req_date + datetime.timedelta(days=1)).isoformat()
             tomorrow_races = racing_scraper.fetch_today_races(run_date=tomorrow, race_type=selected_type)
             existing_ids = {r["race_id"] for r in races}
             for tr in tomorrow_races:

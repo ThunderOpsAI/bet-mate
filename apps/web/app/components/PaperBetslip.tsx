@@ -67,8 +67,6 @@ function AwaitingExoticPool() {
 }
 
 function PaperBetslipContent() {
-  const searchParams = useSearchParams();
-  const variant = (searchParams.get("variant") || "a").toLowerCase();
   const { user } = useAuth();
   const [showGuestModal, setShowGuestModal] = useState(false);
   const {
@@ -364,38 +362,22 @@ function PaperBetslipContent() {
         onClick={() => setIsBetslipOpen(false)}
       >
         <div
-          className={`betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden transition-transform animate-in slide-in-from-right duration-300 ${
-            variant === "b"
-              ? "bg-slate-950/95 backdrop-blur-2xl border-l border-emerald-500/20"
-              : "bg-slate-900 border-l border-slate-700/80"
-          }`}
+          className="betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden bg-slate-900 border-l border-slate-700/80 transition-transform animate-in slide-in-from-right duration-300"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Sportsbet Style Header Bar */}
-          <div
-            className={`betslip-header-bar flex items-center justify-between p-3.5 border-b shadow-md transition-colors ${
-              variant === "a"
-                ? "bg-amber-400 border-amber-500 text-slate-950"
-                : variant === "b"
-                ? "bg-slate-950 border-emerald-500/30 text-white"
-                : "bg-slate-950 border-slate-800 text-white"
-            }`}
-          >
+          <div className="betslip-header-bar flex items-center justify-between p-3.5 bg-amber-400 border-b border-amber-500 text-slate-950 shadow-md">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsBetslipOpen(false)}
-                className={`p-1.5 rounded-full transition-colors ${
-                  variant === "a"
-                    ? "bg-slate-950/10 hover:bg-slate-950/20 text-slate-950"
-                    : "bg-slate-800 hover:bg-slate-700 text-slate-200"
-                }`}
+                className="p-1.5 rounded-full bg-slate-950/10 hover:bg-slate-950/20 text-slate-950 transition-colors"
                 title="Close Bet Slip"
               >
                 <X size={18} />
               </button>
               <div className="flex items-center gap-2">
-                <Ticket size={18} className={variant === "a" ? "text-slate-950" : "text-amber-400"} />
+                <Ticket size={18} className="text-slate-950" />
                 <span className="font-extrabold text-base tracking-tight">Bet Slip</span>
               </div>
             </div>
@@ -407,12 +389,8 @@ function PaperBetslipContent() {
                 onClick={() => setContextMainTab("slip")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "slip"
-                    ? variant === "a"
-                      ? "bg-slate-950 text-amber-400 shadow-sm"
-                      : "bg-amber-400 text-slate-950 shadow-sm"
-                    : variant === "a"
-                    ? "text-slate-900 hover:bg-slate-950/10"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-slate-950 text-amber-400 shadow-sm"
+                    : "text-slate-900 hover:bg-slate-950/10"
                 }`}
               >
                 <span>Slip</span>
@@ -426,12 +404,8 @@ function PaperBetslipContent() {
                 onClick={() => setContextMainTab("active")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "active" || contextMainTab === "settled"
-                    ? variant === "a"
-                      ? "bg-slate-950 text-sky-400 shadow-sm"
-                      : "bg-[#002b5c] text-white shadow-sm"
-                    : variant === "a"
-                    ? "text-slate-900 hover:bg-slate-950/10"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-slate-950 text-sky-400 shadow-sm"
+                    : "text-slate-900 hover:bg-slate-950/10"
                 }`}
               >
                 <span>My Bets</span>
@@ -444,15 +418,9 @@ function PaperBetslipContent() {
             </div>
 
             {/* Sportsbet Style Balance Tag */}
-            <div
-              className={`flex flex-col items-end px-2.5 py-1 rounded-lg ${
-                variant === "a"
-                  ? "bg-slate-950/10 text-slate-950"
-                  : "bg-slate-900 border border-slate-800 text-slate-100"
-              }`}
-            >
+            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/10 text-slate-950">
               <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
-              <span className={`text-xs font-black font-mono ${variant === "a" ? "text-slate-950" : "text-emerald-400"}`}>
+              <span className="text-xs font-black font-mono text-slate-950">
                 ${user ? (user as any).balance?.toLocaleString() ?? "10,000" : "10,000"}
               </span>
             </div>
@@ -727,7 +695,6 @@ function PaperBetslipContent() {
                       <span>$</span>
                       <input
                         type="number"
-                        min="1"
                         value={multiStake === 0 ? "" : multiStake}
                         onChange={(e) => {
                           const raw = e.target.value;
@@ -870,7 +837,6 @@ function PaperBetslipContent() {
                               <span>$</span>
                               <input
                                 type="number"
-                                min="1"
                                 value={bet.stake === 0 ? "" : bet.stake}
                                 onChange={(e) => {
                                   const raw = e.target.value;
@@ -1003,7 +969,6 @@ function PaperBetslipContent() {
                       <span>$</span>
                       <input
                         type="number"
-                        min="1"
                         value={defaultStake === 0 ? "" : defaultStake}
                         onChange={(e) => {
                           const raw = e.target.value;
