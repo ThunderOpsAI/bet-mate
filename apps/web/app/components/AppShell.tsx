@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import PromoCarousel from "./PromoCarousel";
+import WeeklyChampionBanner from "./WeeklyChampionBanner";
 
 const PaperBetslip = dynamic(() => import("./PaperBetslip"), { ssr: false });
 const AskBobBubble = dynamic(() => import("./AskBobBubble"), { ssr: false });
@@ -280,6 +281,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+
+        <WeeklyChampionBanner />
 
         {/* Page Content */}
         <main className="page-content flex-1">{children}</main>
