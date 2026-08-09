@@ -264,11 +264,8 @@ def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] =
             continue
         prepared_races.append(prepared)
         
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        final_races = list(executor.map(_enrich_with_racing_australia, prepared_races))
-
-    final_races.sort(key=lambda race: race.get("start_time") or "")
-    return final_races
+    prepared_races.sort(key=lambda race: race.get("start_time") or "")
+    return prepared_races
 
 
 def _betfair_auth_mode() -> str:

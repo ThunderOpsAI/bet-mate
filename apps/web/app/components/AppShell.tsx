@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { usePathname } from "next/navigation";
+import { useState, useRef, useEffect, Suspense } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -22,6 +22,9 @@ import {
   TrendingUp,
   TrendingDown,
   ShieldAlert,
+  ShoppingCart,
+  Ticket,
+  Receipt,
 } from "lucide-react";
 import dynamic from "next/dynamic";
 import PromoCarousel from "./PromoCarousel";
@@ -31,9 +34,69 @@ const AskBobBubble = dynamic(() => import("./AskBobBubble"), { ssr: false });
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 
+function HeaderBetslipControlInner() {
+  const { bets, activeBets, isBetslipOpen, activeTab, setIsBetslipOpen, openBetslipTab } = usePaperBetslip();
+
+  return (
+    <div className="flex items-center gap-0.5 bg-slate-900/90 border border-slate-700/80 p-0.5 rounded-lg shadow-sm">
+      <button
+        type="button"
+        onClick={() => {
+          if (isBetslipOpen && activeTab === "slip") {
+            setIsBetslipOpen(false);
+          } else {
+            openBetslipTab("slip");
+          }
+        }}
+        className={`px-2.5 py-1 rounded text-[11px] font-extrabold transition-all flex items-center gap-1 ${
+          isBetslipOpen && activeTab === "slip"
+            ? "bg-amber-400 text-slate-950 shadow-sm"
+            : "text-slate-200 hover:bg-slate-800"
+        }`}
+        title="Open Pending Betslip Picks"
+      >
+        <span>Betslip</span>
+        <span className="font-mono text-[10px] px-1 rounded bg-slate-950/20 font-black">
+          {bets.length}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          if (isBetslipOpen && (activeTab === "active" || activeTab === "settled")) {
+            setIsBetslipOpen(false);
+          } else {
+            openBetslipTab("active");
+          }
+        }}
+        className={`px-2.5 py-1 rounded text-[11px] font-extrabold transition-all flex items-center gap-1 ${
+          isBetslipOpen && (activeTab === "active" || activeTab === "settled")
+            ? "bg-[#002b5c] text-white shadow-sm"
+            : "text-slate-300 hover:text-white hover:bg-slate-800"
+        }`}
+        title="Open My Bets (Active & Settled)"
+      >
+        <span>My Bets</span>
+        <span className="font-mono text-[10px] px-1 rounded bg-sky-500/20 text-sky-300 font-extrabold">
+          {activeBets.length}
+        </span>
+      </button>
+    </div>
+  );
+}
+
+function HeaderBetslipControl() {
+  return (
+    <Suspense fallback={<div className="h-7 w-28 bg-slate-800 animate-pulse rounded-xl" />}>
+      <HeaderBetslipControlInner />
+    </Suspense>
+  );
+}
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { toasts, removeToast } = usePaperBetslip();
+  const { bets, isBetslipOpen, setIsBetslipOpen, toasts, removeToast } = usePaperBetslip();
   const { user, logout } = useAuth();
   const isGuest = !user || user.id === "guest";
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -111,6 +174,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Settings size={18} />
             </Link>
+
+            {/* Header Betslip & Active Bets Control (Prototype Switcher Supported) */}
+            <HeaderBetslipControl />
 
             <div className="relative" ref={dropdownRef}>
               {!isGuest ? (

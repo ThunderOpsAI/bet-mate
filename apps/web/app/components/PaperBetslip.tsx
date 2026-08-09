@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,11 +9,19 @@ import {
   ChevronUp,
   Loader2,
   Send,
-  ShoppingCart,
+  Receipt,
+  Ticket,
   Trash2,
   X,
   Sparkles,
   Zap,
+  Activity,
+  Clock,
+  Check,
+  DollarSign,
+  History,
+  FileText,
+  RotateCw,
 } from "lucide-react";
 import {
   buildPaperBetKey,
@@ -21,7 +30,21 @@ import {
 } from "../lib/betslip/betKey";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
+import { API_BASE, safeResponseJson } from "../lib/api";
 import GuestModal from "./GuestModal";
+
+export type ActiveBetItem = {
+  id: string;
+  selection: string;
+  event_name: string;
+  sport: string;
+  bet_type: string;
+  odds: number;
+  stake: number;
+  status: "active" | "won" | "lost" | "settled" | "pending";
+  payout?: number;
+  placed_at?: string;
+};
 
 type BetIssue = {
   tone: "warning" | "danger" | "info";
@@ -33,7 +56,7 @@ type BetIssue = {
 function AwaitingExoticPool() {
   return (
     <div className="betslip-empty">
-      <ShoppingCart size={28} />
+      <Receipt size={28} className="text-amber-400 mx-auto mb-2" />
       <p>Awaiting exotic pool data</p>
       <p className="small">
         Select live runners to calculate combinations; no synthetic dividends
@@ -43,11 +66,16 @@ function AwaitingExoticPool() {
   );
 }
 
-export default function PaperBetslip() {
+function PaperBetslipContent() {
+  const searchParams = useSearchParams();
+  const variant = (searchParams.get("variant") || "a").toLowerCase();
   const { user } = useAuth();
   const [showGuestModal, setShowGuestModal] = useState(false);
   const {
     bets,
+    activeBets: contextActiveBets,
+    activeTab: contextMainTab,
+    setActiveTab: setContextMainTab,
     clearBetslip,
     isBetslipOpen,
     placeBets,
@@ -67,10 +95,51 @@ export default function PaperBetslip() {
   } | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [acknowledgeOddsChanges, setAcknowledgeOddsChanges] = useState(false);
+  const [myBetsSubTab, setMyBetsSubTab] = useState<"active" | "settled">("active");
+  const [activeBets, setActiveBets] = useState<ActiveBetItem[]>([]);
+  const [loadingActiveBets, setLoadingActiveBets] = useState(false);
+
+  const combinedActiveBets = useMemo(() => {
+    const map = new Map<string, ActiveBetItem>();
+    (contextActiveBets || []).forEach((b) => map.set(b.id, b));
+    (activeBets || []).forEach((b) => map.set(b.id, b));
+    return Array.from(map.values()).sort((a, b) => {
+      const tA = a.placed_at ? new Date(a.placed_at).getTime() : 0;
+      const tB = b.placed_at ? new Date(b.placed_at).getTime() : 0;
+      return tB - tA;
+    });
+  }, [contextActiveBets, activeBets]);
+
+  const unsettledBets = useMemo(() => {
+    return combinedActiveBets.filter((b) => b.status === "active" || b.status === "pending");
+  }, [combinedActiveBets]);
+
+  const settledBets = useMemo(() => {
+    return combinedActiveBets.filter((b) => b.status === "won" || b.status === "lost" || b.status === "settled");
+  }, [combinedActiveBets]);
   const [multiStake, setMultiStake] = useState<number>(10);
   const [activeTab, setActiveTab] = useState<
     "singles" | "multi" | "exotics" | "quaddie" | "sgm"
   >("singles");
+
+  useEffect(() => {
+    if (isBetslipOpen && user && user.id !== "guest") {
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_auth_token") : null;
+      setLoadingActiveBets(true);
+      fetch(`${API_BASE}/bets/history`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await safeResponseJson(res);
+            const allBets: ActiveBetItem[] = data?.bets || [];
+            setActiveBets(allBets.filter((b) => b.status === "active" || b.status === "pending"));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingActiveBets(false));
+    }
+  }, [isBetslipOpen, user, result]);
 
   const warnings = useMemo(() => {
     const counts = bets.reduce<Record<string, number>>((acc, bet) => {
@@ -286,28 +355,195 @@ export default function PaperBetslip() {
     }
   };
 
-  return (
-    <div
-      className={`betslip-container ${isBetslipOpen ? "open" : "collapsed"}`}
-    >
-      <div
-        className="betslip-header"
-        onClick={() => setIsBetslipOpen(!isBetslipOpen)}
-      >
-        <div className="betslip-title">
-          <div className="betslip-icon-wrap">
-            <ShoppingCart size={18} />
-            {bets.length > 0 && <span className="betslip-badge-pulse" />}
-          </div>
-          <span>Paper Betslip</span>
-          <span className="betslip-count">{bets.length}</span>
-        </div>
-        <div className="betslip-toggle">
-          {isBetslipOpen ? <ChevronDown size={20} /> : <ChevronUp size={20} />}
-        </div>
-      </div>
+  if (!isBetslipOpen) return null;
 
-      <div className="betslip-content">
+  return (
+    <>
+      <div
+        className="betslip-overlay-backdrop fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[100] flex items-start justify-end p-2 sm:p-4 pt-16 sm:pt-16"
+        onClick={() => setIsBetslipOpen(false)}
+      >
+      <div
+        className="betslip-container w-full sm:w-[420px] bg-slate-900 border border-slate-700/80 shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[82vh] animate-in fade-in slide-in-from-top-2 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header Modal Bar */}
+        <div className="betslip-header-bar flex items-center justify-between p-3 bg-slate-950 border-b border-slate-800">
+          <div className="flex items-center gap-1 p-1 bg-slate-900 border border-slate-800 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setContextMainTab("slip")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+                contextMainTab === "slip"
+                  ? "bg-amber-400 text-slate-950 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Ticket size={14} />
+              <span>Bet Slip</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${contextMainTab === "slip" ? "bg-slate-950 text-amber-300 font-black" : "bg-slate-800 text-slate-300"}`}>
+                {bets.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setContextMainTab("active")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition-all flex items-center gap-1.5 ${
+                contextMainTab === "active" || contextMainTab === "settled"
+                  ? "bg-[#002b5c] text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              <Activity size={14} />
+              <span>My Bets</span>
+              {combinedActiveBets.length > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${contextMainTab === "active" || contextMainTab === "settled" ? "bg-sky-500/30 text-sky-200 font-black" : "bg-slate-800 text-slate-300"}`}>
+                  {combinedActiveBets.length}
+                </span>
+              )}
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsBetslipOpen(false)}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            title="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* MY BETS SECTION (Active & Settled Sub-Tabs) */}
+        {contextMainTab === "active" || contextMainTab === "settled" ? (
+          <div className="betslip-content flex-1 flex flex-col min-h-[300px] overflow-hidden bg-slate-900/90">
+            {/* Sub-Tab Bar: Pending vs Resulted */}
+            <div className="flex items-center gap-2 p-2 bg-slate-950/80 border-b border-slate-800/80">
+              <button
+                type="button"
+                onClick={() => setMyBetsSubTab("active")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-extrabold transition-all text-center ${
+                  myBetsSubTab === "active"
+                    ? "bg-slate-800 text-slate-100 border border-slate-700 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Pending ({unsettledBets.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setMyBetsSubTab("settled")}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-extrabold transition-all text-center ${
+                  myBetsSubTab === "settled"
+                    ? "bg-slate-800 text-slate-100 border border-slate-700 shadow-sm"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Resulted ({settledBets.length})
+              </button>
+            </div>
+
+            {/* List Body */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {myBetsSubTab === "active" ? (
+                unsettledBets.length === 0 ? (
+                  <div className="py-10 text-center px-4">
+                    <div className="w-14 h-14 rounded-full bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mx-auto mb-3 text-slate-400">
+                      <Receipt size={28} />
+                    </div>
+                    <p className="font-extrabold text-slate-200 text-sm">No Pending Bets</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                      Logged paper bets awaiting event results will appear here with live tracking.
+                    </p>
+                  </div>
+                ) : (
+                  unsettledBets.map((bet) => (
+                    <div
+                      key={bet.id}
+                      className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 shadow-md space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
+                        <div>
+                          <span className="text-[10px] font-extrabold uppercase px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                            {bet.sport} • {bet.bet_type}
+                          </span>
+                          <h4 className="text-xs font-black text-slate-100 mt-1">
+                            {bet.selection} <span className="text-slate-400 font-normal">@ ${Number(bet.odds).toFixed(2)}</span>
+                          </h4>
+                          <p className="text-[11px] text-slate-400 mt-0.5">{bet.event_name}</p>
+                        </div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1 shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                          Pending
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs pt-0.5">
+                        <span className="text-slate-400">Stake: <strong className="text-slate-200">${bet.stake}</strong></span>
+                        <div className="text-right">
+                          <span className="text-slate-400 block text-[10px]">Potential Winnings</span>
+                          <strong className="text-emerald-400 font-extrabold text-sm">
+                            ${((bet.payout ?? (bet.stake * bet.odds))).toFixed(2)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Sportsbet Cash Out Simulation Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addToast(`Simulated Cash Out triggered for ${bet.selection}!`, "success");
+                        }}
+                        className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                      >
+                        <RotateCw size={14} className="text-amber-400" />
+                        <span>Cash Out @ ${((bet.stake * (bet.odds * 0.95))).toFixed(2)}</span>
+                      </button>
+                    </div>
+                  ))
+                )
+              ) : (
+                settledBets.length === 0 ? (
+                  <div className="py-10 text-center px-4">
+                    <div className="w-14 h-14 rounded-full bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mx-auto mb-3 text-slate-400">
+                      <History size={28} />
+                    </div>
+                    <p className="font-extrabold text-slate-200 text-sm">No Resulted Bets</p>
+                    <p className="text-xs text-slate-400 mt-1 max-w-xs mx-auto">
+                      Settled paper bets will appear here with final profit and loss statistics.
+                    </p>
+                  </div>
+                ) : (
+                  settledBets.map((bet) => (
+                    <div
+                      key={bet.id}
+                      className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 shadow-md flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <span className={`text-[10px] font-black px-1.5 py-0.2 rounded uppercase ${bet.status === "won" ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}>
+                            {bet.status}
+                          </span>
+                          <span className="text-[11px] text-slate-400">{bet.sport}</span>
+                        </div>
+                        <h4 className="text-xs font-bold text-slate-100">{bet.selection}</h4>
+                        <p className="text-[11px] text-slate-400">{bet.event_name}</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs font-bold text-slate-200">${bet.stake} @ ${bet.odds.toFixed(2)}</div>
+                        <div className={`text-xs font-black mt-1 ${bet.status === "won" ? "text-emerald-400" : "text-slate-400"}`}>
+                          {bet.status === "won" ? `+$${(bet.stake * bet.odds).toFixed(2)}` : "$0.00"}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="betslip-content">
         {result ? (
           <div className="betslip-result">
             <CheckCircle2
@@ -318,11 +554,13 @@ export default function PaperBetslip() {
             <p>{result.success} bets recorded successfully.</p>
           </div>
         ) : bets.length === 0 ? (
-          <div className="betslip-empty">
-            <ShoppingCart size={32} />
-            <p>Your betslip is empty</p>
-            <p className="small">
-              Add predictions to track multiple bets at once.
+          <div className="betslip-empty py-8 text-center px-4">
+            <div className="w-16 h-16 rounded-full bg-slate-800/80 border border-slate-700/80 flex items-center justify-center mx-auto mb-3 text-amber-400 shadow-inner">
+              <Receipt size={32} />
+            </div>
+            <p className="font-extrabold text-slate-100 text-base">Your Bet Slip is Empty</p>
+            <p className="text-xs text-slate-400 max-w-xs mx-auto mt-1 leading-relaxed">
+              Select predictions across racing or sports matches to track picks in your paper slip.
             </p>
           </div>
         ) : (
@@ -796,6 +1034,9 @@ export default function PaperBetslip() {
           </>
         )}
       </div>
+    )}
+  </div>
+</div>
 
       <style jsx global>{`
         .betslip-tabs {
@@ -1251,6 +1492,14 @@ export default function PaperBetslip() {
         open={showGuestModal}
         onClose={() => setShowGuestModal(false)}
       />
-    </div>
+    </>
+  );
+}
+
+export default function PaperBetslip() {
+  return (
+    <Suspense fallback={null}>
+      <PaperBetslipContent />
+    </Suspense>
   );
 }

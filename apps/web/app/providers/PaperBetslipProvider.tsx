@@ -68,8 +68,25 @@ export interface PaperBetSelectionSnapshot {
   last_seen_at?: string;
 }
 
+export interface ActiveBetItem {
+  id: string;
+  selection: string;
+  event_name: string;
+  sport: string;
+  bet_type: string;
+  odds: number;
+  stake: number;
+  status: "active" | "won" | "lost" | "settled" | "pending";
+  payout?: number;
+  placed_at?: string;
+}
+
 interface PaperBetslipContextType {
   bets: PaperBet[];
+  activeBets: ActiveBetItem[];
+  activeTab: "slip" | "active" | "settled";
+  setActiveTab: (tab: "slip" | "active" | "settled") => void;
+  openBetslipTab: (tab: "slip" | "active" | "settled") => void;
   addBet: (
     bet: Omit<PaperBet, "id">,
     options?: { openBetslip?: boolean },
@@ -109,7 +126,15 @@ export function PaperBetslipProvider({
   children: React.ReactNode;
 }) {
   const [bets, setBets] = useState<PaperBet[]>([]);
+  const [activeBets, setActiveBets] = useState<ActiveBetItem[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"slip" | "active" | "settled">("slip");
+
+  const openBetslipTab = useCallback((tab: "slip" | "active" | "settled") => {
+    setActiveTab(tab);
+    setIsBetslipOpen(true);
+    savePersistedBetslipOpen(true);
+  }, []);
   const [selectionSnapshots, setSelectionSnapshots] = useState<
     Record<string, PaperBetSelectionSnapshot>
   >({});
@@ -160,6 +185,13 @@ export function PaperBetslipProvider({
     betsRef.current = persistedBets;
     setBets(persistedBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
+
+    try {
+      const rawActive = window.localStorage.getItem("paper_active_bets_list");
+      if (rawActive) {
+        setActiveBets(JSON.parse(rawActive));
+      }
+    } catch {}
 
     const persistedStake = window.localStorage.getItem(
       "paper_betslip_default_stake",
@@ -498,6 +530,28 @@ export function PaperBetslipProvider({
           updateBankroll(-totalStakePlaced);
         }
 
+        // Move placed bets into active (unsettled) bets list
+        const newlyPlaced: ActiveBetItem[] = bets.map((b) => ({
+          id: b.id || `active-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          selection: b.selection,
+          event_name: b.event_name,
+          sport: b.sport,
+          bet_type: b.bet_type,
+          odds: b.odds || 1.85,
+          stake: b.stake || 10,
+          status: "active",
+          payout: (b.stake || 10) * (b.odds || 1.85),
+          placed_at: new Date().toISOString(),
+        }));
+
+        setActiveBets((prev) => {
+          const next = [...newlyPlaced, ...prev];
+          if (typeof window !== "undefined" && window.localStorage) {
+            window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+          }
+          return next;
+        });
+
         // Clear betslip completely on successful paper placement
         betsRef.current = [];
         setBets([]);
@@ -521,6 +575,10 @@ export function PaperBetslipProvider({
     <PaperBetslipContext.Provider
       value={{
         bets,
+        activeBets,
+        activeTab,
+        setActiveTab,
+        openBetslipTab,
         addBet,
         removeBet,
         clearBetslip,

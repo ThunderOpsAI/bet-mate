@@ -42,6 +42,53 @@ export interface UpcomingSportItem {
   market_odds?: number | null;
 }
 
+function formatAESTWithCountdown(timeStr?: string | null): string | null {
+  if (!timeStr) return null;
+  try {
+    const d = new Date(timeStr);
+    if (isNaN(d.getTime())) return timeStr;
+
+    const timeFormatted = d.toLocaleTimeString("en-AU", {
+      timeZone: "Australia/Melbourne",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    
+    const dateFormatted = d.toLocaleDateString("en-AU", {
+      timeZone: "Australia/Melbourne",
+      day: "numeric",
+      month: "short",
+    });
+
+    const now = new Date();
+    const diffMs = d.getTime() - now.getTime();
+    const diffMins = Math.round(diffMs / (1000 * 60));
+
+    let countdown = "";
+    if (diffMins > 0) {
+      if (diffMins < 60) {
+        countdown = `in ${diffMins}m`;
+      } else if (diffMins < 1440) {
+        const hrs = Math.floor(diffMins / 60);
+        const mins = diffMins % 60;
+        countdown = mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
+      } else {
+        const days = Math.floor(diffMins / 1440);
+        countdown = `in ${days}d`;
+      }
+    } else if (diffMins > -180) {
+      countdown = "Live";
+    } else {
+      countdown = "Finished";
+    }
+
+    return `${dateFormatted}, ${timeFormatted} AEST • ${countdown}`;
+  } catch {
+    return timeStr;
+  }
+}
+
 interface HomePrimaryCardProps {
   // High EV card
   opportunities: RankedOpportunity[];
@@ -481,9 +528,9 @@ export default function HomePrimaryCard({
                           {sportItem.sport}
                         </span>
                         {sportItem.match_time && (
-                          <span className="text-[10px] text-slate-400 flex items-center gap-0.5 truncate">
-                            <Clock size={11} />
-                            <span>{sportItem.match_time}</span>
+                          <span className="text-[10px] text-sky-400/90 font-medium flex items-center gap-1 truncate">
+                            <Clock size={11} className="text-sky-400 shrink-0" />
+                            <span>{formatAESTWithCountdown(sportItem.match_time)}</span>
                           </span>
                         )}
                       </div>
