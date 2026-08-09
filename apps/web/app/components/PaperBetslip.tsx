@@ -1239,11 +1239,11 @@ export default function PaperBetslip() {
             margin-bottom: 0.75rem;
           }
           .betslip-container {
-            left: 1rem;
+            left: auto;
             right: 1rem;
-            bottom: 1rem;
-            width: auto;
-            max-height: calc(100vh - 80px);
+            bottom: 4.5rem;
+            width: min(340px, calc(100vw - 2rem));
+            max-height: calc(100vh - 90px);
           }
         }
       `}</style>
