@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Zap, BookOpen, Trophy, Activity, ArrowRight, Plus, Check, Clock, ExternalLink, Shield } from "lucide-react";
+import { Zap, BookOpen, Trophy, Activity, ArrowRight, Plus, Check, Clock, ExternalLink, Shield, RotateCw } from "lucide-react";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { RankedOpportunity } from "../lib/opportunityScore";
 
@@ -108,6 +108,9 @@ interface HomePrimaryCardProps {
   sportsError: string | null;
 
   racingLinkHref?: string;
+  onRefreshRacing?: () => void;
+  onRefreshSports?: () => void;
+  onRefreshOpps?: () => void;
 }
 
 export default function HomePrimaryCard({
@@ -124,6 +127,9 @@ export default function HomePrimaryCard({
   sportsLoading,
   sportsError,
   racingLinkHref = "/racing",
+  onRefreshRacing,
+  onRefreshSports,
+  onRefreshOpps,
 }: HomePrimaryCardProps) {
   const { addBet, bets } = usePaperBetslip();
 
@@ -174,6 +180,16 @@ export default function HomePrimaryCard({
                   <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                     {opportunities.length}
                   </span>
+                )}
+                {onRefreshOpps && (
+                  <button
+                    type="button"
+                    onClick={onRefreshOpps}
+                    className="p-1 text-slate-400 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors cursor-pointer"
+                    title="Refresh Value Opportunities"
+                  >
+                    <RotateCw size={13} className={oppsLoading ? "animate-spin text-emerald-400" : ""} />
+                  </button>
                 )}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">Top algorithmic value picks today</p>
@@ -368,6 +384,16 @@ export default function HomePrimaryCard({
                     {upcomingRaces.length}
                   </span>
                 )}
+                {onRefreshRacing && (
+                  <button
+                    type="button"
+                    onClick={onRefreshRacing}
+                    className="p-1 text-slate-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition-colors cursor-pointer"
+                    title="Refresh Live Racing Feeds"
+                  >
+                    <RotateCw size={13} className={racesLoading ? "animate-spin text-amber-400" : ""} />
+                  </button>
+                )}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">Upcoming race cards & top runners</p>
             </div>
@@ -485,6 +511,16 @@ export default function HomePrimaryCard({
                   <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30">
                     {upcomingSports.length}
                   </span>
+                )}
+                {onRefreshSports && (
+                  <button
+                    type="button"
+                    onClick={onRefreshSports}
+                    className="p-1 text-slate-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-colors cursor-pointer"
+                    title="Refresh Live Sports Feeds"
+                  >
+                    <RotateCw size={13} className={sportsLoading ? "animate-spin text-sky-400" : ""} />
+                  </button>
                 )}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">Upcoming AFL, NBA, NRL & Soccer</p>

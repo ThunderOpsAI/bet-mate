@@ -78,156 +78,164 @@ function HomePageContent() {
   }, []);
 
   // Background live fetch for Racing & High EV opportunities (fast 4s timeout)
-  useEffect(() => {
-    async function loadRacingData() {
-      setRacesLoading(true);
-      setOppsLoading(true);
-      try {
-        let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 30000 }).catch(() => null);
-        if ((!racesRes || !racesRes.ok) && raceType !== "T") {
-          racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 30000 }).catch(() => null);
-        }
+  const loadRacingData = async () => {
+    setRacesLoading(true);
+    setOppsLoading(true);
+    try {
+      let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 30000 }).catch(() => null);
+      if ((!racesRes || !racesRes.ok) && raceType !== "T") {
+        racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 30000 }).catch(() => null);
+      }
 
-        let responseJson = racesRes && racesRes.ok ? await safeResponseJson(racesRes) : null;
-        let racesData: Race[] = (Array.isArray(responseJson?.races)
-          ? responseJson.races
-          : Array.isArray(responseJson)
-          ? responseJson
-          : []) as Race[];
+      let responseJson = racesRes && racesRes.ok ? await safeResponseJson(racesRes) : null;
+      let rawRaces: Race[] = (Array.isArray(responseJson?.races)
+        ? responseJson.races
+        : Array.isArray(responseJson)
+        ? responseJson
+        : []) as Race[];
 
-        if (racesData.length > 0) {
-          // 1. Map upcoming races IMMEDIATELY from racesData
-          const mappedRaces: UpcomingRaceItem[] = racesData.slice(0, 6).map((race) => {
-            const validHorses = race.horses?.filter((h) => (h.betfair_back_price ?? 0) > 1) ?? [];
-            const topHorse =
-              validHorses.length > 0
-                ? validHorses.reduce((prev, curr) =>
-                    curr.betfair_back_price! < prev.betfair_back_price! ? curr : prev
-                  )
-                : race.horses?.[0];
+      // Filter out races that jumped more than 2 minutes ago
+      const nowMs = Date.now();
+      let racesData = rawRaces.filter((r) => {
+        if (!r.start_time) return true;
+        const startMs = new Date(r.start_time).getTime();
+        return startMs > nowMs - 2 * 60 * 1000;
+      });
 
-            let topRunner = undefined;
-            if (topHorse) {
-              const marketOdds = topHorse.betfair_back_price ?? null;
-              const winProb = marketOdds && marketOdds > 1 ? Number((1 / marketOdds).toFixed(3)) : 0.25;
-              const fairOdds = marketOdds && marketOdds > 1 ? marketOdds : 4.0;
-              topRunner = {
-                horse_id: topHorse.horse_id,
-                name: topHorse.name,
-                win_probability: winProb,
-                fair_odds: fairOdds,
-                market_odds: marketOdds,
-              };
-            }
+      if (racesData.length > 0) {
+        // 1. Map upcoming races IMMEDIATELY from racesData
+        const mappedRaces: UpcomingRaceItem[] = racesData.slice(0, 6).map((race) => {
+          const validHorses = race.horses?.filter((h) => (h.betfair_back_price ?? 0) > 1) ?? [];
+          const topHorse =
+            validHorses.length > 0
+              ? validHorses.reduce((prev, curr) =>
+                  curr.betfair_back_price! < prev.betfair_back_price! ? curr : prev
+                )
+              : race.horses?.[0];
 
-            return {
-              race_id: race.race_id,
-              venue: race.venue,
-              race_number: race.race_number,
-              start_time: race.start_time,
-              meeting_date: race.meeting_date,
-              topRunner,
+          let topRunner = undefined;
+          if (topHorse) {
+            const marketOdds = topHorse.betfair_back_price ?? null;
+            const winProb = marketOdds && marketOdds > 1 ? Number((1 / marketOdds).toFixed(3)) : 0.25;
+            const fairOdds = marketOdds && marketOdds > 1 ? marketOdds : 4.0;
+            topRunner = {
+              horse_id: topHorse.horse_id,
+              name: topHorse.name,
+              win_probability: winProb,
+              fair_odds: fairOdds,
+              market_odds: marketOdds,
             };
-          });
-
-          setUpcomingRaces(mappedRaces);
-
-          // 2. Map fallback High EV opportunities
-          const fallbackCandidates = racesData.flatMap((race) => {
-            if (!race.horses || race.horses.length === 0) return [];
-            const urgencySignal = getUrgencySignal({
-              startTime: race.start_time,
-              eventDate: race.meeting_date,
-            });
-            const confidenceSignal = getConfidenceSignal(null);
-
-            return race.horses.map((horse) => {
-              const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
-              const impliedProb = 1 / mktOdds;
-              const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
-              const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
-
-              return {
-                id: `${race.race_id}-${horse.horse_id}`,
-                sport: "racing" as const,
-                selectionName: horse.name,
-                eventLabel: `${race.venue} R${race.race_number}`,
-                probability: winProb,
-                fairOdds: fairOdds,
-                marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
-                confidenceSignal,
-                urgencySignal,
-                eventTime: race.start_time || race.meeting_date,
-                href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-              };
-            });
-          });
-
-          const rankedFallback = rankOpportunities(fallbackCandidates);
-          if (rankedFallback.length > 0) {
-            setOpportunities(rankedFallback.slice(0, 5));
           }
 
-          // 3. Asynchronously fetch ML predictions in background
-          fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ races: racesData }),
-            timeoutMs: 5000,
-          })
-            .then(async (predsRes) => {
-              if (predsRes.ok) {
-                const predsData: Record<string, RacePrediction> =
-                  (await safeResponseJson(predsRes)) || {};
+          return {
+            race_id: race.race_id,
+            venue: race.venue,
+            race_number: race.race_number,
+            start_time: race.start_time,
+            meeting_date: race.meeting_date,
+            topRunner,
+          };
+        });
 
-                const candidates = racesData.flatMap((race) => {
-                  const pred = predsData[race.race_id];
-                  if (!pred) return [];
-                  const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
-                  const urgencySignal = getUrgencySignal({
-                    startTime: race.start_time,
-                    eventDate: race.meeting_date,
-                  });
-                  return pred.predictions.map((pick) => {
-                    const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
-                    return {
-                      id: `${race.race_id}-${pick.horse_id}`,
-                      sport: "racing" as const,
-                      selectionName: pick.name,
-                      eventLabel: `${race.venue} R${race.race_number}`,
-                      probability: pick.win_probability,
-                      fairOdds: pick.fair_odds,
-                      marketOdds: horse?.betfair_back_price ?? null,
-                      confidenceSignal,
-                      urgencySignal,
-                      eventTime: race.start_time || race.meeting_date,
-                      href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-                    };
-                  });
-                });
+        setUpcomingRaces(mappedRaces);
 
-                if (candidates.length > 0) {
-                  const ranked = rankOpportunities(candidates);
-                  setOpportunities(ranked.slice(0, 5));
-                }
-              }
-            })
-            .catch(() => {});
-        } else {
-          // API returned no races — ensure we show the empty state, not stale data
-          setUpcomingRaces([]);
-          setOpportunities([]);
+        // 2. Map fallback High EV opportunities
+        const fallbackCandidates = racesData.flatMap((race) => {
+          if (!race.horses || race.horses.length === 0) return [];
+          const urgencySignal = getUrgencySignal({
+            startTime: race.start_time,
+            eventDate: race.meeting_date,
+          });
+          const confidenceSignal = getConfidenceSignal(null);
+
+          return race.horses.map((horse) => {
+            const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
+            const impliedProb = 1 / mktOdds;
+            const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
+            const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
+
+            return {
+              id: `${race.race_id}-${horse.horse_id}`,
+              sport: "racing" as const,
+              selectionName: horse.name,
+              eventLabel: `${race.venue} R${race.race_number}`,
+              probability: winProb,
+              fairOdds: fairOdds,
+              marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
+              confidenceSignal,
+              urgencySignal,
+              eventTime: race.start_time || race.meeting_date,
+              href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
+            };
+          });
+        });
+
+        const rankedFallback = rankOpportunities(fallbackCandidates);
+        if (rankedFallback.length > 0) {
+          setOpportunities(rankedFallback.slice(0, 5));
         }
-      } catch (err) {
-        console.warn("Background racing fetch note:", err);
-        setRacesError("Unable to load live racing data.");
-        setOppsError("Unable to load value opportunities.");
-      } finally {
-        setRacesLoading(false);
-        setOppsLoading(false);
-      }
-    }
 
+        // 3. Asynchronously fetch ML predictions in background
+        fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ races: racesData }),
+          timeoutMs: 5000,
+        })
+          .then(async (predsRes) => {
+            if (predsRes.ok) {
+              const predsData: Record<string, RacePrediction> =
+                (await safeResponseJson(predsRes)) || {};
+
+              const candidates = racesData.flatMap((race) => {
+                const pred = predsData[race.race_id];
+                if (!pred) return [];
+                const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
+                const urgencySignal = getUrgencySignal({
+                  startTime: race.start_time,
+                  eventDate: race.meeting_date,
+                });
+                return pred.predictions.map((pick) => {
+                  const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
+                  return {
+                    id: `${race.race_id}-${pick.horse_id}`,
+                    sport: "racing" as const,
+                    selectionName: pick.name,
+                    eventLabel: `${race.venue} R${race.race_number}`,
+                    probability: pick.win_probability,
+                    fairOdds: pick.fair_odds,
+                    marketOdds: horse?.betfair_back_price ?? null,
+                    confidenceSignal,
+                    urgencySignal,
+                    eventTime: race.start_time || race.meeting_date,
+                    href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
+                  };
+                });
+              });
+
+              if (candidates.length > 0) {
+                const ranked = rankOpportunities(candidates);
+                setOpportunities(ranked.slice(0, 5));
+              }
+            }
+          })
+          .catch(() => {});
+      } else {
+        // API returned no races — ensure we show the empty state, not stale data
+        setUpcomingRaces([]);
+        setOpportunities([]);
+      }
+    } catch (err) {
+      console.warn("Background racing fetch note:", err);
+      setRacesError("Unable to load live racing data.");
+      setOppsError("Unable to load value opportunities.");
+    } finally {
+      setRacesLoading(false);
+      setOppsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     void loadRacingData();
   }, [raceType]);
 
@@ -255,114 +263,122 @@ function HomePageContent() {
   }, [token, isGuest]);
 
   // Background live fetch for Sports data (fast 4s timeout)
-  useEffect(() => {
-    async function loadSportsData() {
-      setSportsLoading(true);
-      try {
-        const results = await Promise.allSettled([
-          // AFL
-          fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 30000 })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = await safeResponseJson(res);
-              const games = (data?.games ?? []) as any[];
-              return games.map((game) => ({
-                id: game.game_id || `afl-${game.id}`,
-                sport: "afl",
-                home_team: game.home_team,
-                away_team: game.away_team,
-                match_time: game.date || game.start_time || game.game_time,
-                predicted_winner: game.predicted_winner || game.home_team,
-                win_probability: game.win_probability ?? 0.55,
-                fair_odds: game.fair_odds ?? 1.82,
-                market_odds: game.market_odds ?? null,
-              }));
-            })
-            .catch(() => []),
-          // NRL
-          fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 30000 })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = await safeResponseJson(res);
-              const games = (data?.games ?? []) as any[];
-              return games.map((game) => ({
-                id: game.game_id || `nrl-${game.id}`,
-                sport: "nrl",
-                home_team: game.home_team,
-                away_team: game.away_team,
-                match_time: game.date || game.start_time || game.game_time,
-                predicted_winner: game.predicted_winner || game.home_team,
-                win_probability: game.win_probability ?? 0.55,
-                fair_odds: game.fair_odds ?? 1.82,
-                market_odds: game.market_odds ?? null,
-              }));
-            })
-            .catch(() => []),
-          // NBA
-          fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = await safeResponseJson(res);
-              const games = (data?.games ?? []) as any[];
-              return games.map((game) => ({
-                id: game.game_id || `nba-${game.id}`,
-                sport: "nba",
-                home_team: game.home_team,
-                away_team: game.away_team,
-                match_time: game.game_time || game.date || game.start_time,
-                predicted_winner: game.predicted_winner || game.home_team,
-                win_probability: game.win_probability ?? 0.55,
-                fair_odds: game.fair_odds ?? 1.82,
-                market_odds: game.market_odds ?? null,
-              }));
-            })
-            .catch(() => []),
-          // Soccer
-          fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 30000 })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = await safeResponseJson(res);
-              const games = (data?.games ?? []) as any[];
-              return games.map((game) => ({
-                id: game.game_id || `soccer-${game.id}`,
-                sport: "soccer",
-                home_team: game.home_team,
-                away_team: game.away_team,
-                match_time: game.match_time || game.date || game.start_time,
-                predicted_winner: game.predicted_winner || game.home_team,
-                win_probability: game.win_probability ?? 0.55,
-                fair_odds: game.fair_odds ?? 1.82,
-                market_odds: game.market_odds ?? null,
-              }));
-            })
-            .catch(() => []),
-        ]);
+  const loadSportsData = async () => {
+    setSportsLoading(true);
+    try {
+      const results = await Promise.allSettled([
+        // AFL
+        fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `afl-${game.id}`,
+              sport: "afl",
+              home_team: game.home_team,
+              away_team: game.away_team,
+              match_time: game.date || game.start_time || game.game_time,
+              predicted_winner: game.predicted_winner || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+        // NRL
+        fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `nrl-${game.id}`,
+              sport: "nrl",
+              home_team: game.home_team,
+              away_team: game.away_team,
+              match_time: game.date || game.start_time || game.game_time,
+              predicted_winner: game.predicted_winner || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+        // NBA
+        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `nba-${game.id}`,
+              sport: "nba",
+              home_team: game.home_team,
+              away_team: game.away_team,
+              match_time: game.game_time || game.date || game.start_time,
+              predicted_winner: game.predicted_winner || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+        // Soccer
+        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `soccer-${game.id}`,
+              sport: "soccer",
+              home_team: game.home_team,
+              away_team: game.away_team,
+              match_time: game.match_time || game.date || game.start_time,
+              predicted_winner: game.predicted_winner || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+      ]);
 
-        const allItems: UpcomingSportItem[] = [];
-        for (const res of results) {
-          if (res.status === "fulfilled" && Array.isArray(res.value)) {
-            allItems.push(...res.value);
-          }
+      const allItems: UpcomingSportItem[] = [];
+      for (const res of results) {
+        if (res.status === "fulfilled" && Array.isArray(res.value)) {
+          allItems.push(...res.value);
         }
-
-        // Sort by upcoming match_time ASC; if same time, prioritize AFL & NRL ahead of NBA
-        const sportPriority: Record<string, number> = { afl: 1, nrl: 2, soccer: 3, nba: 4 };
-        allItems.sort((a, b) => {
-          const tA = a.match_time ? new Date(a.match_time).getTime() : Infinity;
-          const tB = b.match_time ? new Date(b.match_time).getTime() : Infinity;
-          if (tA !== tB) return tA - tB;
-          return (sportPriority[a.sport] || 5) - (sportPriority[b.sport] || 5);
-        });
-
-        setUpcomingSports(allItems.slice(0, 6));
-      } catch (err) {
-        console.warn("Sports background fetch note:", err);
-        setSportsError("Unable to load sports data.");
-      } finally {
-        setSportsLoading(false);
       }
-    }
 
+      // Filter out matches that started more than 15 minutes ago
+      const nowMs = Date.now();
+      const activeSports = allItems.filter((s) => {
+        if (!s.match_time) return true;
+        const startMs = new Date(s.match_time).getTime();
+        return startMs > nowMs - 15 * 60 * 1000;
+      });
+
+      // Sort by upcoming match_time ASC; if same time, prioritize AFL & NRL ahead of NBA
+      const sportPriority: Record<string, number> = { afl: 1, nrl: 2, soccer: 3, nba: 4 };
+      activeSports.sort((a, b) => {
+        const tA = a.match_time ? new Date(a.match_time).getTime() : Infinity;
+        const tB = b.match_time ? new Date(b.match_time).getTime() : Infinity;
+        if (tA !== tB) return tA - tB;
+        return (sportPriority[a.sport] || 5) - (sportPriority[b.sport] || 5);
+      });
+
+      setUpcomingSports(activeSports.slice(0, 6));
+    } catch (err) {
+      console.warn("Sports background fetch note:", err);
+      setSportsError("Unable to load sports data.");
+    } finally {
+      setSportsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     void loadSportsData();
   }, []);
 
@@ -396,6 +412,9 @@ function HomePageContent() {
           sportsLoading={sportsLoading}
           sportsError={sportsError}
           racingLinkHref={racingLinkHref}
+          onRefreshRacing={loadRacingData}
+          onRefreshSports={loadSportsData}
+          onRefreshOpps={loadRacingData}
         />
       </div>
     </ErrorBoundary>
