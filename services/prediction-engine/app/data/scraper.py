@@ -16,9 +16,10 @@ from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
+import time
 
 from app.time_utils import MELBOURNE_TZ, melbourne_date_string, melbourne_weekday, today_melbourne
-
+from app.alerts import calculate_minutes_until_jump
 load_dotenv()
 
 BETFAIR_APP_KEY = os.getenv("BETFAIR_APP_KEY", "")
@@ -47,6 +48,18 @@ _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
+_race_card_cache = {}
+
+def race_window_ttl(start_time_iso: Optional[str]) -> int:
+    """Return cache TTL in seconds based on proximity to jump."""
+    if not start_time_iso:
+        return 1800
+    mins = calculate_minutes_until_jump(start_time_iso)
+    if mins is None or mins > 120:  return 1800   # >2h:   30 min
+    if mins > 30:                   return 300    # 30–120m: 5 min
+    if mins > 5:                    return 60     # 5–30m:   60 sec
+    if mins > 0:                    return 15     # <5m:     15 sec
+    return 86400                                  # post-jump: 24h (results)
 
 
 
@@ -219,6 +232,27 @@ def _resolve_race_type_event_ids(race_type: Optional[str]) -> List[str]:
 def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] = None):
     target_date = _resolve_run_date(run_date)
     target_date_str = target_date.isoformat()
+    
+    cache_key = f"{target_date_str}_{race_type or 'ALL'}"
+    if cache_key in _race_card_cache:
+        cached_races, timestamp = _race_card_cache[cache_key]
+        now = time.time()
+        
+        next_jump_time = None
+        for r in cached_races:
+            start_time = r.get("start_time")
+            if not start_time:
+                continue
+            mins = calculate_minutes_until_jump(start_time)
+            if mins is not None and mins > 0:
+                if next_jump_time is None or start_time < next_jump_time:
+                    next_jump_time = start_time
+                    
+        ttl = race_window_ttl(next_jump_time) if next_jump_time else 1800
+        
+        if now - timestamp < ttl:
+            return cached_races
+
     headers = _get_api_headers()
     event_type_ids = _resolve_race_type_event_ids(race_type)
 
@@ -265,6 +299,9 @@ def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] =
         prepared_races.append(prepared)
         
     prepared_races.sort(key=lambda race: race.get("start_time") or "")
+    
+    _race_card_cache[cache_key] = (prepared_races, time.time())
+    
     return prepared_races
 
 
@@ -498,7 +535,7 @@ def _resolve_run_date(run_date: Optional[str]) -> date:
 
 
 def _betfair_market_time_window(target_date: date) -> dict:
-    start_local = datetime.combine(target_date, time.min, tzinfo=MELBOURNE_TZ)
+    start_local = datetime.combine(target_date, datetime.min.time(), tzinfo=MELBOURNE_TZ)
     end_local = start_local + timedelta(days=1)
     start_utc = start_local.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     end_utc = end_local.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")

@@ -40,4 +40,10 @@ app.use("/api/notifications", notificationsRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/syndicates", syndicatesRoutes);
 
+import exploreRoutes from "./routes/explore";
+import adminRoutes from "./routes/admin";
+
+app.use("/api/explore", exploreRoutes);
+app.use("/api/admin", adminRoutes);
+
 export default app;

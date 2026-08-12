@@ -9,7 +9,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.data.scraper import _get_api_headers, _fetch_prices, betfair_catalogue_url
+from app.data.scraper import _get_api_headers, _fetch_prices, betfair_catalogue_url, race_window_ttl
 
 SPORT_EVENT_TYPE_IDS = {
     "afl": "61420",
@@ -21,7 +21,6 @@ SPORT_EVENT_TYPE_IDS = {
     "golf": "3",
 }
 
-CACHE_TTL_SECONDS = 120
 _odds_cache: Dict[str, Tuple[Dict, float]] = {}
 
 
@@ -123,7 +122,18 @@ def get_cached_sport_odds(sport: str) -> Dict[str, Dict[str, Any]]:
     
     if sport in _odds_cache:
         cached_data, timestamp = _odds_cache[sport]
-        if now - timestamp < CACHE_TTL_SECONDS:
+        
+        next_jump_time = None
+        for event_name, event_data in cached_data.items():
+            start_time = event_data.get("start_time")
+            if not start_time:
+                continue
+            if next_jump_time is None or start_time < next_jump_time:
+                next_jump_time = start_time
+                
+        ttl = race_window_ttl(next_jump_time) if next_jump_time else 1800
+        
+        if now - timestamp < ttl:
             return cached_data
             
     try:

@@ -1,9 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Check, Zap } from "lucide-react";
+import { Plus, Check, Zap, Clock } from "lucide-react";
 import type { RankedOpportunity } from "../lib/opportunityScore";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
+
+function formatOppEventTime(timeStr?: string | null): string | null {
+  if (!timeStr) return null;
+  try {
+    const d = new Date(timeStr);
+    if (isNaN(d.getTime())) return timeStr;
+    const weekday = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", weekday: "short" });
+    const day = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", day: "numeric" });
+    const month = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", month: "short" });
+    const timeFormatted = d.toLocaleTimeString("en-AU", {
+      timeZone: "Australia/Melbourne",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${weekday}, ${day} ${month} ${timeFormatted}`;
+  } catch {
+    return timeStr;
+  }
+}
 
 type OpportunitySectionProps = {
   title: string;
@@ -108,13 +128,19 @@ export default function OpportunitySection({
                 className="bg-slate-950/70 border border-slate-800 hover:border-emerald-500/40 rounded-xl p-3 sm:p-4 transition-all flex items-center justify-between gap-2 shadow-md"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 mb-1">
+                  <div className="flex items-center gap-1.5 mb-1 flex-wrap">
                     <span className="text-[10px] font-extrabold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
                       #{index + 1} OPP
                     </span>
                     <span className="text-[11px] font-medium text-slate-400 truncate">
                       {opp.eventLabel}
                     </span>
+                    {opp.eventTime && (
+                      <span className="text-[10px] text-sky-400/90 font-medium flex items-center gap-1 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.2 rounded">
+                        <Clock size={10} className="text-sky-400 shrink-0" />
+                        <span>{formatOppEventTime(opp.eventTime)}</span>
+                      </span>
+                    )}
                   </div>
                   <h4 className="text-sm font-bold text-slate-100 truncate mb-1">
                     {opp.selectionName}

@@ -2982,5 +2982,245 @@
     "aliases": [
       "collie"
     ]
+  },
+  "ellerslie": {
+    "venue": "Auckland/Ellerslie",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["ellerslie", "auckland rc", "arc"]
+  },
+  "te_rapa": {
+    "venue": "Te Rapa",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["te rapa", "waikato rc"]
+  },
+  "trentham": {
+    "venue": "Trentham",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["trentham", "wellington rc", "wrc"]
+  },
+  "riccarton": {
+    "venue": "Riccarton",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["riccarton", "canterbury rc", "christchurch"]
+  },
+  "hastings": {
+    "venue": "Hastings",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hastings", "hawke's bay rc"]
+  },
+  "otaki": {
+    "venue": "Otaki",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["otaki", "otaki maori rc"]
+  },
+  "awapuni": {
+    "venue": "Awapuni",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["awapuni", "palmerston north"]
+  },
+  "wanganui": {
+    "venue": "Wanganui",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["wanganui", "wanganui jc"]
+  },
+  "new_plymouth": {
+    "venue": "New Plymouth",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["new plymouth", "taranaki rc"]
+  },
+  "rotorua": {
+    "venue": "Rotorua",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["rotorua", "rotorua rc"]
+  },
+  "cambridge": {
+    "venue": "Cambridge",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["cambridge", "cambridge jc"]
+  },
+  "ruakaka": {
+    "venue": "Ruakaka",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["ruakaka", "northland rc"]
+  },
+  "wingatui": {
+    "venue": "Wingatui",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["wingatui", "otago rc"]
+  },
+  "gore": {
+    "venue": "Gore",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["gore", "waikaka valley rc"]
+  },
+  "invercargill": {
+    "venue": "Invercargill",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["invercargill", "southland rc"]
+  },
+  "ashburton": {
+    "venue": "Ashburton",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["ashburton", "mid-canterbury rc"]
+  },
+  "rangiora": {
+    "venue": "Rangiora",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["rangiora", "north canterbury rc"]
+  },
+  "foxton": {
+    "venue": "Foxton",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["foxton", "manawatu rc"]
+  },
+  "hawera": {
+    "venue": "Hawera",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hawera", "taranaki hunt rc"]
+  },
+  "taupo": {
+    "venue": "Taupo",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["taupo", "taupo rc"]
+  },
+  "alexandra_park": {
+    "venue": "Alexandra Park",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["alexandra park", "alex park", "auckland trotting club"]
+  },
+  "addington": {
+    "venue": "Addington",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["addington", "addington raceway", "christchurch harness"]
+  },
+  "hutt_park": {
+    "venue": "Hutt Park",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hutt park", "wellington harness"]
+  },
+  "rangiora_harness": {
+    "venue": "Rangiora Harness",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["rangiora harness"]
+  },
+  "forbury_park": {
+    "venue": "Forbury Park",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["forbury park", "dunedin harness"]
+  },
+  "hauora_trot": {
+    "venue": "Hauora Trot",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hauora trot", "wanganui harness"]
+  },
+  "manukau": {
+    "venue": "Manukau",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["manukau", "auckland greyhounds"]
+  },
+  "christchurch_greyhounds": {
+    "venue": "Christchurch Greyhounds",
+    "state": "NZ",
+    "region": "metro",
+    "meeting_type": "metro",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["christchurch dogs", "addington greyhounds"]
+  },
+  "palmerston_north_greyhounds": {
+    "venue": "Palmerston North Greyhounds",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["palmerston north dogs"]
+  },
+  "hatrick": {
+    "venue": "Hatrick",
+    "state": "NZ",
+    "region": "country",
+    "meeting_type": "country",
+    "active_days": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    "aliases": ["hatrick", "wanganui greyhounds"]
   }
 }

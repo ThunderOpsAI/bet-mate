@@ -608,6 +608,236 @@ def delete_blackbook_auto_bet(runner: str, user_id: str = Depends(require_user_i
     return {"deleted": True}
 
 
+@app.get("/blackbook/running-today")
+def blackbook_running_today(
+    user_id: Optional[str] = None,
+    authorization: str = Header(default="", alias="Authorization"),
+):
+    resolved_user_id = None
+    if user_id:
+        resolved_user_id = resolve_optional_user_id(authorization, user_id)
+        
+    user_items = []
+    if resolved_user_id:
+        try:
+            with database_mod.get_connection() as conn:
+                items = conn.execute('SELECT * FROM "BlackbookItem" WHERE "userId" = ?', (resolved_user_id,)).fetchall()
+                user_items = [dict(row) for row in items]
+        except Exception as exc:
+            LOGGER.error("Failed to fetch user blackbook items: %s", exc)
+
+    try:
+        races = racing_scraper.fetch_today_races()
+    except Exception as exc:
+        LOGGER.error("Failed to fetch races for blackbook running today: %s", exc)
+        return []
+
+    runners = []
+    features_keys = RACING_FEATURE_COLUMNS
+    for race_dict in races:
+        horses_list = race_dict.get("horses", [])
+        if not horses_list:
+            continue
+            
+        horse_dicts = []
+        for h_dict in horses_list:
+            try:
+                h_obj = Horse(**h_dict)
+                horse_dicts.append({k: getattr(h_obj, k) for k in features_keys})
+            except Exception:
+                horse_dicts.append({k: h_dict.get(k, 0.0) for k in features_keys})
+                
+        try:
+            probabilities, _ = racing_predictor.predict(horse_dicts)
+        except Exception as exc:
+            LOGGER.error("Failed to predict for race %s: %s", race_dict.get("race_id"), exc)
+            continue
+            
+        for i, h_dict in enumerate(horses_list):
+            win_prob = probabilities[i]
+            fair_odds = round(1 / win_prob, 2) if win_prob > 0 else 999.0
+            betfair_odds = h_dict.get("betfair_back_price", 0.0)
+            is_value = bool(betfair_odds > (fair_odds * 1.10)) if fair_odds > 0 else False
+            
+            runner_obj = {
+                "horseName": h_dict.get("name", "Unknown"),
+                "venue": race_dict.get("venue", "Unknown"),
+                "raceNumber": race_dict.get("race_number", 1),
+                "startTime": race_dict.get("start_time", ""),
+                "betfairOdds": betfair_odds,
+                "mlFairOdds": fair_odds,
+                "isValue": is_value,
+                "winProbability": round(win_prob * 100, 2),
+                "last5": h_dict.get("recent_form_str", "") or h_dict.get("last_5", "") or "x-x-x-x-x"
+            }
+            
+            if resolved_user_id:
+                matched = False
+                matched_conditions = []
+                for item in user_items:
+                    t_name = item.get("targetName", "").lower()
+                    e_type = item.get("entityType", "RUNNER")
+                    
+                    is_match = False
+                    if e_type == "RUNNER" and t_name in runner_obj["horseName"].lower():
+                        is_match = True
+                    elif e_type == "JOCKEY" and t_name in h_dict.get("jockey_name", "").lower():
+                        is_match = True
+                    elif e_type == "TRAINER" and t_name in h_dict.get("trainer_name", "").lower():
+                        is_match = True
+                        
+                    if is_match:
+                        matched = True
+                        # Simplified condition check for Sprint 2
+                        conds = item.get("conditions", "{}")
+                        try:
+                            cond_dict = json.loads(conds) if isinstance(conds, str) else conds
+                            if cond_dict:
+                                matched_conditions.extend(list(cond_dict.keys()))
+                        except Exception:
+                            pass
+                            
+                if not matched:
+                    continue
+                runner_obj["conditionsMet"] = True
+                runner_obj["matchedConditions"] = matched_conditions
+                
+            runners.append(runner_obj)
+            
+    return runners
+
+
+@app.get("/blackbook/search")
+def blackbook_search(q: str = ""):
+    q = q.strip().lower()
+    if not q:
+        return {"horses": [], "jockeys": [], "trainers": []}
+        
+    try:
+        races = racing_scraper.fetch_today_races()
+    except Exception:
+        return {"horses": [], "jockeys": [], "trainers": []}
+        
+    horses = []
+    jockeys = []
+    trainers = []
+    
+    for race_dict in races:
+        venue = race_dict.get("venue", "Unknown")
+        race_number = race_dict.get("race_number", 1)
+        start_time = race_dict.get("start_time", "")
+        
+        for h_dict in race_dict.get("horses", []):
+            horse_name = h_dict.get("name", "")
+            jockey_name = h_dict.get("jockey_name", "")
+            trainer_name = h_dict.get("trainer_name", "")
+            
+            if q in horse_name.lower():
+                horses.append({
+                    "name": horse_name,
+                    "venue": venue,
+                    "raceNumber": race_number,
+                    "startTime": start_time,
+                    "entityType": "horse"
+                })
+                
+            if jockey_name and q in jockey_name.lower():
+                jockeys.append({
+                    "name": jockey_name,
+                    "venue": venue,
+                    "raceNumber": race_number,
+                    "startTime": start_time,
+                    "entityType": "jockey"
+                })
+                
+            if trainer_name and q in trainer_name.lower():
+                trainers.append({
+                    "name": trainer_name,
+                    "venue": venue,
+                    "raceNumber": race_number,
+                    "startTime": start_time,
+                    "entityType": "trainer"
+                })
+                
+    return {
+        "horses": horses,
+        "jockeys": jockeys,
+        "trainers": trainers
+    }
+
+
+@app.get("/explore/hot-picks")
+def explore_hot_picks():
+    # Return today's runners with highest ML win confidence
+    runners = blackbook_running_today()
+    if not runners:
+        return []
+    runners_sorted = sorted(runners, key=lambda x: x.get("winProbability", 0), reverse=True)
+    return runners_sorted[:10]
+
+@app.get("/explore/value-plays")
+def explore_value_plays():
+    # Return runners where isValue === true, sorted by edge
+    runners = blackbook_running_today()
+    if not runners:
+        return []
+    value_runners = [r for r in runners if r.get("isValue")]
+    def edge(r):
+        bf = float(r.get("betfairOdds") or 0)
+        ml = float(r.get("mlFairOdds") or 999)
+        return bf / ml if ml > 0 else 0
+    value_runners_sorted = sorted(value_runners, key=edge, reverse=True)
+    return value_runners_sorted[:10]
+
+@app.get("/explore/top-jockeys")
+def explore_top_jockeys():
+    try:
+        races = racing_scraper.fetch_today_races()
+    except Exception:
+        return []
+    
+    jockey_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for horse in race.get("horses", []):
+            j_name = horse.get("jockey_name")
+            if j_name:
+                if j_name not in jockey_counts:
+                    jockey_counts[j_name] = {"jockeyName": j_name, "raceCount": 0, "venues": set(), "roi": None}
+                jockey_counts[j_name]["raceCount"] += 1
+                jockey_counts[j_name]["venues"].add(venue)
+                
+    result = list(jockey_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:20]
+
+@app.get("/explore/top-trainers")
+def explore_top_trainers():
+    try:
+        races = racing_scraper.fetch_today_races()
+    except Exception:
+        return []
+    
+    trainer_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for horse in race.get("horses", []):
+            t_name = horse.get("trainer_name")
+            if t_name:
+                if t_name not in trainer_counts:
+                    trainer_counts[t_name] = {"trainerName": t_name, "raceCount": 0, "venues": set(), "roi": None}
+                trainer_counts[t_name]["raceCount"] += 1
+                trainer_counts[t_name]["venues"].add(venue)
+                
+    result = list(trainer_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:20]
+
+
 @app.get("/api/strategy-profiles")
 def list_strategy_profiles():
     return {"profiles": storage.list_strategy_profiles()}

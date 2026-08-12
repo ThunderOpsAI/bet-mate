@@ -15,18 +15,24 @@ import {
   PencilLine,
   Plus,
   Save,
+  Search,
   ShieldAlert,
   Sparkles,
+  Star,
   Trash2,
   User,
   Users,
   X,
 } from "lucide-react";
+import { BlackbookSearchModal, SearchResult } from "../components/BlackbookSearchModal";
+import { BlackbookRuleBuilderSheet } from "../components/BlackbookRuleBuilderSheet";
+import { ExploreTab } from "../components/ExploreTab";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
+import { TrackPicker } from "../components/TrackPicker";
 import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
 type BlackbookConfig = {
@@ -39,6 +45,10 @@ type BlackbookConfig = {
   notify_phone: string | null;
   notify_email: string | null;
   notify_pushover_key: string | null;
+  notes?: string;
+  rating?: number;
+  entityType?: string;
+  conditions?: any;
 };
 
 type DraftRule = {
@@ -61,6 +71,9 @@ type ScheduledRaceEntry = {
   trainerName?: string;
   barrier?: number;
   startTime: string;
+  betfairOdds?: number;
+  isValue?: boolean;
+  winProbability?: number;
 };
 
 type CombinationRecord = {
@@ -102,10 +115,23 @@ const DEFAULT_RULE: DraftRule = {
 export default function BlackbookPage() {
   const { isLoading, token, user } = useAuth();
 
-  // Tab state: "runners" | "jockeys" | "trainers" | "combinations"
-  const [activeTab, setActiveTab] = useState<"runners" | "jockeys" | "trainers" | "combinations">(
-    "runners"
+  // Tab state: "explore" | "runners" | "jockeys" | "trainers" | "combinations"
+  const [activeTab, setActiveTab] = useState<"explore" | "runners" | "jockeys" | "trainers" | "combinations">(
+    "explore"
   );
+  
+  // Sprint 1 UI Filters
+  const [raceTypeFilter, setRaceTypeFilter] = useState("all");
+  const [timeFilter, setTimeFilter] = useState("all");
+
+  // Search & Builder
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchEntity, setSearchEntity] = useState<SearchResult | null>(null);
+  const [isRuleBuilderOpen, setIsRuleBuilderOpen] = useState(false);
+
+  const [editingRunnerNotesId, setEditingRunnerNotesId] = useState<string | null>(null);
+  const [draftRunnerNotes, setDraftRunnerNotes] = useState("");
+
 
   // Watch rules (Runners)
   const [configs, setConfigs] = useState<BlackbookConfig[]>([]);
@@ -215,6 +241,35 @@ export default function BlackbookPage() {
       });
     } catch (err) {
       console.error("Failed to remove config", err);
+    }
+  };
+
+  const saveRunnerNotes = async (runner: string) => {
+    if (!token) return;
+    setConfigs((current) => current.map((c) => (c.runner === runner ? { ...c, notes: draftRunnerNotes } : c)));
+    setEditingRunnerNotesId(null);
+    try {
+      await fetch(`/api/blackbook/${encodeURIComponent(runner)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ notes: draftRunnerNotes }),
+      });
+    } catch (err) {
+      console.error("Failed to update notes", err);
+    }
+  };
+
+  const updateRunnerRating = async (runner: string, rating: number) => {
+    if (!token) return;
+    setConfigs((current) => current.map((c) => (c.runner === runner ? { ...c, rating } : c)));
+    try {
+      await fetch(`/api/blackbook/${encodeURIComponent(runner)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rating }),
+      });
+    } catch (err) {
+      console.error("Failed to update rating", err);
     }
   };
 
@@ -537,6 +592,32 @@ export default function BlackbookPage() {
             </button>
           )}
         </div>
+        
+        {/* Search Bar */}
+        <div className="mb-6 relative">
+          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+            <Search className="text-gray-400" size={18} />
+          </div>
+          <input
+            type="text"
+            placeholder="Search horses, jockeys, trainers..."
+            className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-sm font-medium"
+            onFocus={() => setIsSearchOpen(true)}
+            readOnly
+          />
+        </div>
+
+        <BlackbookSearchModal 
+          isOpen={isSearchOpen} 
+          onClose={() => setIsSearchOpen(false)} 
+          onSelect={(e) => { setSearchEntity(e); setIsRuleBuilderOpen(true); }}
+        />
+        <BlackbookRuleBuilderSheet 
+          isOpen={isRuleBuilderOpen} 
+          onClose={() => setIsRuleBuilderOpen(false)} 
+          entity={searchEntity} 
+          onSave={() => void fetchConfigs()} 
+        />
 
         {/* Tab Navigation */}
         <div
@@ -549,6 +630,26 @@ export default function BlackbookPage() {
             overflowX: "auto",
           }}
         >
+          <button
+            onClick={() => setActiveTab("explore")}
+            style={{
+              padding: "0.6rem 1.2rem",
+              borderRadius: "8px",
+              border: "none",
+              background: activeTab === "explore" ? "var(--accent)" : "transparent",
+              color: activeTab === "explore" ? "#000" : "var(--text-muted)",
+              fontWeight: 700,
+              fontSize: "0.95rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Flame size={16} /> Explore
+          </button>
+
           <button
             onClick={() => setActiveTab("runners")}
             style={{
@@ -630,6 +731,54 @@ export default function BlackbookPage() {
           </button>
         </div>
 
+        {/* Sub-Filters for Sprint 1 */}
+        <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap", alignItems: "center" }}>
+          {/* Race Type Icons */}
+          <div style={{ display: "flex", gap: "0.5rem", background: "var(--surface)", padding: "0.25rem", borderRadius: "10px", border: "1px solid var(--border)" }}>
+            {[ { id: "all", label: "All" }, { id: "thoroughbred", label: "🐎 Thoroughbred" }, { id: "greyhound", label: "🐕 Greyhounds" }, { id: "harness", label: "🏇 Harness" }].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setRaceTypeFilter(t.id)}
+                style={{
+                  padding: "0.4rem 0.8rem",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: raceTypeFilter === t.id ? "var(--accent)" : "transparent",
+                  color: raceTypeFilter === t.id ? "#000" : "var(--text-muted)",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Time Sub-Filters */}
+          <div style={{ display: "flex", gap: "0.5rem", background: "var(--surface)", padding: "0.25rem", borderRadius: "10px", border: "1px solid var(--border)" }}>
+            {[ { id: "all", label: "All" }, { id: "up_next", label: "Up Next" }, { id: "running_today", label: "Running Today" }].map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTimeFilter(t.id)}
+                style={{
+                  padding: "0.4rem 0.8rem",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: timeFilter === t.id ? "var(--bg-primary)" : "transparent",
+                  color: timeFilter === t.id ? "var(--text-primary)" : "var(--text-muted)",
+                  fontWeight: 600,
+                  fontSize: "0.85rem",
+                  cursor: "pointer",
+                  boxShadow: timeFilter === t.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none"
+                }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {message ? (
           <div
             className="card"
@@ -643,6 +792,14 @@ export default function BlackbookPage() {
             {message}
           </div>
         ) : null}
+
+        {/* TAB 0: EXPLORE */}
+        {activeTab === "explore" && (
+          <ExploreTab onAddToBlackbook={(entity) => {
+            setSearchEntity({ id: entity.name, name: entity.name, type: entity.type as "jockey" | "trainer" | "horse" });
+            setIsRuleBuilderOpen(true);
+          }} />
+        )}
 
         {/* TAB 1: RUNNERS */}
         {activeTab === "runners" && (
@@ -858,6 +1015,33 @@ export default function BlackbookPage() {
                         </span>
                         <span className="badge badge-blue">{cfg.bet_type.replaceAll("_", " ")}</span>
                       </h3>
+                      {(() => {
+                        let comboLabel = null;
+                        if (cfg.entityType === 'COMBINATION') {
+                           comboLabel = `🔗 ${cfg.runner}`;
+                        } else if (cfg.conditions) {
+                           let c = cfg.conditions;
+                           if (typeof c === 'string') {
+                              try { c = JSON.parse(c); } catch(e) {}
+                           }
+                           if (c.comboJockeyTrainer) comboLabel = `🔗 ${c.comboJockeyTrainer_jockey || 'Jockey'} + ${c.comboJockeyTrainer_trainer || 'Trainer'}`;
+                           else if (c.comboJockeyHorse) comboLabel = `🔗 ${c.comboJockeyHorse_jockey || 'Jockey'} + ${c.comboJockeyHorse_horse || 'Horse'}`;
+                           else if (c.comboTrainerTrack) comboLabel = `🔗 ${c.comboTrainerTrack_trainer || 'Trainer'} + ${c.comboTrainerTrack_track || 'Track'}`;
+                           else if (c.comboJockeyTrack) comboLabel = `🔗 ${c.comboJockeyTrack_jockey || 'Jockey'} + ${c.comboJockeyTrack_track || 'Track'}`;
+                           else if (c.comboHorseFavourite) comboLabel = `🔗 Horse + Favourite`;
+                           else if (c.comboDogBox) comboLabel = `🔗 Dog + Box ${c.comboDogBox_box || ''}`;
+                        }
+                        if (comboLabel) {
+                          return (
+                            <div style={{ marginBottom: "0.5rem" }}>
+                              <span className="badge" style={{ background: "rgba(6, 182, 212, 0.1)", color: "var(--accent)", border: "1px solid rgba(6, 182, 212, 0.2)", fontWeight: 600 }}>
+                                {comboLabel}
+                              </span>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
                       <div
                         style={{
                           display: "flex",
@@ -919,6 +1103,55 @@ export default function BlackbookPage() {
                             .join(", ")}
                         </div>
                       )}
+
+                      {/* Notes & Rating */}
+                      <div style={{ width: "100%", marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px dashed var(--border)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>Notes</span>
+                              {!editingRunnerNotesId && (
+                                <button
+                                  onClick={() => {
+                                    setEditingRunnerNotesId(cfg.runner);
+                                    setDraftRunnerNotes(cfg.notes || "");
+                                  }}
+                                  className="text-cyan-600 hover:text-cyan-700 p-1 rounded hover:bg-cyan-50"
+                                >
+                                  <Edit3 size={12} />
+                                </button>
+                              )}
+                            </div>
+                            {editingRunnerNotesId === cfg.runner ? (
+                              <div style={{ display: "flex", gap: "0.5rem", flexDirection: "column" }}>
+                                <textarea
+                                  className="form-input text-sm"
+                                  rows={2}
+                                  value={draftRunnerNotes}
+                                  onChange={(e) => setDraftRunnerNotes(e.target.value)}
+                                  maxLength={150}
+                                />
+                                <div style={{ display: "flex", gap: "0.5rem" }}>
+                                  <button onClick={() => void saveRunnerNotes(cfg.runner)} className="btn btn-primary" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Save</button>
+                                  <button onClick={() => setEditingRunnerNotesId(null)} className="btn btn-secondary" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p style={{ margin: 0, fontSize: "0.85rem", color: cfg.notes ? "var(--text-primary)" : "var(--text-muted)", fontStyle: cfg.notes ? "normal" : "italic" }}>
+                                {cfg.notes || "No notes..."}
+                              </p>
+                            )}
+                          </div>
+                          
+                          <div style={{ display: "flex", gap: "2px", marginLeft: "1rem" }}>
+                            {[1, 2, 3, 4, 5].map(star => (
+                              <button key={star} onClick={() => updateRunnerRating(cfg.runner, star)}>
+                                <Star size={16} className={star <= (cfg.rating || 0) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"} />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
                     <div>
@@ -1084,10 +1317,9 @@ export default function BlackbookPage() {
 
                   <div className="form-group">
                     <label className="form-label">Track / Venue</label>
-                    <input
-                      className="form-input"
+                    <TrackPicker
                       value={comboDraft.trackName}
-                      onChange={(e) => setComboDraft({ ...comboDraft, trackName: e.target.value })}
+                      onChange={(val) => setComboDraft({ ...comboDraft, trackName: val })}
                       placeholder="e.g. Flemington"
                     />
                   </div>
@@ -1555,6 +1787,23 @@ export default function BlackbookPage() {
                               </div>
                               <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.2rem" }}>
                                 Start Time: {new Date(race.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                              </div>
+                              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.2rem", flexWrap: "wrap" }}>
+                                {race.betfairOdds && (
+                                  <button className="badge" style={{ background: "var(--accent)", color: "white", border: "none", cursor: "pointer", fontWeight: 700 }}>
+                                    ${race.betfairOdds.toFixed(2)}
+                                  </button>
+                                )}
+                                {race.isValue && (
+                                  <span className="badge" style={{ background: "rgba(34, 197, 94, 0.1)", color: "#22c55e", borderColor: "rgba(34, 197, 94, 0.2)" }}>
+                                    ⚡ Value
+                                  </span>
+                                )}
+                                {race.winProbability && (
+                                  <span className="badge badge-outline">
+                                    {race.winProbability.toFixed(1)}% ML
+                                  </span>
+                                )}
                               </div>
                             </div>
                           ))}

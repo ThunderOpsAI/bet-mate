@@ -236,7 +236,7 @@ export function PaperBetslipProvider({
         betType: newBet.bet_type,
       });
 
-      const shouldOpenBetslip = false;
+      const shouldOpenBetslip = options?.openBetslip ?? false;
 
       const existingBet = betsRef.current.find((bet) => {
         return (

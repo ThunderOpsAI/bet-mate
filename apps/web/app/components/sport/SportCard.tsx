@@ -1,10 +1,30 @@
 "use client";
 
 import React from "react";
-import { Plus, Check, ChevronRight } from "lucide-react";
+import { Plus, Check, ChevronRight, Clock } from "lucide-react";
 import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import type { MatchupDrawerData, DrawerOutcome } from "./SportMatchupDrawer";
+
+function formatCardDate(dateStr?: string | null): string | null {
+  if (!dateStr) return null;
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const weekday = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", weekday: "short" });
+    const day = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", day: "numeric" });
+    const month = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", month: "short" });
+    const timeFormatted = d.toLocaleTimeString("en-AU", {
+      timeZone: "Australia/Melbourne",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+    return `${weekday}, ${day} ${month} ${timeFormatted}`;
+  } catch {
+    return dateStr;
+  }
+}
 
 interface SportCardProps {
   matchup: MatchupDrawerData;
@@ -61,6 +81,8 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
     }
   };
 
+  const formattedDate = formatCardDate(matchup.date);
+
   return (
     <div
       onClick={() => onOpenDrawer(matchup)}
@@ -72,6 +94,12 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
           <span className="font-bold text-sm sm:text-base text-slate-100 group-hover:text-emerald-400 transition-colors">
             {title}
           </span>
+          {formattedDate && (
+            <span className="text-[11px] font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+              <Clock size={11} className="text-sky-400 shrink-0" />
+              <span>{formattedDate}</span>
+            </span>
+          )}
           {subTitle && (
             <span className="text-[11px] font-medium text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
               {subTitle}

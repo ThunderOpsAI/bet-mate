@@ -17,7 +17,12 @@ import {
   BellOff,
   CircleDot,
   Flag,
+  Clock,
+  Plus,
+  Check,
+  ChevronRight,
 } from "lucide-react";
+import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
 import ExplainDrawer from "../components/ExplainDrawer";
@@ -91,6 +96,7 @@ type Race = {
   meeting_region?: string;
   meeting_date?: string;
   data_source?: "betfair" | "racing_australia";
+  race_type?: string;
   horses: HorseData[];
 };
 
@@ -178,7 +184,7 @@ function getDateForTab(tab: string): string {
   return getLocalDateString(today);
 }
 
-async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
+async function fetchTodayRacesSingle(raceType: string = "T", targetDateStr?: string) {
   const typeParam = raceType ? `type=${raceType}` : "";
   const dateParam = targetDateStr ? `date=${targetDateStr}` : "";
   const params = [typeParam, dateParam].filter(Boolean).join("&");
@@ -207,7 +213,22 @@ async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
     }
   }
 
-  return races;
+  return races.map((r) => ({ ...r, race_type: r.race_type || raceType }));
+}
+
+async function fetchTodayRaces(raceType: string = "T", targetDateStr?: string) {
+  const types = raceType.split(",").filter(Boolean);
+  if (types.length > 1) {
+    const results = await Promise.all(types.map((t) => fetchTodayRacesSingle(t, targetDateStr)));
+    const combined = results.flat();
+    const seen = new Set<string>();
+    return combined.filter((r) => {
+      if (seen.has(r.race_id)) return false;
+      seen.add(r.race_id);
+      return true;
+    });
+  }
+  return fetchTodayRacesSingle(raceType, targetDateStr);
 }
 
 async function fetchRacePredictions(races: Race[]) {
@@ -241,9 +262,11 @@ async function fetchRacePredictions(races: Race[]) {
 
 function RacingPageContent() {
   const { token, user } = useAuth();
+  const { addBet, bets, removeBet } = usePaperBetslip();
   const router = useRouter();
   const searchParams = useSearchParams();
   const raceType = searchParams.get("type") || "T";
+  const activeTypes = raceType.split(",").filter(Boolean);
   const whenParam = searchParams.get("when") || "today";
   const raceTypeLabel = raceType === "G" ? "Greyhound" : raceType === "H" ? "Harness" : "Thoroughbred";
   const [races, setRaces] = useState<Race[]>([]);
@@ -561,9 +584,9 @@ function RacingPageContent() {
 
       {/* Race code + region filters */}
       <RaceCodeFilter
-        activeType={raceType}
+        activeTypes={activeTypes}
         activeRegion={regionFilter}
-        onTypeChange={(type) => updateQueryParams(type, whenParam)}
+        onTypesChange={(types) => updateQueryParams(types.join(","), whenParam)}
         onRegionChange={(region) => {
           setRegionFilter(region);
           setSelectedVenueName(null);
@@ -619,6 +642,165 @@ function RacingPageContent() {
             selectedRaceId={selectedRaceId}
           />
         </ErrorBoundary>
+      ) : whenParam === "next" ? (
+        /* --- Next 10 Individual Races Single-Column View --- */
+        <ErrorBoundary sectionName="Next 10 races list">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+              <div>
+                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                  <span>Next 10 to Jump</span>
+                  <span className="px-2 py-0.5 text-xs font-extrabold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    {filteredRaces.filter((r) => r.start_time).sort((a, b) => new Date(a.start_time!).getTime() - new Date(b.start_time!).getTime()).slice(0, 10).length}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Upcoming races ordered by jump time across selected filters
+                </p>
+              </div>
+            </div>
+
+            {(() => {
+              const next10 = filteredRaces
+                .filter((r) => r.start_time)
+                .sort((a, b) => new Date(a.start_time!).getTime() - new Date(b.start_time!).getTime())
+                .slice(0, 10);
+
+              if (next10.length === 0) {
+                return (
+                  <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+                    <p className="text-sm font-bold text-slate-300">No upcoming races found</p>
+                    <p className="text-xs text-slate-400 mt-1">Try toggling different race code filters above.</p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="flex flex-col gap-3">
+                  {next10.map((race) => {
+                    const pred = predictions[race.race_id];
+                    const topPick = pred?.predictions?.[0];
+                    const validHorses = race.horses?.filter((h) => (h.betfair_back_price ?? 0) > 1) ?? [];
+                    const topHorse = topPick
+                      ? race.horses?.find((h) => h.horse_id === topPick.horse_id)
+                      : validHorses.length > 0
+                      ? validHorses.reduce((prev, curr) => (curr.betfair_back_price! < prev.betfair_back_price! ? curr : prev))
+                      : race.horses?.[0];
+
+                    const runnerName = topPick?.name || topHorse?.name || "Runner";
+                    const winProb = topPick ? Math.round(topPick.win_probability * 100) : topHorse?.betfair_back_price ? Math.round((1 / topHorse.betfair_back_price) * 100) : 25;
+                    const fairOdds = topPick ? topPick.fair_odds : topHorse?.betfair_back_price || 4.0;
+                    const marketOdds = topHorse?.betfair_back_price;
+                    const eventLabel = `${race.venue} R${race.race_number}`;
+
+                    const inSlip = topHorse ? bets.some((b) => b.event_id === `${race.race_id}-${topHorse.horse_id}`) : false;
+
+                    const raceTypeBadge = race.race_type === "G" ? "🐕 Greyhound" : race.race_type === "H" ? "🏇 Harness" : "🐎 Thoroughbred";
+
+                    return (
+                      <div
+                        key={race.race_id}
+                        onClick={() => {
+                          setSelectedVenueName(race.venue);
+                          setSelectedRaceId(race.race_id);
+                        }}
+                        className="group bg-slate-900/90 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-3.5 sm:p-4 transition-all duration-200 cursor-pointer shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 text-xs font-bold rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {race.venue} R{race.race_number}
+                            </span>
+                            <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded">
+                              {raceTypeBadge}
+                            </span>
+                            {race.distance && (
+                              <span className="text-[11px] font-medium text-slate-400 bg-slate-800/40 px-2 py-0.5 rounded">
+                                {race.distance}m
+                              </span>
+                            )}
+                            {race.start_time && (
+                              <span className="text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+                                <Clock size={12} className="text-amber-400 shrink-0" />
+                                <span>{formatNextMinsToJump(race.start_time)}</span>
+                              </span>
+                            )}
+                          </div>
+
+                          {runnerName && (
+                            <div>
+                              <div className="text-sm sm:text-base font-bold text-slate-100 group-hover:text-amber-400 transition-colors">
+                                {runnerName}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5">
+                                <span>Win: <strong className="text-emerald-400">{winProb}%</strong></span>
+                                <span>Fair: <strong className="text-slate-200">${fairOdds.toFixed(2)}</strong></span>
+                                {marketOdds && marketOdds > 1 && (
+                                  <span>Mkt: <strong className="text-amber-400">${marketOdds.toFixed(2)}</strong></span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                          {topHorse && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (inSlip) {
+                                  const existing = bets.find((b) => b.event_id === `${race.race_id}-${topHorse.horse_id}`);
+                                  if (existing) removeBet(existing.id);
+                                } else {
+                                  addBet(
+                                    {
+                                      sport: "racing",
+                                      event_id: `${race.race_id}-${topHorse.horse_id}`,
+                                      event_name: eventLabel,
+                                      selection: runnerName,
+                                      odds: marketOdds && marketOdds > 1 ? marketOdds : fairOdds,
+                                      stake: 10,
+                                      bet_type: "win",
+                                      odds_source: marketOdds && marketOdds > 1 ? "market" : "model_fair",
+                                      event_start_time: race.start_time,
+                                    },
+                                    { openBetslip: false },
+                                  );
+                                }
+                              }}
+                              className={`btn text-xs py-1.5 px-3 flex items-center gap-1.5 transition-all font-semibold rounded-lg ${
+                                inSlip
+                                  ? "bg-slate-800 text-emerald-400 border border-slate-700"
+                                  : "btn-primary shadow-sm"
+                              }`}
+                            >
+                              {inSlip ? (
+                                <>
+                                  <Check size={13} className="text-emerald-400" />
+                                  <span>Added</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Plus size={13} />
+                                  <span>+ Add</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                          <span className="text-xs font-semibold text-slate-400 group-hover:text-amber-400 flex items-center gap-0.5 pl-1">
+                            Details
+                            <ChevronRight size={14} />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        </ErrorBoundary>
       ) : (
         /* --- Venue Cards Landing --- */
         <ErrorBoundary sectionName="Racing venue list">
@@ -656,6 +838,28 @@ function RacingPageContent() {
       </div>
     </div>
   );
+}
+
+function formatNextMinsToJump(timeStr?: string | null): string {
+  if (!timeStr) return "";
+  try {
+    const d = new Date(timeStr);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const diffMins = Math.round((d.getTime() - now.getTime()) / (1000 * 60));
+    if (diffMins > 0) {
+      if (diffMins < 60) return `${diffMins}m to jump`;
+      const hrs = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      return mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
+    } else if (diffMins > -15) {
+      return "Just Jumped";
+    } else {
+      return "Jumped";
+    }
+  } catch {
+    return "";
+  }
 }
 
 function formatMarketPrice(horse?: HorseData): string {

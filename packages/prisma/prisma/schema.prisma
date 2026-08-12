@@ -217,7 +217,9 @@ model BlackbookItem {
   targetName       String
   entityType       String          @default("RUNNER")
   notes            String?
-  alertPreferences Json?           @default("{}")
+  alertPreferences Json?           @default("{}") // { push: bool, email: bool, pushover: bool }
+  rating           Int?            // 1-5 star personal rating
+  conditions       Json            @default("{}") // { favourite: bool, tracks: [], minOdds: float, raceType: string, metro: bool, ... }
   jockeyName       String?
   trainerName      String?
   horseName        String?

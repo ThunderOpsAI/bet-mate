@@ -157,6 +157,7 @@ function HomePageContent() {
                 marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
                 confidenceSignal,
                 urgencySignal,
+                eventTime: race.start_time || race.meeting_date,
                 href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
               };
             });
@@ -199,6 +200,7 @@ function HomePageContent() {
                       marketOdds: horse?.betfair_back_price ?? null,
                       confidenceSignal,
                       urgencySignal,
+                      eventTime: race.start_time || race.meeting_date,
                       href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
                     };
                   });
@@ -258,25 +260,6 @@ function HomePageContent() {
       setSportsLoading(true);
       try {
         const results = await Promise.allSettled([
-          // NBA
-          fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = await safeResponseJson(res);
-              const games = (data?.games ?? []) as any[];
-              return games.map((game) => ({
-                id: game.game_id || `nba-${game.id}`,
-                sport: "nba",
-                home_team: game.home_team,
-                away_team: game.away_team,
-                match_time: game.game_time || game.start_time,
-                predicted_winner: game.predicted_winner || game.home_team,
-                win_probability: game.win_probability ?? 0.55,
-                fair_odds: game.fair_odds ?? 1.82,
-                market_odds: game.market_odds ?? null,
-              }));
-            })
-            .catch(() => []),
           // AFL
           fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 30000 })
             .then(async (res) => {
@@ -288,7 +271,7 @@ function HomePageContent() {
                 sport: "afl",
                 home_team: game.home_team,
                 away_team: game.away_team,
-                match_time: game.start_time || game.game_time,
+                match_time: game.date || game.start_time || game.game_time,
                 predicted_winner: game.predicted_winner || game.home_team,
                 win_probability: game.win_probability ?? 0.55,
                 fair_odds: game.fair_odds ?? 1.82,
@@ -307,7 +290,26 @@ function HomePageContent() {
                 sport: "nrl",
                 home_team: game.home_team,
                 away_team: game.away_team,
-                match_time: game.start_time || game.game_time,
+                match_time: game.date || game.start_time || game.game_time,
+                predicted_winner: game.predicted_winner || game.home_team,
+                win_probability: game.win_probability ?? 0.55,
+                fair_odds: game.fair_odds ?? 1.82,
+                market_odds: game.market_odds ?? null,
+              }));
+            })
+            .catch(() => []),
+          // NBA
+          fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
+            .then(async (res) => {
+              if (!res.ok) return [];
+              const data = await safeResponseJson(res);
+              const games = (data?.games ?? []) as any[];
+              return games.map((game) => ({
+                id: game.game_id || `nba-${game.id}`,
+                sport: "nba",
+                home_team: game.home_team,
+                away_team: game.away_team,
+                match_time: game.game_time || game.date || game.start_time,
                 predicted_winner: game.predicted_winner || game.home_team,
                 win_probability: game.win_probability ?? 0.55,
                 fair_odds: game.fair_odds ?? 1.82,
@@ -326,7 +328,7 @@ function HomePageContent() {
                 sport: "soccer",
                 home_team: game.home_team,
                 away_team: game.away_team,
-                match_time: game.match_time || game.start_time,
+                match_time: game.match_time || game.date || game.start_time,
                 predicted_winner: game.predicted_winner || game.home_team,
                 win_probability: game.win_probability ?? 0.55,
                 fair_odds: game.fair_odds ?? 1.82,
@@ -336,14 +338,23 @@ function HomePageContent() {
             .catch(() => []),
         ]);
 
-        const items: UpcomingSportItem[] = [];
+        const allItems: UpcomingSportItem[] = [];
         for (const res of results) {
-          if (res.status === "fulfilled" && Array.isArray(res.value) && res.value.length > 0) {
-            items.push(...res.value.slice(0, 3));
+          if (res.status === "fulfilled" && Array.isArray(res.value)) {
+            allItems.push(...res.value);
           }
         }
 
-        setUpcomingSports(items.length > 0 ? items.slice(0, 6) : []);
+        // Sort by upcoming match_time ASC; if same time, prioritize AFL & NRL ahead of NBA
+        const sportPriority: Record<string, number> = { afl: 1, nrl: 2, soccer: 3, nba: 4 };
+        allItems.sort((a, b) => {
+          const tA = a.match_time ? new Date(a.match_time).getTime() : Infinity;
+          const tB = b.match_time ? new Date(b.match_time).getTime() : Infinity;
+          if (tA !== tB) return tA - tB;
+          return (sportPriority[a.sport] || 5) - (sportPriority[b.sport] || 5);
+        });
+
+        setUpcomingSports(allItems.slice(0, 6));
       } catch (err) {
         console.warn("Sports background fetch note:", err);
         setSportsError("Unable to load sports data.");

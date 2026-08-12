@@ -42,50 +42,47 @@ export interface UpcomingSportItem {
   market_odds?: number | null;
 }
 
-function formatAESTWithCountdown(timeStr?: string | null): string | null {
-  if (!timeStr) return null;
+function formatRacingMinsToJump(timeStr?: string | null): string {
+  if (!timeStr) return "";
+  try {
+    const d = new Date(timeStr);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const diffMins = Math.round((d.getTime() - now.getTime()) / (1000 * 60));
+    if (diffMins > 0) {
+      if (diffMins < 60) return `${diffMins}m to jump`;
+      const hrs = Math.floor(diffMins / 60);
+      const mins = diffMins % 60;
+      return mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
+    } else if (diffMins > -15) {
+      return "Just Jumped";
+    } else {
+      return "Jumped";
+    }
+  } catch {
+    return "";
+  }
+}
+
+function formatSportCleanDateTime(timeStr?: string | null): string {
+  if (!timeStr) return "";
   try {
     const d = new Date(timeStr);
     if (isNaN(d.getTime())) return timeStr;
 
+    const weekday = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", weekday: "short" });
+    const day = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", day: "numeric" });
+    const month = d.toLocaleDateString("en-AU", { timeZone: "Australia/Melbourne", month: "short" });
     const timeFormatted = d.toLocaleTimeString("en-AU", {
       timeZone: "Australia/Melbourne",
-      hour: "numeric",
+      hour: "2-digit",
       minute: "2-digit",
-      hour12: true,
-    });
-    
-    const dateFormatted = d.toLocaleDateString("en-AU", {
-      timeZone: "Australia/Melbourne",
-      day: "numeric",
-      month: "short",
+      hour12: false,
     });
 
-    const now = new Date();
-    const diffMs = d.getTime() - now.getTime();
-    const diffMins = Math.round(diffMs / (1000 * 60));
-
-    let countdown = "";
-    if (diffMins > 0) {
-      if (diffMins < 60) {
-        countdown = `in ${diffMins}m`;
-      } else if (diffMins < 1440) {
-        const hrs = Math.floor(diffMins / 60);
-        const mins = diffMins % 60;
-        countdown = mins > 0 ? `in ${hrs}h ${mins}m` : `in ${hrs}h`;
-      } else {
-        const days = Math.floor(diffMins / 1440);
-        countdown = `in ${days}d`;
-      }
-    } else if (diffMins > -180) {
-      countdown = "Live";
-    } else {
-      countdown = "Finished";
-    }
-
-    return `${dateFormatted}, ${timeFormatted} AEST • ${countdown}`;
+    return `${weekday}, ${day} ${month} ${timeFormatted}`;
   } catch {
-    return timeStr;
+    return timeStr || "";
   }
 }
 
@@ -219,11 +216,17 @@ export default function HomePrimaryCard({
                     className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 mb-0.5">
+                      <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                         <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 uppercase tracking-wider">
                           {opp.sport}
                         </span>
                         <span className="text-[11px] text-slate-400 truncate">{opp.eventLabel}</span>
+                        {opp.eventTime && (
+                          <span className="text-[10px] text-amber-400/90 font-medium flex items-center gap-0.5">
+                            <Clock size={11} className="text-amber-400 shrink-0" />
+                            <span>{opp.sport === "racing" ? formatRacingMinsToJump(opp.eventTime) : formatSportCleanDateTime(opp.eventTime)}</span>
+                          </span>
+                        )}
                       </div>
                       <h3 className="text-xs sm:text-sm font-bold text-slate-100 truncate">{opp.selectionName}</h3>
                       <div className="flex items-center gap-3 text-[11px] text-slate-400 mt-1">
@@ -410,9 +413,9 @@ export default function HomePrimaryCard({
                           {race.venue} R{race.race_number}
                         </span>
                         {race.start_time && (
-                          <span className="text-[10px] text-slate-400 flex items-center gap-0.5">
-                            <Clock size={11} />
-                            <span>{race.start_time}</span>
+                          <span className="text-[10px] text-amber-400/90 font-medium flex items-center gap-0.5">
+                            <Clock size={11} className="text-amber-400" />
+                            <span>{formatRacingMinsToJump(race.start_time)}</span>
                           </span>
                         )}
                       </div>
@@ -530,7 +533,7 @@ export default function HomePrimaryCard({
                         {sportItem.match_time && (
                           <span className="text-[10px] text-sky-400/90 font-medium flex items-center gap-1 truncate">
                             <Clock size={11} className="text-sky-400 shrink-0" />
-                            <span>{formatAESTWithCountdown(sportItem.match_time)}</span>
+                            <span>{formatSportCleanDateTime(sportItem.match_time)}</span>
                           </span>
                         )}
                       </div>

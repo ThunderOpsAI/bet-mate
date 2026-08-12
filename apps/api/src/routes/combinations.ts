@@ -4,6 +4,20 @@ import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 
+function normalizeTrackName(name: string): string {
+  return name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
+}
+
+function matchesTrack(raceName: string, searchName: string): boolean {
+  // Load track aliases for matching
+  // Try exact match on normalized name, then alias match
+  const norm = normalizeTrackName(searchName);
+  const raceNorm = normalizeTrackName(raceName);
+  if (raceNorm.includes(norm) || norm.includes(raceNorm)) return true;
+  // Additional alias matching can be done here
+  return false;
+}
+
 const router = Router();
 const prisma: any = new PrismaClient();
 
@@ -69,7 +83,7 @@ async function fetchUpcomingRacesForCombo(combo: {
     const matches: any[] = [];
     for (const race of races) {
       const trackMatches =
-        !combo.trackName || race.venue?.toLowerCase().includes(combo.trackName.toLowerCase());
+        !combo.trackName || (race.venue && matchesTrack(race.venue, combo.trackName));
       for (const horse of race.horses || []) {
         const horseMatches =
           !combo.horseName || horse.name?.toLowerCase().includes(combo.horseName.toLowerCase());

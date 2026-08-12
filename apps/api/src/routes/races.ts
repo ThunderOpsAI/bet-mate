@@ -27,6 +27,34 @@ router.get("/today", async (req, res) => {
   }
 });
 
+// GET /api/races/blackbook-running-today
+router.get("/blackbook-running-today", async (req, res) => {
+  try {
+    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const authHeader = req.headers.authorization;
+    const response = await fetch(`${mlApi}/blackbook/running-today`, {
+      headers: authHeader ? { Authorization: authHeader } : undefined
+    });
+    
+    if (!response.ok) {
+      throw new Error(`ML API returned ${response.status}`);
+    }
+    
+    const runners = await response.json();
+    
+    // Fallback mlFairOdds if not present
+    const updatedRunners = (runners || []).map((runner: any) => ({
+      ...runner,
+      mlFairOdds: runner.mlFairOdds || (runner.winProbability ? parseFloat((1 / (runner.winProbability / 100)).toFixed(2)) : 999.0)
+    }));
+    
+    return res.json(updatedRunners);
+  } catch (error: any) {
+    console.error("Failed to fetch blackbook running today:", error);
+    return res.status(503).json([]);
+  }
+});
+
 // GET /api/races/:raceId
 router.get("/:raceId", async (req, res) => {
   const { raceId } = req.params;

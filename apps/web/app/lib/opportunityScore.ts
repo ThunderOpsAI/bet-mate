@@ -15,6 +15,7 @@ export type OpportunityCandidate = {
   urgencySignal?: UrgencySignal | null;
   href: string;
   note?: string;
+  eventTime?: string;
 };
 
 export type RankedOpportunity = OpportunityCandidate & {

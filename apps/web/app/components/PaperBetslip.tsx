@@ -623,7 +623,7 @@ function PaperBetslipContent() {
               {(
                 [
                   ["singles", "Singles"],
-                  ["multi", "Multi"],
+                  ["multi", "Multis"],
                   ["exotics", "Exotics"],
                   ["quaddie", "Quaddie"],
                   ["sgm", "SGM"],

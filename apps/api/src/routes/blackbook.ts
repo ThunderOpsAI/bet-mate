@@ -7,6 +7,22 @@ import { requireAuth } from "../middleware/auth";
 const router = Router();
 const prisma: any = new PrismaClient();
 
+router.get("/search", async (req, res) => {
+  try {
+    const q = req.query.q as string || "";
+    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const response = await fetch(`${mlApi}/blackbook/search?q=${encodeURIComponent(q)}`);
+    if (!response.ok) {
+      throw new Error(`ML API returned ${response.status}`);
+    }
+    const data = await response.json();
+    return res.json(data);
+  } catch (error: any) {
+    console.error("Failed to fetch blackbook search:", error);
+    return res.status(503).json({ horses: [], jockeys: [], trainers: [] });
+  }
+});
+
 router.use(requireAuth);
 
 const ENTITY_TYPES = ["RUNNER", "JOCKEY", "TRAINER", "COMBINATION"] as const;
@@ -319,6 +335,18 @@ router.delete("/rules/:ruleId", async (req: AuthRequest, res) => {
   } catch {
     return res.status(500).json({ success: false, error: "Failed to delete rule" });
   }
+});
+
+// POST /api/blackbook/admin/rule-request — Request a new rule condition
+router.post("/admin/rule-request", async (req: AuthRequest, res) => {
+  const { requestedCondition, notes } = req.body;
+  if (!requestedCondition) {
+    return res.status(400).json({ success: false, error: "Missing requestedCondition" });
+  }
+
+  console.log(`[Blackbook] Rule Request from user ${req.userId}:`, { requestedCondition, notes });
+
+  return res.json({ success: true, message: "Request received" });
 });
 
 export default router;
