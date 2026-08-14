@@ -549,8 +549,8 @@ function RacingPageContent() {
   const regionFilteredVenues = Object.entries(venueGroups).filter(([, venueRaces]) => {
     if (regionFilter === "all") return true;
     const region = venueRaces[0]?.meeting_region?.toLowerCase() ?? "";
-    if (regionFilter === "aunz") return ["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "aus", "australia", "new zealand"].some((r) => region.includes(r)) || region === "" || region === "unknown";
-    if (regionFilter === "intl") return !["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "aus", "australia", "new zealand", "", "unknown"].some((r) => region.includes(r));
+    if (regionFilter === "aunz") return ["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "au", "aus", "australia", "new zealand"].some((r) => region.includes(r)) || region === "" || region === "unknown";
+    if (regionFilter === "intl") return !["nsw", "vic", "qld", "sa", "wa", "tas", "act", "nt", "nz", "au", "aus", "australia", "new zealand", "", "unknown"].some((r) => region.includes(r));
     return true;
   });
 
