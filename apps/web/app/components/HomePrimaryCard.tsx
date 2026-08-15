@@ -157,7 +157,7 @@ export default function HomePrimaryCard({
         bet_type: "win",
         odds_source: odds && odds > 1 ? "market" : "model_fair",
       },
-      { openBetslip: true }
+      { openBetslip: false }
     );
   };
 

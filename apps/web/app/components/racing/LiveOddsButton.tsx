@@ -185,7 +185,7 @@ export default function LiveOddsButton({
             label={formattedWinLabel}
             loggedLabel="✓ WIN"
             cancelLabel="✕"
-            openBetslipOnAdd={true}
+            openBetslipOnAdd={false}
             bet={{
               ...bet,
               bet_type: "win",
@@ -201,7 +201,7 @@ export default function LiveOddsButton({
               label={formattedPlaceLabel}
               loggedLabel="✓ PLACE"
               cancelLabel="✕"
-              openBetslipOnAdd={true}
+              openBetslipOnAdd={false}
               bet={{
                 ...bet,
                 bet_type: "place",

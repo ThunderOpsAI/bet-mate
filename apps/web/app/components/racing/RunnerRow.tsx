@@ -230,7 +230,7 @@ export default function RunnerRow({
               label={`WIN $${horse!.betfair_back_price!.toFixed(2)}`}
               loggedLabel="✓ WIN"
               cancelLabel="✕"
-              openBetslipOnAdd={true}
+              openBetslipOnAdd={false}
               bet={{
                 sport: "racing",
                 event_id: race.race_id,
@@ -252,7 +252,7 @@ export default function RunnerRow({
               label={`PLACE $${calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price).toFixed(2)}`}
               loggedLabel="✓ PLACE"
               cancelLabel="✕"
-              openBetslipOnAdd={true}
+              openBetslipOnAdd={false}
               bet={{
                 sport: "racing",
                 event_id: race.race_id,
@@ -283,7 +283,7 @@ export default function RunnerRow({
               label={`WIN $${prediction.fair_odds.toFixed(2)}`}
               loggedLabel="✓ WIN"
               cancelLabel="✕"
-              openBetslipOnAdd={true}
+              openBetslipOnAdd={false}
               bet={{
                 sport: "racing",
                 event_id: race.race_id,
@@ -305,7 +305,7 @@ export default function RunnerRow({
               label={`PLACE $${calculatePlaceOdds(prediction.fair_odds).toFixed(2)}`}
               loggedLabel="✓ PLACE"
               cancelLabel="✕"
-              openBetslipOnAdd={true}
+              openBetslipOnAdd={false}
               bet={{
                 sport: "racing",
                 event_id: race.race_id,

@@ -27,7 +27,7 @@ export default function VariantRunnerTable({ race, prediction, variant }: Varian
         stake: 10,
         odds_source: "market",
       },
-      { openBetslip: true }
+      { openBetslip: false }
     );
   };
 
