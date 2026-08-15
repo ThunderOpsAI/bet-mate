@@ -461,26 +461,29 @@ router.post("/batch", async (req: AuthRequest, res) => {
     }
 
     const result = await prisma.$transaction(async (tx: any) => {
-      // Create all bets
-      const bets = await Promise.all(
-        betsData.map((b) =>
-          tx.bet.create({
-            data: {
-              userId,
-              eventType: b.eventType,
-              eventId: b.eventId,
-              eventName: b.eventName,
-              eventTime: b.eventTime ? new Date(b.eventTime) : new Date(),
-              betType: b.betType,
-              selection: b.selection,
-              odds: b.odds,
-              stake: b.stake,
-              wasAIRecommended: b.wasAIRecommended,
-              notes: b.notes,
-            },
-          }),
-        ),
-      );
+      // Create all bets (bulk insert)
+      await tx.bet.createMany({
+        data: betsData.map((b) => ({
+          userId,
+          eventType: b.eventType,
+          eventId: b.eventId,
+          eventName: b.eventName,
+          eventTime: b.eventTime ? new Date(b.eventTime) : new Date(),
+          betType: b.betType,
+          selection: b.selection,
+          odds: b.odds,
+          stake: b.stake,
+          wasAIRecommended: b.wasAIRecommended,
+          notes: b.notes,
+        })),
+      });
+
+      // Query back created bets for the response
+      const bets = await tx.bet.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: betsData.length,
+      });
 
       // Deduct total stake
       await tx.user.update({
@@ -498,29 +501,25 @@ router.post("/batch", async (req: AuthRequest, res) => {
       });
 
       // Sync batch bets into paper_bet_log for ML engine training loop
-      await Promise.all(
-        betsData.map((b) =>
-          tx.paper_bet_log
-            .create({
-              data: {
-                sport: b.eventType,
-                event_id: b.eventId,
-                event_name: b.eventName,
-                selection: b.selection,
-                bet_type: b.betType,
-                odds: b.odds,
-                stake: b.stake,
-                status: "PENDING",
-                notes: b.notes,
-                origin: "user",
-                user_id: userId,
-              },
-            })
-            .catch((e: any) =>
-              console.warn("Batch paper_bet_log sync failed:", e.message),
-            ),
-        ),
-      );
+      try {
+        await tx.paper_bet_log.createMany({
+          data: betsData.map((b) => ({
+            sport: b.eventType,
+            event_id: b.eventId,
+            event_name: b.eventName,
+            selection: b.selection,
+            bet_type: b.betType,
+            odds: b.odds,
+            stake: b.stake,
+            status: "PENDING",
+            notes: b.notes,
+            origin: "user",
+            user_id: userId,
+          })),
+        });
+      } catch (e: any) {
+        console.warn("Batch paper_bet_log sync failed:", e.message);
+      }
 
       return bets;
     });

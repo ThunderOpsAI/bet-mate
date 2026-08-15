@@ -512,3 +512,14 @@ def evaluate_blackbook_rules():
         return {"items": len(items), "evaluations": evaluations, "matches": matches}
 
     return _run_logged_job("evaluate_blackbook_rules", _job)
+
+
+@app.function(
+    image=image,
+    schedule=modal.Period(minutes=5),
+    timeout=30,
+)
+def keep_alive():
+    """Ping every 5 minutes to prevent cold starts."""
+    # Just import the app to trigger container warmup
+    print("Keep-alive ping")

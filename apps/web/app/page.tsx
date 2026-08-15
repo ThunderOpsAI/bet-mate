@@ -1,6 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Trophy, Zap, Shield, Globe, Bot, BookOpen, Sparkles } from "lucide-react";
@@ -49,52 +50,29 @@ function HomePageContent() {
   const raceType = searchParams?.get("type") || "T";
   const isGuest = !user || user.id === "guest";
 
-  // High EV state — start empty, load from live API only
-  const [opportunities, setOpportunities] = useState<RankedOpportunity[]>([]);
-  const [oppsLoading, setOppsLoading] = useState(true);
-  const [oppsError, setOppsError] = useState<string | null>(null);
-
-  // Blackbook state
-  const [blackbookItems, setBlackbookItems] = useState<BlackbookItem[]>([]);
-  const [blackbookLoading, setBlackbookLoading] = useState(false);
-
-  // Racing state — start empty, load from live API only
-  const [upcomingRaces, setUpcomingRaces] = useState<UpcomingRaceItem[]>([]);
-  const [racesLoading, setRacesLoading] = useState(true);
-  const [racesError, setRacesError] = useState<string | null>(null);
-
-  // Sports state — start empty, load from live API only
-  const [upcomingSports, setUpcomingSports] = useState<UpcomingSportItem[]>([]);
-  const [sportsLoading, setSportsLoading] = useState(true);
-  const [sportsError, setSportsError] = useState<string | null>(null);
-
-
-
-  // Clear any legacy stale cache from sessionStorage on mount
-  useEffect(() => {
-    try {
-      sessionStorage.removeItem("bm_home_cache");
-    } catch {}
-  }, []);
-
-  // Background live fetch for Racing & High EV opportunities (fast 4s timeout)
-  const loadRacingData = async () => {
-    setRacesLoading(true);
-    setOppsLoading(true);
-    try {
+  // Racing & High EV Query
+  const {
+    data: racingData,
+    isLoading: racesLoading,
+    error: racesErrorObj,
+    refetch: refetchRacing,
+  } = useQuery({
+    queryKey: ["home-racing", raceType],
+    queryFn: async () => {
       let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 30000 }).catch(() => null);
       if ((!racesRes || !racesRes.ok) && raceType !== "T") {
         racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 30000 }).catch(() => null);
       }
 
-      let responseJson = racesRes && racesRes.ok ? await safeResponseJson(racesRes) : null;
+      if (!racesRes || !racesRes.ok) throw new Error("Unable to load live racing data.");
+
+      let responseJson = await safeResponseJson(racesRes);
       let rawRaces: Race[] = (Array.isArray(responseJson?.races)
         ? responseJson.races
         : Array.isArray(responseJson)
         ? responseJson
         : []) as Race[];
 
-      // Filter out races that jumped more than 2 minutes ago
       const nowMs = Date.now();
       let racesData = rawRaces.filter((r) => {
         if (!r.start_time) return true;
@@ -102,170 +80,156 @@ function HomePageContent() {
         return startMs > nowMs - 2 * 60 * 1000;
       });
 
-      if (racesData.length > 0) {
-        // 1. Map upcoming races IMMEDIATELY from racesData
-        const mappedRaces: UpcomingRaceItem[] = racesData.slice(0, 6).map((race) => {
-          const validHorses = race.horses?.filter((h) => (h.betfair_back_price ?? 0) > 1) ?? [];
-          const topHorse =
-            validHorses.length > 0
-              ? validHorses.reduce((prev, curr) =>
-                  curr.betfair_back_price! < prev.betfair_back_price! ? curr : prev
-                )
-              : race.horses?.[0];
+      if (racesData.length === 0) {
+        return { upcomingRaces: [], opportunities: [] };
+      }
 
-          let topRunner = undefined;
-          if (topHorse) {
-            const marketOdds = topHorse.betfair_back_price ?? null;
-            const winProb = marketOdds && marketOdds > 1 ? Number((1 / marketOdds).toFixed(3)) : 0.25;
-            const fairOdds = marketOdds && marketOdds > 1 ? marketOdds : 4.0;
-            topRunner = {
-              horse_id: topHorse.horse_id,
-              name: topHorse.name,
-              win_probability: winProb,
-              fair_odds: fairOdds,
-              market_odds: marketOdds,
-            };
-          }
+      // 1. Map upcoming races
+      const mappedRaces: UpcomingRaceItem[] = racesData.slice(0, 6).map((race) => {
+        const validHorses = race.horses?.filter((h) => (h.betfair_back_price ?? 0) > 1) ?? [];
+        const topHorse =
+          validHorses.length > 0
+            ? validHorses.reduce((prev, curr) =>
+                curr.betfair_back_price! < prev.betfair_back_price! ? curr : prev
+              )
+            : race.horses?.[0];
 
-          return {
-            race_id: race.race_id,
-            venue: race.venue,
-            race_number: race.race_number,
-            start_time: race.start_time,
-            meeting_date: race.meeting_date,
-            topRunner,
+        let topRunner = undefined;
+        if (topHorse) {
+          const marketOdds = topHorse.betfair_back_price ?? null;
+          const winProb = marketOdds && marketOdds > 1 ? Number((1 / marketOdds).toFixed(3)) : 0.25;
+          const fairOdds = marketOdds && marketOdds > 1 ? marketOdds : 4.0;
+          topRunner = {
+            horse_id: topHorse.horse_id,
+            name: topHorse.name,
+            win_probability: winProb,
+            fair_odds: fairOdds,
+            market_odds: marketOdds,
           };
-        });
-
-        setUpcomingRaces(mappedRaces);
-
-        // 2. Map fallback High EV opportunities
-        const fallbackCandidates = racesData.flatMap((race) => {
-          if (!race.horses || race.horses.length === 0) return [];
-          const urgencySignal = getUrgencySignal({
-            startTime: race.start_time,
-            eventDate: race.meeting_date,
-          });
-          const confidenceSignal = getConfidenceSignal(null);
-
-          return race.horses.map((horse) => {
-            const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
-            const impliedProb = 1 / mktOdds;
-            const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
-            const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
-
-            return {
-              id: `${race.race_id}-${horse.horse_id}`,
-              sport: "racing" as const,
-              selectionName: horse.name,
-              eventLabel: `${race.venue} R${race.race_number}`,
-              probability: winProb,
-              fairOdds: fairOdds,
-              marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
-              confidenceSignal,
-              urgencySignal,
-              eventTime: race.start_time || race.meeting_date,
-              href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-            };
-          });
-        });
-
-        const rankedFallback = rankOpportunities(fallbackCandidates);
-        if (rankedFallback.length > 0) {
-          setOpportunities(rankedFallback.slice(0, 5));
         }
 
-        // 3. Asynchronously fetch ML predictions in background
-        fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
+        return {
+          race_id: race.race_id,
+          venue: race.venue,
+          race_number: race.race_number,
+          start_time: race.start_time,
+          meeting_date: race.meeting_date,
+          topRunner,
+        };
+      });
+
+      // 2. Map fallback High EV opportunities
+      const fallbackCandidates = racesData.flatMap((race) => {
+        if (!race.horses || race.horses.length === 0) return [];
+        const urgencySignal = getUrgencySignal({
+          startTime: race.start_time,
+          eventDate: race.meeting_date,
+        });
+        const confidenceSignal = getConfidenceSignal(null);
+
+        return race.horses.map((horse) => {
+          const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
+          const impliedProb = 1 / mktOdds;
+          const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
+          const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
+
+          return {
+            id: `${race.race_id}-${horse.horse_id}`,
+            sport: "racing" as const,
+            selectionName: horse.name,
+            eventLabel: `${race.venue} R${race.race_number}`,
+            probability: winProb,
+            fairOdds: fairOdds,
+            marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
+            confidenceSignal,
+            urgencySignal,
+            eventTime: race.start_time || race.meeting_date,
+            href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
+          };
+        });
+      });
+
+      let opps = rankOpportunities(fallbackCandidates).slice(0, 5);
+
+      // 3. Fetch ML predictions
+      try {
+        const predsRes = await fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ races: racesData }),
           timeoutMs: 5000,
-        })
-          .then(async (predsRes) => {
-            if (predsRes.ok) {
-              const predsData: Record<string, RacePrediction> =
-                (await safeResponseJson(predsRes)) || {};
-
-              const candidates = racesData.flatMap((race) => {
-                const pred = predsData[race.race_id];
-                if (!pred) return [];
-                const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
-                const urgencySignal = getUrgencySignal({
-                  startTime: race.start_time,
-                  eventDate: race.meeting_date,
-                });
-                return pred.predictions.map((pick) => {
-                  const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
-                  return {
-                    id: `${race.race_id}-${pick.horse_id}`,
-                    sport: "racing" as const,
-                    selectionName: pick.name,
-                    eventLabel: `${race.venue} R${race.race_number}`,
-                    probability: pick.win_probability,
-                    fairOdds: pick.fair_odds,
-                    marketOdds: horse?.betfair_back_price ?? null,
-                    confidenceSignal,
-                    urgencySignal,
-                    eventTime: race.start_time || race.meeting_date,
-                    href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-                  };
-                });
-              });
-
-              if (candidates.length > 0) {
-                const ranked = rankOpportunities(candidates);
-                setOpportunities(ranked.slice(0, 5));
-              }
-            }
-          })
-          .catch(() => {});
-      } else {
-        // API returned no races — ensure we show the empty state, not stale data
-        setUpcomingRaces([]);
-        setOpportunities([]);
-      }
-    } catch (err) {
-      console.warn("Background racing fetch note:", err);
-      setRacesError("Unable to load live racing data.");
-      setOppsError("Unable to load value opportunities.");
-    } finally {
-      setRacesLoading(false);
-      setOppsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadRacingData();
-  }, [raceType]);
-
-  // Fetch Blackbook data
-  useEffect(() => {
-    async function loadBlackbook() {
-      if (isGuest || !token) {
-        setBlackbookLoading(false);
-        return;
-      }
-      try {
-        const res = await fetch(`${ML_API}/blackbook`, {
-          headers: { Authorization: `Bearer ${token}` },
         });
-        if (res.ok) {
-          const data = await safeResponseJson(res);
-          setBlackbookItems(data?.configs || []);
+        
+        if (predsRes.ok) {
+          const predsData: Record<string, RacePrediction> = (await safeResponseJson(predsRes)) || {};
+          const candidates = racesData.flatMap((race) => {
+            const pred = predsData[race.race_id];
+            if (!pred) return [];
+            const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
+            const urgencySignal = getUrgencySignal({
+              startTime: race.start_time,
+              eventDate: race.meeting_date,
+            });
+            return pred.predictions.map((pick) => {
+              const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
+              return {
+                id: `${race.race_id}-${pick.horse_id}`,
+                sport: "racing" as const,
+                selectionName: pick.name,
+                eventLabel: `${race.venue} R${race.race_number}`,
+                probability: pick.win_probability,
+                fairOdds: pick.fair_odds,
+                marketOdds: horse?.betfair_back_price ?? null,
+                confidenceSignal,
+                urgencySignal,
+                eventTime: race.start_time || race.meeting_date,
+                href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
+              };
+            });
+          });
+          if (candidates.length > 0) {
+            opps = rankOpportunities(candidates).slice(0, 5);
+          }
         }
       } catch (err) {
-        console.warn("Blackbook fetch note:", err);
+        console.warn("Prediction fetch failed, using fallback.", err);
       }
-    }
+      
+      return { upcomingRaces: mappedRaces, opportunities: opps };
+    },
+  });
 
-    void loadBlackbook();
-  }, [token, isGuest]);
+  const upcomingRaces = racingData?.upcomingRaces ?? [];
+  const opportunities = racingData?.opportunities ?? [];
+  const racesError = racesErrorObj ? racesErrorObj.message : null;
+  const oppsLoading = racesLoading;
+  const oppsError = racesError;
 
-  // Background live fetch for Sports data (fast 4s timeout)
-  const loadSportsData = async () => {
-    setSportsLoading(true);
-    try {
+  // Blackbook Query
+  const { data: blackbookItemsData, isLoading: blackbookLoading } = useQuery({
+    queryKey: ["blackbook", token],
+    queryFn: async () => {
+      const res = await fetch(`${ML_API}/blackbook`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load blackbook");
+      const data = await safeResponseJson(res);
+      return data?.configs || [];
+    },
+    enabled: !isGuest && !!token,
+  });
+
+  const blackbookItems = blackbookItemsData ?? [];
+
+  // Sports Query
+  const {
+    data: upcomingSportsData,
+    isLoading: sportsLoading,
+    error: sportsErrorObj,
+    refetch: refetchSports,
+  } = useQuery({
+    queryKey: ["home-sports"],
+    queryFn: async () => {
       const results = await Promise.allSettled([
         // AFL
         fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 30000 })
@@ -369,18 +333,12 @@ function HomePageContent() {
         return (sportPriority[a.sport] || 5) - (sportPriority[b.sport] || 5);
       });
 
-      setUpcomingSports(activeSports.slice(0, 6));
-    } catch (err) {
-      console.warn("Sports background fetch note:", err);
-      setSportsError("Unable to load sports data.");
-    } finally {
-      setSportsLoading(false);
-    }
-  };
+      return activeSports.slice(0, 6);
+    },
+  });
 
-  useEffect(() => {
-    void loadSportsData();
-  }, []);
+  const upcomingSports = upcomingSportsData ?? [];
+  const sportsError = sportsErrorObj ? sportsErrorObj.message : null;
 
   const racingLinkHref = raceType !== "T" ? `/racing?type=${raceType}` : "/racing";
 
@@ -412,9 +370,9 @@ function HomePageContent() {
           sportsLoading={sportsLoading}
           sportsError={sportsError}
           racingLinkHref={racingLinkHref}
-          onRefreshRacing={loadRacingData}
-          onRefreshSports={loadSportsData}
-          onRefreshOpps={loadRacingData}
+          onRefreshRacing={() => refetchRacing()}
+          onRefreshSports={() => refetchSports()}
+          onRefreshOpps={() => refetchRacing()}
         />
       </div>
     </ErrorBoundary>

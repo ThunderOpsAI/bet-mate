@@ -39,6 +39,7 @@ interface BlackbookSearchBarProps {
   isOpen?: boolean;
   onClose?: () => void;
   inline?: boolean;
+  onSelect?: (item: SearchResultItem) => void;
 }
 
 const CATEGORIES = [
@@ -53,6 +54,7 @@ export default function BlackbookSearchBar({
   isOpen = false,
   onClose,
   inline = false,
+  onSelect,
 }: BlackbookSearchBarProps) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("ALL");
@@ -238,18 +240,23 @@ export default function BlackbookSearchBar({
 
                     <button
                       type="button"
-                      onClick={() => handleAddToBlackbook(item)}
-                      disabled={isAdded}
+                      onClick={() => onSelect ? onSelect(item) : handleAddToBlackbook(item)}
+                      disabled={!onSelect && isAdded}
                       className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
-                        isAdded
+                        (!onSelect && isAdded)
                           ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                           : "bg-slate-800 text-slate-200 hover:bg-emerald-600 hover:text-white group-hover:border-emerald-500/40"
                       }`}
                     >
-                      {isAdded ? (
+                      {!onSelect && isAdded ? (
                         <>
                           <Check className="w-3.5 h-3.5" />
                           <span>Added ✓</span>
+                        </>
+                      ) : onSelect ? (
+                        <>
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add to Slip</span>
                         </>
                       ) : (
                         <>
@@ -279,7 +286,7 @@ export default function BlackbookSearchBar({
                 </div>
                 <div className="space-y-1.5">
                   {results.RUNNER.map((item) =>
-                    renderResultRow(item, addedIds, handleAddToBlackbook)
+                    renderResultRow(item, addedIds, handleAddToBlackbook, onSelect)
                   )}
                 </div>
               </div>
@@ -296,7 +303,7 @@ export default function BlackbookSearchBar({
                 </div>
                 <div className="space-y-1.5">
                   {results.JOCKEY.map((item) =>
-                    renderResultRow(item, addedIds, handleAddToBlackbook)
+                    renderResultRow(item, addedIds, handleAddToBlackbook, onSelect)
                   )}
                 </div>
               </div>
@@ -313,7 +320,7 @@ export default function BlackbookSearchBar({
                 </div>
                 <div className="space-y-1.5">
                   {results.TRAINER.map((item) =>
-                    renderResultRow(item, addedIds, handleAddToBlackbook)
+                    renderResultRow(item, addedIds, handleAddToBlackbook, onSelect)
                   )}
                 </div>
               </div>
@@ -330,7 +337,7 @@ export default function BlackbookSearchBar({
                 </div>
                 <div className="space-y-1.5">
                   {results.COMBINATION.map((item) =>
-                    renderResultRow(item, addedIds, handleAddToBlackbook)
+                    renderResultRow(item, addedIds, handleAddToBlackbook, onSelect)
                   )}
                 </div>
               </div>
@@ -389,9 +396,10 @@ function getItemIcon(category: string) {
 function renderResultRow(
   item: SearchResultItem,
   addedIds: Set<string>,
-  onAdd: (item: SearchResultItem) => void
+  onAdd: (item: SearchResultItem) => void,
+  onSelect?: (item: SearchResultItem) => void
 ) {
-  const isAdded = addedIds.has(item.id);
+  const isAdded = !onSelect && addedIds.has(item.id);
 
   return (
     <div
@@ -421,7 +429,7 @@ function renderResultRow(
 
       <button
         type="button"
-        onClick={() => onAdd(item)}
+        onClick={() => onSelect ? onSelect(item) : onAdd(item)}
         disabled={isAdded}
         className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
           isAdded
@@ -433,6 +441,11 @@ function renderResultRow(
           <>
             <Check className="w-3.5 h-3.5" />
             <span>Added ✓</span>
+          </>
+        ) : onSelect ? (
+          <>
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add to Slip</span>
           </>
         ) : (
           <>

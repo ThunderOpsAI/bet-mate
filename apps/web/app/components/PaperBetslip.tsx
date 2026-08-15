@@ -32,6 +32,7 @@ import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import GuestModal from "./GuestModal";
+import BlackbookSearchBar, { SearchResultItem } from "./BlackbookSearchBar";
 
 export type ActiveBetItem = {
   id: string;
@@ -78,6 +79,7 @@ function PaperBetslipContent() {
     isBetslipOpen,
     placeBets,
     removeBet,
+    addBet,
     selectionSnapshots,
     setIsBetslipOpen,
     updateBet,
@@ -124,7 +126,7 @@ function PaperBetslipContent() {
     if (isBetslipOpen && user && user.id !== "guest") {
       const token = typeof window !== "undefined" ? localStorage.getItem("betmate_auth_token") : null;
       setLoadingActiveBets(true);
-      fetch(`${API_BASE}/bets/history`, {
+      fetch(`${API_BASE}/bets`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
         .then(async (res) => {
@@ -137,7 +139,25 @@ function PaperBetslipContent() {
         .catch(() => {})
         .finally(() => setLoadingActiveBets(false));
     }
-  }, [isBetslipOpen, user, result]);
+  }, [isBetslipOpen, user]);
+
+  const handleSelectSearchResult = (item: SearchResultItem) => {
+    addBet(
+      {
+        sport: item.sport || "Racing",
+        event_id: "blackbook-" + item.id,
+        event_name: item.details || "Blackbook Search",
+        selection_id: item.id,
+        bet_type: "win",
+        selection: item.name,
+        odds: 1.0,
+        stake: defaultStake || 10,
+        bet_family: "single",
+        notes: `Added from search. Category: ${item.category}`,
+      },
+      { openBetslip: true }
+    );
+  };
 
   const warnings = useMemo(() => {
     const counts = bets.reduce<Record<string, number>>((acc, bet) => {
@@ -366,31 +386,31 @@ function PaperBetslipContent() {
           onClick={(e) => e.stopPropagation()}
         >
           {/* Sportsbet Style Header Bar */}
-          <div className="betslip-header-bar flex items-center justify-between p-3.5 bg-amber-400 border-b border-amber-500 text-slate-950 shadow-md">
+          <div className="betslip-header-bar flex items-center justify-between p-3.5 bg-slate-800 border-b border-slate-700 text-slate-100 shadow-md">
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setIsBetslipOpen(false)}
-                className="p-1.5 rounded-full bg-slate-950/10 hover:bg-slate-950/20 text-slate-950 transition-colors"
+                className="p-1.5 rounded-full bg-slate-100/10 hover:bg-slate-100/20 text-slate-100 transition-colors"
                 title="Close Bet Slip"
               >
                 <X size={18} />
               </button>
               <div className="flex items-center gap-2">
-                <Ticket size={18} className="text-slate-950" />
+                <Ticket size={18} className="text-slate-100" />
                 <span className="font-extrabold text-base tracking-tight">Bet Slip</span>
               </div>
             </div>
 
             {/* Header Main Tabs */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-950/20 rounded-xl border border-slate-950/10">
+            <div className="flex items-center gap-1 p-0.5 bg-slate-900/60 rounded-xl border border-slate-600/30">
               <button
                 type="button"
                 onClick={() => setContextMainTab("slip")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "slip"
                     ? "bg-slate-950 text-amber-400 shadow-sm"
-                    : "text-slate-900 hover:bg-slate-950/10"
+                    : "text-slate-300 hover:bg-slate-100/10"
                 }`}
               >
                 <span>Slip</span>
@@ -405,7 +425,7 @@ function PaperBetslipContent() {
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "active" || contextMainTab === "settled"
                     ? "bg-slate-950 text-sky-400 shadow-sm"
-                    : "text-slate-900 hover:bg-slate-950/10"
+                    : "text-slate-300 hover:bg-slate-100/10"
                 }`}
               >
                 <span>My Bets</span>
@@ -418,9 +438,9 @@ function PaperBetslipContent() {
             </div>
 
             {/* Sportsbet Style Balance Tag */}
-            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/10 text-slate-950">
+            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-900/60 text-slate-100">
               <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
-              <span className="text-xs font-black font-mono text-slate-950">
+              <span className="text-xs font-black font-mono text-slate-100">
                 ${user ? (user as any).balance?.toLocaleString() ?? "10,000" : "10,000"}
               </span>
             </div>
@@ -554,7 +574,11 @@ function PaperBetslipContent() {
             </div>
           </div>
         ) : (
-          <div className="betslip-content">
+          <div className="betslip-content flex flex-col h-full overflow-hidden">
+            <div className="p-3 bg-slate-900/50 border-b border-slate-800 shrink-0">
+              <BlackbookSearchBar inline onSelect={handleSelectSearchResult} />
+            </div>
+            <div className="flex-1 overflow-y-auto">
         {result ? (
           <div className="betslip-result">
             <CheckCircle2
@@ -636,11 +660,7 @@ function PaperBetslipContent() {
                   onClick={() => setActiveTab(key)}
                 >
                   {label}
-                  {key === "multi" && singlesBets.length >= 2 && (
-                    <span className="ml-1 text-[10px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded-full font-mono">
-                      {singlesBets.length}
-                    </span>
-                  )}
+
                 </button>
               ))}
             </div>
@@ -658,59 +678,67 @@ function PaperBetslipContent() {
                   </p>
                 </div>
               ) : (
-                <div className="betslip-multi-card bg-slate-900/90 border border-emerald-500/40 rounded-xl p-3.5 my-3 shadow-lg">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <Zap className="text-emerald-400" size={18} />
-                      <span className="font-extrabold text-sm text-slate-100">
-                        {singlesBets.length}-Leg Multi Accumulator
-                      </span>
-                    </div>
-                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold px-2.5 py-1 rounded-lg font-mono">
-                      Combined @ ${combinedMultiOdds.toFixed(2)}
-                    </span>
+                <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-sm mb-4">
+                  <div className="bg-slate-800 p-3 border-b border-slate-700 rounded-t-lg flex justify-between items-center">
+                    <div className="font-bold text-slate-100">{singlesBets.length}-Leg Multi</div>
+                    <div className="text-[17.5px] font-black text-fuchsia-200">{combinedMultiOdds.toFixed(2)}</div>
                   </div>
 
                   {/* Multi Legs List */}
-                  <div className="space-y-2 mb-3">
+                  <div className="py-1">
                     {singlesBets.map((leg, index) => {
                       const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
                       return (
-                        <div key={leg.id} className="flex items-center justify-between text-xs bg-slate-950/70 p-2.5 rounded-lg border border-slate-800">
-                          <div className="min-w-0 flex-1 pr-2">
-                            <span className="text-[10px] text-emerald-400 font-bold mr-1.5 uppercase">Leg {index + 1}</span>
-                            <span className="font-bold text-slate-200">{leg.selection}</span>
-                            <span className="text-slate-400 text-[11px] block truncate">{leg.event_name}</span>
+                        <div key={leg.id} className="flex items-center justify-between p-2 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
+                          <div className="flex items-center space-x-3 flex-1 min-w-0">
+                            <div className="w-5 h-5 rounded flex items-center justify-center border shrink-0 transition-colors bg-emerald-500 border-emerald-500 text-white">
+                              <Check size={14} />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-[15px] font-semibold text-slate-200 truncate">{leg.selection}</div>
+                              <div className="flex items-center space-x-2 text-[13px]">
+                                <span className="text-slate-400">{leg.event_name}</span>
+                                <span className="text-slate-600">•</span>
+                                <span className="text-emerald-400 font-medium">
+                                  {leg.bet_type === "place" ? "Place" : leg.bet_type === "each_way" ? "E/W" : "Win"}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <span className="font-bold text-emerald-400 shrink-0 font-mono">${legWinOdds.toFixed(2)}</span>
+                          <div className="text-[15px] font-black text-fuchsia-200 ml-4 shrink-0">
+                            {legWinOdds.toFixed(2)}
+                          </div>
                         </div>
                       );
                     })}
                   </div>
 
                   {/* Multi Stake Input */}
-                  <div className="flex items-center justify-between bg-slate-950/90 p-2.5 rounded-lg border border-slate-800 mb-3">
-                    <span className="text-xs font-semibold text-slate-300">Multi Stake</span>
-                    <div className="stake-input-wrap">
-                      <span>$</span>
-                      <input
-                        type="number"
-                        value={multiStake === 0 ? "" : multiStake}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
-                          setMultiStake(cleanNum);
-                        }}
-                      />
+                  <div className="p-3 border-t border-slate-800 bg-slate-900 flex justify-end">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
+                      <div className="relative w-24">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                        <input
+                          type="number"
+                          value={multiStake === 0 ? "" : multiStake}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                            setMultiStake(cleanNum);
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right"
+                          placeholder="0"
+                        />
+                      </div>
                     </div>
                   </div>
 
                   {/* Multi Est. Return */}
-                  <div className="flex items-center justify-between bg-emerald-950/50 border border-emerald-500/30 p-2.5 rounded-lg font-mono text-xs text-emerald-300">
-                    <span>Est. Multi Return:</span>
-                    <strong className="text-emerald-400 font-extrabold text-base">
-                      ${estMultiCollect.toFixed(2)}
-                    </strong>
+                  <div className="p-3 bg-slate-950 rounded-b-lg border-t border-slate-800 text-right">
+                    <span className="text-[13px] text-slate-400 font-medium pr-1">
+                      Total Return: ${(estMultiCollect).toFixed(2)} | Cost: ${(multiStake).toFixed(2)}
+                    </span>
                   </div>
                 </div>
               )
@@ -765,136 +793,90 @@ function PaperBetslipContent() {
                     const placeOdds = Number((1 + (winOdds - 1) * 0.25).toFixed(2));
 
                     return (
-                      <div key={bet.id} className="betslip-item">
-                        <div className="betslip-item-header">
-                          <div className="betslip-item-info">
-                            <strong className="betslip-selection">
-                              {bet.selection}
-                            </strong>
-                            <span className="betslip-event">
-                              {bet.event_name}
-                            </span>
+                      <div key={bet.id} className="p-3 mb-2 bg-slate-900 border border-slate-700 rounded-lg shadow-sm">
+                        <div className="flex justify-between items-start mb-3">
+                          <div className="flex-1 pr-2">
+                            <div className="text-[13px] text-slate-400 font-medium mb-1">{bet.event_name}</div>
+                            <div className="font-bold text-slate-100 text-[17px] leading-tight">{bet.selection}</div>
                           </div>
                           <button
-                            className="betslip-remove"
+                            className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
                             onClick={(e) => {
                               e.stopPropagation();
                               removeBet(bet.id);
                             }}
                           >
-                            <X size={14} />
+                            <X size={18} />
                           </button>
                         </div>
 
-                        {/* Racing Each-Way (E/W) Toggle */}
-                        {isRacing && (
-                          <div className="betslip-eachway-toggle my-2 flex items-center justify-between bg-slate-900/80 p-2 rounded-md border border-purple-500/20">
-                            <label
-                              htmlFor={`ew-toggle-${bet.id}`}
-                              className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-purple-300 hover:text-purple-100"
-                            >
-                              <input
-                                id={`ew-toggle-${bet.id}`}
-                                type="checkbox"
-                                checked={isEachWay}
-                                onChange={(e) => {
-                                  const nextType = e.target.checked
-                                    ? "each_way"
-                                    : "win";
-                                  updateBet(bet.id, { bet_type: nextType });
-                                }}
-                                className="rounded border-slate-700 text-purple-500 focus:ring-purple-500 accent-purple-600 cursor-pointer"
-                              />
-                              <span>Each-Way (E/W)</span>
-                            </label>
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              {isEachWay ? "2 Units (Win + Place)" : "Single Leg"}
-                            </span>
-                          </div>
-                        )}
+                        <div className="flex flex-col space-y-3">
+                          {isRacing && (
+                            <div className="flex space-x-2">
+                              {["win", "place", "each_way"].map((t) => {
+                                const isActive = bet.bet_type === t;
+                                let activeClass = "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50";
+                                if (t === "place") activeClass = "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/50";
+                                if (t === "each_way") activeClass = "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50";
 
-                        <div className="betslip-item-details">
-                          <div className="betslip-item-meta">
-                            <span className="badge badge-muted">
-                              {bet.sport.toUpperCase()}
-                            </span>
-                            <span className="badge badge-accent font-semibold">
-                              {isEachWay ? (
-                                `EACH-WAY (WIN $${winOdds.toFixed(2)} / PLACE $${placeOdds.toFixed(2)})`
-                              ) : (
-                                `${(bet.bet_type || "WIN").toUpperCase().replace("_", "-")} @ $${winOdds.toFixed(2)}`
-                              )}
-                            </span>
-                            {latestOdds && latestOdds > 1 ? (
-                              <span className="badge badge-blue">
-                                Now ${latestOdds.toFixed(2)}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="betslip-item-stake">
-                            <label>{isEachWay ? "Unit Stake" : "Stake"}</label>
-                            <div className="stake-input-wrap">
-                              <span>$</span>
-                              <input
-                                type="number"
-                                value={bet.stake === 0 ? "" : bet.stake}
-                                onChange={(e) => {
-                                  const raw = e.target.value;
-                                  const cleanNum =
-                                    raw === ""
-                                      ? 0
-                                      : Math.max(
-                                          0,
-                                          Number(raw.replace(/^0+/, "") || 0),
-                                        );
-                                  updateBet(bet.id, { stake: cleanNum });
-                                }}
-                              />
+                                return (
+                                  <button 
+                                    key={t}
+                                    onClick={() => updateBet(bet.id, { bet_type: t as any })}
+                                    className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded transition-colors ${
+                                      isActive 
+                                        ? activeClass 
+                                        : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                                    }`}
+                                  >
+                                    {t === "each_way" ? "E/W" : t.toUpperCase()}
+                                  </button>
+                                );
+                              })}
                             </div>
+                          )}
+                          
+                          <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
+                             <div className="text-[17.5px] font-black text-fuchsia-200 ml-2">{winOdds.toFixed(2)}</div>
+                             <div className="flex items-center space-x-2">
+                                <span className="text-[13px] font-bold text-slate-400 uppercase">
+                                  {isEachWay ? "Unit Stake" : "Stake"}
+                                </span>
+                                <div className="relative w-24">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                                  <input
+                                    type="number"
+                                    value={bet.stake === 0 ? "" : bet.stake}
+                                    onChange={(e) => {
+                                      const raw = e.target.value;
+                                      const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                                      updateBet(bet.id, { stake: cleanNum });
+                                    }}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                    placeholder="0"
+                                  />
+                                </div>
+                             </div>
                           </div>
+                          
+                          {isEachWay && (
+                            <div className="text-[13px] text-right text-slate-400 font-medium pr-1">Total Return: ${(unitStake * winOdds + unitStake * placeOdds).toFixed(2)} | Cost: ${(totalItemStake).toFixed(2)}</div>
+                          )}
+
+                          {issues.length > 0 ? (
+                            <div className="betslip-issues mt-2">
+                              {issues.map((issue, index) => (
+                                <div
+                                  key={`${bet.id}-${index}`}
+                                  className={`betslip-issue ${issue.tone}`}
+                                >
+                                  <AlertTriangle size={13} />
+                                  <span>{issue.message}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
-
-                        {/* Each-Way Breakdown Text */}
-                        {isEachWay && (
-                          <div className="betslip-ew-breakdown mt-2 p-2 bg-purple-950/40 border border-purple-500/30 rounded text-xs text-purple-200 flex items-center justify-between font-mono">
-                            <span>
-                              ${unitStake} Win @ ${winOdds.toFixed(2)} + ${unitStake} Place @ ${placeOdds.toFixed(2)}
-                            </span>
-                            <span className="font-bold text-emerald-400">
-                              (Total Stake: ${totalItemStake})
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Potential Collect for Individual Bet */}
-                        {bet.odds && bet.odds > 1 ? (
-                          <div className="betslip-item-collect mt-2 p-2 bg-emerald-950/40 border border-emerald-500/30 rounded text-xs text-emerald-300 flex items-center justify-between font-mono">
-                            <span className="text-[11px] text-slate-300">
-                              Est. Collect:
-                            </span>
-                            <strong className="text-emerald-400 font-bold text-sm">
-                              $
-                              {(isEachWay
-                                ? unitStake * winOdds + unitStake * placeOdds
-                                : unitStake * winOdds
-                              ).toFixed(2)}
-                            </strong>
-                          </div>
-                        ) : null}
-
-                        {issues.length > 0 ? (
-                          <div className="betslip-issues">
-                            {issues.map((issue, index) => (
-                              <div
-                                key={`${bet.id}-${index}`}
-                                className={`betslip-issue ${issue.tone}`}
-                              >
-                                <AlertTriangle size={13} />
-                                <span>{issue.message}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
                       </div>
                     );
                   })}
@@ -1041,6 +1023,7 @@ function PaperBetslipContent() {
             </div>
           </>
         )}
+        </div>
       </div>
     )}
 

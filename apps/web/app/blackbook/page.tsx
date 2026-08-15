@@ -585,10 +585,11 @@ export default function BlackbookPage() {
             </button>
           ) : (
             <button
-              className="btn btn-primary"
-              onClick={() => setShowBuilder((current) => !current)}
+              className="btn btn-primary opacity-50 cursor-not-allowed"
+              disabled
+              title="Coming soon"
             >
-              <Plus size={16} /> {showBuilder ? "Close Builder" : "Add Watch Rule"}
+              <Plus size={16} /> Add Watch Rule
             </button>
           )}
         </div>

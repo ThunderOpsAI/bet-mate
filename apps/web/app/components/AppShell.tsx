@@ -55,12 +55,12 @@ function HeaderBetslipControlInner() {
         }}
         className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
           isMyBetsActive
-            ? "bg-[#003b7a] text-white font-black"
-            : "bg-[#004899] text-white hover:bg-[#003b7a]"
+            ? "bg-emerald-700 text-white font-black"
+            : "bg-emerald-600 text-white hover:bg-emerald-700"
         }`}
         title={`Open My Bets (${activeBets.length} active)`}
       >
-        <span className="text-[9px] font-extrabold tracking-tight leading-none text-sky-100 uppercase">
+        <span className="text-[9px] font-extrabold tracking-tight leading-none text-emerald-100 uppercase">
           My Bets
         </span>
         <span className="text-xs font-black font-mono leading-none mt-0.5 text-white">
@@ -83,15 +83,15 @@ function HeaderBetslipControlInner() {
         }}
         className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
           isSlipActive
-            ? "bg-amber-300 text-slate-950 font-black shadow-inner"
-            : "bg-amber-400 text-slate-950 hover:bg-amber-300"
+            ? "bg-slate-700 text-slate-100 font-black shadow-inner"
+            : "bg-slate-800 text-slate-200 hover:bg-slate-700"
         }`}
         title={`Open Bet Slip (${bets.length} picks)`}
       >
-        <span className="text-[9px] font-extrabold tracking-tight leading-none text-slate-950 opacity-90 uppercase">
+        <span className="text-[9px] font-extrabold tracking-tight leading-none text-slate-300 opacity-90 uppercase">
           Bet Slip
         </span>
-        <span className="text-xs font-black font-mono leading-none mt-0.5 text-slate-950">
+        <span className="text-xs font-black font-mono leading-none mt-0.5 text-slate-100">
           {bets.length}
         </span>
       </button>

@@ -104,7 +104,8 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
 
   return (
     <AnimatePresence>
-      {isOpen && entity && (
+      {/* PARKED: Rule builder sheet disabled for now */}
+      {false && isOpen && entity && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -120,9 +121,9 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
           >
             <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">{entity.name}</h2>
+                <h2 className="text-xl font-bold text-gray-900">{entity?.name}</h2>
                 <span className="inline-block px-2 py-0.5 mt-1 bg-cyan-100 text-cyan-800 text-xs font-semibold rounded-full capitalize">
-                  {entity.type}
+                  {entity?.type}
                 </span>
               </div>
               <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-200 rounded-full">
