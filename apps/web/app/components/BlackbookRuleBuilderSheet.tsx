@@ -123,7 +123,7 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
             transition={{ type: "spring", damping: 25, stiffness: 200 }}
             className="w-full max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
           >
-            <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 bg-gray-50">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">{entity?.name}</h2>
                 <span className="inline-block px-2 py-0.5 mt-1 bg-cyan-100 text-cyan-800 text-xs font-semibold rounded-full capitalize">
@@ -135,7 +135,7 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto flex-1 space-y-6">
+            <div className="px-6 py-5 overflow-y-auto flex-1 space-y-6">
               {/* Notes & Rating */}
               <div className="space-y-3">
                 <div>
@@ -385,7 +385,7 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
               </div>
             </div>
 
-            <div className="p-4 pb-8 sm:pb-4 border-t border-gray-100 bg-white">
+            <div className="px-6 py-4 pb-8 sm:pb-4 border-t border-gray-100 bg-white">
               <button 
                 onClick={handleSave} 
                 disabled={saving}
