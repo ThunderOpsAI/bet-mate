@@ -12,6 +12,7 @@ import {
   Edit3,
   Flame,
   MapPin,
+  Clock,
   PencilLine,
   Plus,
   Save,
@@ -115,10 +116,8 @@ const DEFAULT_RULE: DraftRule = {
 export default function BlackbookPage() {
   const { isLoading, token, user } = useAuth();
 
-  // Tab state: "explore" | "runners" | "jockeys" | "trainers" | "combinations"
-  const [activeTab, setActiveTab] = useState<"explore" | "runners" | "jockeys" | "trainers" | "combinations">(
-    "explore"
-  );
+  // Tab state: "explore" | "list"
+  const [activeTab, setActiveTab] = useState<"explore" | "list">("list");
   
   // Sprint 1 UI Filters
   const [raceTypeFilter, setRaceTypeFilter] = useState("all");
@@ -552,7 +551,7 @@ export default function BlackbookPage() {
     );
   }
 
-  if (fetchError && activeTab === "runners") {
+  if (fetchError) {
     return (
       <div className="status-stack" style={{ padding: "2rem" }}>
         <ErrorState
@@ -566,61 +565,37 @@ export default function BlackbookPage() {
     );
   }
 
+  const runningTodayConfigs: typeof sortedConfigs = []; // Placeholder based on instructions
+  const activeAlertsConfigs = combinations;
+  const awaitingNextRaceConfigs = sortedConfigs;
+
   return (
     <ErrorBoundary sectionName="Blackbook content">
-      <div style={{ padding: 0 }}>
+      <div className="flex flex-col min-h-screen bg-slate-50 overflow-hidden">
         {/* Page Header */}
-        <div
-          className="page-header"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.75rem",
-            justifyContent: "space-between",
-            marginBottom: "1.5rem",
-            flexWrap: "wrap",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <BookOpen size={28} style={{ color: "var(--accent)" }} />
+        <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <BookOpen size={24} className="text-cyan-600" />
             <div>
-              <h1 style={{ fontSize: "1.75rem", margin: 0 }}>Blackbook Engine & Dashboard</h1>
-              <p style={{ margin: "0.35rem 0 0", color: "var(--text-muted)" }}>
+              <h1 className="text-xl font-bold m-0">Blackbook Engine & Dashboard</h1>
+              <p className="text-sm text-slate-500 m-0 mt-1">
                 Track individual runners, jockeys, trainers, or build high-ROI combinatorial partnership watchlists.
               </p>
             </div>
           </div>
-
-          {activeTab === "combinations" ? (
-            <button
-              className="btn btn-primary"
-              onClick={() => setShowComboBuilder((curr) => !curr)}
-            >
-              <Plus size={16} /> {showComboBuilder ? "Close Builder" : "Add Combination"}
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary opacity-50 cursor-not-allowed"
-              disabled
-              title="Coming soon"
-            >
-              <Plus size={16} /> Add Watch Rule
-            </button>
-          )}
-        </div>
-        
-        {/* Search Bar */}
-        <div className="mb-6 relative">
-          <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-            <Search className="text-gray-400" size={18} />
+          
+          <div className="relative">
+            <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+              <Search className="text-slate-400" size={18} />
+            </div>
+            <input
+              type="text"
+              placeholder="Search horses, jockeys, trainers..."
+              className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 bg-slate-50 focus:bg-white shadow-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-sm font-medium"
+              onFocus={() => setIsSearchOpen(true)}
+              readOnly
+            />
           </div>
-          <input
-            type="text"
-            placeholder="Search horses, jockeys, trainers..."
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-none transition-all text-sm font-medium"
-            onFocus={() => setIsSearchOpen(true)}
-            readOnly
-          />
         </div>
 
         <BlackbookSearchModal 
@@ -635,1228 +610,131 @@ export default function BlackbookPage() {
           onSave={() => void fetchConfigs()} 
         />
 
-        {/* Tab Navigation */}
-        <div
-          style={{
-            display: "flex",
-            gap: "0.5rem",
-            marginBottom: "1.5rem",
-            borderBottom: "1px solid var(--border)",
-            paddingBottom: "0.5rem",
-            overflowX: "auto",
-          }}
-        >
-          <button
+        <div className="bg-white border-b border-slate-200 px-6 flex space-x-6">
+          <button 
+            onClick={() => setActiveTab("list")}
+            className={`font-bold py-3 border-b-2 transition-colors ${activeTab === "list" ? "border-cyan-600 text-cyan-800" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          >
+            My Blackbook
+          </button>
+          <button 
             onClick={() => setActiveTab("explore")}
-            style={{
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              border: "none",
-              background: activeTab === "explore" ? "var(--accent)" : "transparent",
-              color: activeTab === "explore" ? "#000" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              transition: "all 0.15s ease",
-            }}
+            className={`font-bold py-3 border-b-2 transition-colors ${activeTab === "explore" ? "border-cyan-600 text-cyan-800" : "border-transparent text-slate-500 hover:text-slate-700"}`}
           >
-            <Flame size={16} /> Explore
-          </button>
-
-          <button
-            onClick={() => setActiveTab("runners")}
-            style={{
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              border: "none",
-              background: activeTab === "runners" ? "var(--accent)" : "transparent",
-              color: activeTab === "runners" ? "#000" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <BookOpen size={16} /> Runners ({sortedConfigs.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab("jockeys")}
-            style={{
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              border: "none",
-              background: activeTab === "jockeys" ? "var(--accent)" : "transparent",
-              color: activeTab === "jockeys" ? "#000" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <User size={16} /> Jockeys
-          </button>
-
-          <button
-            onClick={() => setActiveTab("trainers")}
-            style={{
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              border: "none",
-              background: activeTab === "trainers" ? "var(--accent)" : "transparent",
-              color: activeTab === "trainers" ? "#000" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <Award size={16} /> Trainers
-          </button>
-
-          <button
-            onClick={() => setActiveTab("combinations")}
-            style={{
-              padding: "0.6rem 1.2rem",
-              borderRadius: "8px",
-              border: "none",
-              background: activeTab === "combinations" ? "var(--accent)" : "transparent",
-              color: activeTab === "combinations" ? "#000" : "var(--text-muted)",
-              fontWeight: 700,
-              fontSize: "0.95rem",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem",
-              transition: "all 0.15s ease",
-            }}
-          >
-            <Sparkles size={16} /> Combinations ({combinations.length})
+            Explore
           </button>
         </div>
 
-        {/* Sub-Filters for Sprint 1 */}
-        <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem", flexWrap: "wrap", alignItems: "center" }}>
-          {/* Race Type Icons */}
-          <div style={{ display: "flex", gap: "0.5rem", background: "var(--surface)", padding: "0.25rem", borderRadius: "10px", border: "1px solid var(--border)" }}>
-            {[ { id: "all", label: "All" }, { id: "thoroughbred", label: "🐎 Thoroughbred" }, { id: "greyhound", label: "🐕 Greyhounds" }, { id: "harness", label: "🏇 Harness" }].map(t => (
-              <button
-                key={t.id}
-                onClick={() => setRaceTypeFilter(t.id)}
-                style={{
-                  padding: "0.4rem 0.8rem",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: raceTypeFilter === t.id ? "var(--accent)" : "transparent",
-                  color: raceTypeFilter === t.id ? "#000" : "var(--text-muted)",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Time Sub-Filters */}
-          <div style={{ display: "flex", gap: "0.5rem", background: "var(--surface)", padding: "0.25rem", borderRadius: "10px", border: "1px solid var(--border)" }}>
-            {[ { id: "all", label: "All" }, { id: "up_next", label: "Up Next" }, { id: "running_today", label: "Running Today" }].map(t => (
-              <button
-                key={t.id}
-                onClick={() => setTimeFilter(t.id)}
-                style={{
-                  padding: "0.4rem 0.8rem",
-                  borderRadius: "8px",
-                  border: "none",
-                  background: timeFilter === t.id ? "var(--bg-primary)" : "transparent",
-                  color: timeFilter === t.id ? "var(--text-primary)" : "var(--text-muted)",
-                  fontWeight: 600,
-                  fontSize: "0.85rem",
-                  cursor: "pointer",
-                  boxShadow: timeFilter === t.id ? "0 1px 3px rgba(0,0,0,0.1)" : "none"
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {message ? (
-          <div
-            className="card"
-            style={{
-              marginBottom: "1rem",
-              background: "rgba(34, 197, 94, 0.08)",
-              border: "1px solid rgba(34, 197, 94, 0.2)",
-              color: "var(--text-primary)",
-            }}
-          >
-            {message}
-          </div>
-        ) : null}
-
-        {/* TAB 0: EXPLORE */}
-        {activeTab === "explore" && (
-          <ExploreTab onAddToBlackbook={(entity) => {
-            setSearchEntity({ id: entity.name, name: entity.name, type: entity.type as "jockey" | "trainer" | "horse" });
-            setIsRuleBuilderOpen(true);
-          }} />
-        )}
-
-        {/* TAB 1: RUNNERS */}
-        {activeTab === "runners" && (
-          <>
-            <div
-              className="card"
-              style={{
-                marginBottom: "1rem",
-                background: "var(--bg-secondary)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "0.8rem" }}>
-                <PencilLine size={18} style={{ color: "var(--accent)", marginTop: "0.15rem" }} />
-                <div>
-                  <h3 style={{ margin: "0 0 0.5rem" }}>Runner Watch Rules</h3>
-                  <p style={{ margin: 0, color: "var(--text-muted)", lineHeight: 1.5 }}>
-                    Set win/place thresholds, paper bet stakes, and alert preferences for individual runners across racing and sports.
-                  </p>
+        <div className="flex-1 overflow-y-auto pb-20">
+          {activeTab === "list" ? (
+            <div className="space-y-8 py-6">
+              {/* Running Today Section */}
+              <section>
+                <div className="bg-slate-800 px-6 py-2.5 shadow-sm border-b border-slate-700">
+                  <h2 className="text-sm font-black uppercase text-white tracking-wider flex items-center gap-2 m-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Running Today ({runningTodayConfigs.length})
+                  </h2>
                 </div>
-              </div>
-            </div>
-
-            {showBuilder ? (
-              <form className="card" onSubmit={saveRule} style={{ marginBottom: "1rem" }}>
-                <h3 style={{ marginTop: 0, marginBottom: "1rem" }}>Add a watch rule</h3>
-                <div
-                  style={{
-                    display: "grid",
-                    gap: "1rem",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                  }}
-                >
-                  <div className="form-group">
-                    <label className="form-label">Runner or Team</label>
-                    <input
-                      className="form-input"
-                      value={draft.runner}
-                      onChange={(event) => setDraft({ ...draft, runner: event.target.value })}
-                      placeholder={
-                        draft.sport === "racing" ? "e.g. Swift Star" : "e.g. Melbourne Demons"
-                      }
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sport</label>
-                    <select
-                      className="form-input"
-                      value={draft.sport}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          sport: event.target.value as DraftRule["sport"],
-                          bet_type:
-                            event.target.value === "racing" || event.target.value === "golf"
-                              ? "win"
-                              : "head_to_head",
-                        })
-                      }
-                    >
-                      <option value="racing">Racing</option>
-                      <option value="afl">AFL</option>
-                      <option value="nba">NBA</option>
-                      <option value="nrl">NRL</option>
-                      <option value="soccer">Soccer</option>
-                      <option value="golf">Golf</option>
-                      <option value="mma">MMA</option>
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Bet Type</label>
-                    <select
-                      className="form-input"
-                      value={draft.bet_type}
-                      onChange={(event) => setDraft({ ...draft, bet_type: event.target.value })}
-                    >
-                      {draft.sport === "racing" || draft.sport === "golf" ? (
-                        <>
-                          <option value="win">Win</option>
-                          {draft.sport === "racing" && <option value="place">Place</option>}
-                        </>
-                      ) : (
-                        <option value="head_to_head">Head to Head</option>
-                      )}
-                    </select>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Paper Bet Stake</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={draft.stake}
-                      onChange={(event) => setDraft({ ...draft, stake: Number(event.target.value) })}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Trigger Threshold</label>
-                    <input
-                      className="form-input"
-                      type="number"
-                      min={1}
-                      max={99}
-                      step={1}
-                      value={draft.probability_threshold}
-                      onChange={(event) =>
-                        setDraft({ ...draft, probability_threshold: Number(event.target.value) })
-                      }
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Email Alerts</label>
-                    <input
-                      className="form-input"
-                      type="email"
-                      value={draft.notify_email}
-                      onChange={(event) => setDraft({ ...draft, notify_email: event.target.value })}
-                      placeholder="Optional"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">SMS Alerts</label>
-                    <input
-                      className="form-input"
-                      type="tel"
-                      value={draft.notify_phone}
-                      onChange={(event) => setDraft({ ...draft, notify_phone: event.target.value })}
-                      placeholder="Optional"
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Push Key</label>
-                    <input
-                      className="form-input"
-                      value={draft.notify_pushover_key}
-                      onChange={(event) =>
-                        setDraft({ ...draft, notify_pushover_key: event.target.value })
-                      }
-                      placeholder="Optional"
-                    />
-                  </div>
+                <div className="px-6 space-y-3 pt-4">
+                  {runningTodayConfigs.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic text-center py-4 bg-white border border-slate-200 rounded-lg">
+                      No runners scheduled for today.
+                    </div>
+                  ) : (
+                    runningTodayConfigs.map((cfg) => (
+                      <div key={cfg.runner} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex justify-between items-center">
+                        <div className="font-bold">{cfg.runner}</div>
+                      </div>
+                    ))
+                  )}
                 </div>
+              </section>
 
-                <div
-                  style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", marginTop: "0.5rem" }}
-                >
-                  <button className="btn btn-primary" type="submit" disabled={saving}>
-                    <Plus size={16} /> {saving ? "Saving..." : "Save Watch Rule"}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    type="button"
-                    onClick={() => {
-                      setDraft(DEFAULT_RULE);
-                      setShowBuilder(false);
-                    }}
-                  >
-                    Cancel
-                  </button>
+              {/* Active Alerts Section */}
+              <section>
+                <div className="bg-slate-800 px-6 py-2.5 shadow-sm border-b border-slate-700">
+                  <h2 className="text-sm font-black uppercase text-slate-200 tracking-wider m-0">
+                    Active Alerts ({activeAlertsConfigs.length})
+                  </h2>
                 </div>
-              </form>
-            ) : null}
-
-            {sortedConfigs.length === 0 ? (
-              <div
-                style={{
-                  padding: "3rem",
-                  textAlign: "center",
-                  background: "var(--surface)",
-                  borderRadius: "12px",
-                  border: "1px dashed var(--border)",
-                }}
-              >
-                <p style={{ color: "var(--muted)", fontSize: "1.1rem" }}>
-                  Your Blackbook runner watchlist is empty.
-                </p>
-                <p style={{ marginTop: "0.5rem" }}>
-                  Add a horse or team above, or browse today&apos;s races and games to save something you want to revisit.
-                </p>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                {sortedConfigs.map((cfg) => (
-                  <div
-                    key={cfg.runner}
-                    style={{
-                      background: "var(--surface)",
-                      borderRadius: "12px",
-                      padding: "1.5rem",
-                      border: "1px solid var(--border)",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: "1rem",
-                    }}
-                  >
-                    <div>
-                      <h3
-                        style={{
-                          margin: "0 0 0.5rem 0",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.5rem",
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        {cfg.runner}
-                        <span className="badge badge-accent" style={{ textTransform: "capitalize" }}>
-                          {cfg.sport}
-                        </span>
-                        <span className="badge badge-blue">{cfg.bet_type.replaceAll("_", " ")}</span>
-                      </h3>
-                      {(() => {
-                        let comboLabel = null;
-                        if (cfg.entityType === 'COMBINATION') {
-                           comboLabel = `🔗 ${cfg.runner}`;
-                        } else if (cfg.conditions) {
-                           let c = cfg.conditions;
-                           if (typeof c === 'string') {
-                              try { c = JSON.parse(c); } catch(e) {}
-                           }
-                           if (c.comboJockeyTrainer) comboLabel = `🔗 ${c.comboJockeyTrainer_jockey || 'Jockey'} + ${c.comboJockeyTrainer_trainer || 'Trainer'}`;
-                           else if (c.comboJockeyHorse) comboLabel = `🔗 ${c.comboJockeyHorse_jockey || 'Jockey'} + ${c.comboJockeyHorse_horse || 'Horse'}`;
-                           else if (c.comboTrainerTrack) comboLabel = `🔗 ${c.comboTrainerTrack_trainer || 'Trainer'} + ${c.comboTrainerTrack_track || 'Track'}`;
-                           else if (c.comboJockeyTrack) comboLabel = `🔗 ${c.comboJockeyTrack_jockey || 'Jockey'} + ${c.comboJockeyTrack_track || 'Track'}`;
-                           else if (c.comboHorseFavourite) comboLabel = `🔗 Horse + Favourite`;
-                           else if (c.comboDogBox) comboLabel = `🔗 Dog + Box ${c.comboDogBox_box || ''}`;
-                        }
-                        if (comboLabel) {
-                          return (
-                            <div style={{ marginBottom: "0.5rem" }}>
-                              <span className="badge" style={{ background: "rgba(6, 182, 212, 0.1)", color: "var(--accent)", border: "1px solid rgba(6, 182, 212, 0.2)", fontWeight: 600 }}>
-                                {comboLabel}
+                <div className="px-6 space-y-3 pt-4">
+                  {activeAlertsConfigs.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic text-center py-4 bg-white border border-slate-200 rounded-lg">
+                      No active alerts.
+                    </div>
+                  ) : (
+                    activeAlertsConfigs.map((combo) => (
+                      <div key={combo.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-lg m-0">{combo.targetName}</h3>
+                              <span className="bg-cyan-50 text-cyan-700 border border-cyan-100 text-xs font-bold px-2 py-0.5 rounded uppercase tracking-wide">
+                                {combo.combinationType.replaceAll("_", " + ")}
                               </span>
                             </div>
-                          );
-                        }
-                        return null;
-                      })()}
-                      <div
-                        style={{
-                          display: "flex",
-                          gap: "1rem",
-                          flexWrap: "wrap",
-                          color: "var(--muted)",
-                          fontSize: "0.9rem",
-                        }}
-                      >
-                        <span>
-                          <strong>Paper stake:</strong> ${cfg.stake}
-                        </span>
-                        <span>
-                          <strong>Trigger:</strong> model win chance at {cfg.probability_threshold}%
-                        </span>
-                        {cfg.enabled ? (
-                          <span
-                            style={{
-                              color: "var(--green)",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.25rem",
-                            }}
-                          >
-                            <CheckCircle2 size={14} /> Active
-                          </span>
-                        ) : (
-                          <span
-                            style={{
-                              color: "var(--red)",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.25rem",
-                            }}
-                          >
-                            <ShieldAlert size={14} /> Paused
-                          </span>
-                        )}
-                      </div>
-                      {(cfg.notify_email || cfg.notify_phone || cfg.notify_pushover_key) && (
-                        <div
-                          style={{
-                            marginTop: "0.75rem",
-                            display: "flex",
-                            gap: "0.5rem",
-                            alignItems: "center",
-                            fontSize: "0.85rem",
-                            color: "var(--muted)",
-                          }}
-                        >
-                          <Bell size={14} />
-                          Notifications:
-                          {[
-                            cfg.notify_phone ? "SMS" : null,
-                            cfg.notify_email ? "Email" : null,
-                            cfg.notify_pushover_key ? "Push" : null,
-                          ]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </div>
-                      )}
-
-                      {/* Notes & Rating */}
-                      <div style={{ width: "100%", marginTop: "0.5rem", paddingTop: "0.5rem", borderTop: "1px dashed var(--border)" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-                              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>Notes</span>
-                              {!editingRunnerNotesId && (
-                                <button
-                                  onClick={() => {
-                                    setEditingRunnerNotesId(cfg.runner);
-                                    setDraftRunnerNotes(cfg.notes || "");
-                                  }}
-                                  className="text-cyan-600 hover:text-cyan-700 p-1 rounded hover:bg-cyan-50"
-                                >
-                                  <Edit3 size={12} />
-                                </button>
-                              )}
+                            <div className="flex gap-4 text-sm text-slate-500 mt-2">
+                              {combo.jockeyName && <span className="flex items-center gap-1"><User size={14} className="text-cyan-600"/> {combo.jockeyName}</span>}
+                              {combo.trainerName && <span className="flex items-center gap-1"><Award size={14} className="text-cyan-600"/> {combo.trainerName}</span>}
+                              {combo.horseName && <span className="flex items-center gap-1"><Activity size={14} className="text-cyan-600"/> {combo.horseName}</span>}
                             </div>
-                            {editingRunnerNotesId === cfg.runner ? (
-                              <div style={{ display: "flex", gap: "0.5rem", flexDirection: "column" }}>
-                                <textarea
-                                  className="form-input text-sm"
-                                  rows={2}
-                                  value={draftRunnerNotes}
-                                  onChange={(e) => setDraftRunnerNotes(e.target.value)}
-                                  maxLength={150}
-                                />
-                                <div style={{ display: "flex", gap: "0.5rem" }}>
-                                  <button onClick={() => void saveRunnerNotes(cfg.runner)} className="btn btn-primary" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Save</button>
-                                  <button onClick={() => setEditingRunnerNotesId(null)} className="btn btn-secondary" style={{ padding: "0.2rem 0.5rem", fontSize: "0.8rem" }}>Cancel</button>
-                                </div>
-                              </div>
-                            ) : (
-                              <p style={{ margin: 0, fontSize: "0.85rem", color: cfg.notes ? "var(--text-primary)" : "var(--text-muted)", fontStyle: cfg.notes ? "normal" : "italic" }}>
-                                {cfg.notes || "No notes..."}
-                              </p>
-                            )}
                           </div>
-                          
-                          <div style={{ display: "flex", gap: "2px", marginLeft: "1rem" }}>
-                            {[1, 2, 3, 4, 5].map(star => (
-                              <button key={star} onClick={() => updateRunnerRating(cfg.runner, star)}>
-                                <Star size={16} className={star <= (cfg.rating || 0) ? "fill-yellow-400 text-yellow-400" : "text-gray-300"} />
-                              </button>
-                            ))}
-                          </div>
+                          <button onClick={() => deleteCombination(combo.id)} className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50">
+                            <Trash2 size={16} />
+                          </button>
                         </div>
                       </div>
+                    ))
+                  )}
+                </div>
+              </section>
+              
+              {/* Awaiting Next Race Section */}
+              <section>
+                <div className="bg-slate-800 px-6 py-2.5 shadow-sm border-b border-slate-700">
+                  <h2 className="text-sm font-black uppercase text-slate-300 tracking-wider flex items-center gap-1 m-0">
+                    <Clock size={14}/> Awaiting Next Race ({awaitingNextRaceConfigs.length})
+                  </h2>
+                </div>
+                <div className="px-6 space-y-3 pt-4">
+                  {awaitingNextRaceConfigs.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic text-center py-4 bg-white border border-slate-200 rounded-lg">
+                      No awaiting configs.
                     </div>
-
-                    <div>
-                      <button
-                        className="btn btn-outline"
-                        style={{ color: "var(--red)", borderColor: "var(--red)" }}
-                        onClick={() => removeConfig(cfg.runner)}
-                        title="Remove from Blackbook"
-                      >
-                        <Trash2 size={16} /> Remove
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* TAB 2: JOCKEYS */}
-        {activeTab === "jockeys" && (
-          <div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-            <User size={40} style={{ color: "var(--accent)", margin: "0 auto 1rem" }} />
-            <h3>Jockey Tracking Engine</h3>
-            <p style={{ color: "var(--text-muted)", maxWidth: "500px", margin: "0.5rem auto 1.5rem" }}>
-              Track individual jockey performance, metro strike rates, and gear switch updates. Combine jockeys with trainers or tracks in the Combinations tab for multi-entity alerts.
-            </p>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setActiveTab("combinations");
-                setComboDraft((c) => ({ ...c, combinationType: "JOCKEY_TRAINER" }));
-                setShowComboBuilder(true);
-              }}
-            >
-              <Plus size={16} /> Create Jockey + Trainer Combo
-            </button>
-          </div>
-        )}
-
-        {/* TAB 3: TRAINERS */}
-        {activeTab === "trainers" && (
-          <div className="card" style={{ textAlign: "center", padding: "3rem" }}>
-            <Award size={40} style={{ color: "var(--accent)", margin: "0 auto 1rem" }} />
-            <h3>Trainer Tracking Engine</h3>
-            <p style={{ color: "var(--text-muted)", maxWidth: "500px", margin: "0.5rem auto 1.5rem" }}>
-              Monitor trainer stable forms, 12-month ROI streaks, and city carnival runners. Save trainer partnerships with key jockeys or horses in the Combinations engine.
-            </p>
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                setActiveTab("combinations");
-                setComboDraft((c) => ({ ...c, combinationType: "TRAINER_HORSE" }));
-                setShowComboBuilder(true);
-              }}
-            >
-              <Plus size={16} /> Create Trainer + Horse Combo
-            </button>
-          </div>
-        )}
-
-        {/* TAB 4: COMBINATIONS */}
-        {activeTab === "combinations" && (
-          <>
-            {/* Header info box */}
-            <div
-              className="card"
-              style={{
-                marginBottom: "1rem",
-                background: "rgba(6, 182, 212, 0.05)",
-                border: "1px solid rgba(6, 182, 212, 0.2)",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "flex-start", gap: "0.8rem" }}>
-                <Sparkles size={20} style={{ color: "var(--accent)", marginTop: "0.15rem" }} />
-                <div>
-                  <h3 style={{ margin: "0 0 0.4rem" }}>Combinatorial Blackbook Engine</h3>
-                  <p style={{ margin: 0, color: "var(--text-muted)", lineHeight: 1.5, fontSize: "0.92rem" }}>
-                    Monitor specific entity partnerships such as Jockey + Trainer synergies, Trainer + Horse combos, or Jockey + Track Specialists. Track real-time Metro Strike Rates %, 12-Month ROI %, and receive instant notifications when scheduled race entries lock in.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Builder Form */}
-            {showComboBuilder && (
-              <form className="card" onSubmit={saveCombination} style={{ marginBottom: "1.5rem" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
-                  <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                    <Plus size={18} style={{ color: "var(--accent)" }} /> Add Entity Partnership Combination
-                  </h3>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowComboBuilder(false)}
-                    style={{ padding: "0.3rem 0.6rem" }}
-                  >
-                    <X size={16} />
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gap: "1rem",
-                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  }}
-                >
-                  <div className="form-group">
-                    <label className="form-label">Combination Type</label>
-                    <select
-                      className="form-input"
-                      value={comboDraft.combinationType}
-                      onChange={(e) => setComboDraft({ ...comboDraft, combinationType: e.target.value })}
-                    >
-                      <option value="JOCKEY_TRAINER">Jockey + Trainer Partnership</option>
-                      <option value="TRAINER_HORSE">Trainer + Horse Combo</option>
-                      <option value="JOCKEY_TRACK">Jockey + Track Specialist</option>
-                      <option value="HORSE_TRACK">Horse + Track Specialist</option>
-                      <option value="CUSTOM">Custom Entity Partnership</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Partnership Title (Optional)</label>
-                    <input
-                      className="form-input"
-                      value={comboDraft.targetName}
-                      onChange={(e) => setComboDraft({ ...comboDraft, targetName: e.target.value })}
-                      placeholder="e.g. J. McDonald & C. Waller"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Jockey Name</label>
-                    <input
-                      className="form-input"
-                      value={comboDraft.jockeyName}
-                      onChange={(e) => setComboDraft({ ...comboDraft, jockeyName: e.target.value })}
-                      placeholder="e.g. J. McDonald"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Trainer Name</label>
-                    <input
-                      className="form-input"
-                      value={comboDraft.trainerName}
-                      onChange={(e) => setComboDraft({ ...comboDraft, trainerName: e.target.value })}
-                      placeholder="e.g. C. Waller"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Horse Name</label>
-                    <input
-                      className="form-input"
-                      value={comboDraft.horseName}
-                      onChange={(e) => setComboDraft({ ...comboDraft, horseName: e.target.value })}
-                      placeholder="e.g. Verry Elleegant"
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label className="form-label">Track / Venue</label>
-                    <TrackPicker
-                      value={comboDraft.trackName}
-                      onChange={(val) => setComboDraft({ ...comboDraft, trackName: val })}
-                      placeholder="e.g. Flemington"
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group" style={{ marginTop: "1rem" }}>
-                  <label className="form-label">Custom Notes & Insights</label>
-                  <textarea
-                    className="form-input"
-                    rows={2}
-                    value={comboDraft.notes}
-                    onChange={(e) => setComboDraft({ ...comboDraft, notes: e.target.value })}
-                    placeholder="e.g. Lethal combination on Heavy 8+ tracks in Sydney metro races."
-                  />
-                </div>
-
-                <div style={{ marginTop: "1rem", display: "flex", gap: "1.5rem", flexWrap: "wrap" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={comboDraft.emailAlerts}
-                      onChange={(e) => setComboDraft({ ...comboDraft, emailAlerts: e.target.checked })}
-                    />
-                    Email Alerts
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={comboDraft.smsAlerts}
-                      onChange={(e) => setComboDraft({ ...comboDraft, smsAlerts: e.target.checked })}
-                    />
-                    SMS Alerts
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
-                    <input
-                      type="checkbox"
-                      checked={comboDraft.pushAlerts}
-                      onChange={(e) => setComboDraft({ ...comboDraft, pushAlerts: e.target.checked })}
-                    />
-                    Push Notifications
-                  </label>
-                </div>
-
-                <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem" }}>
-                  <button className="btn btn-primary" type="submit" disabled={savingCombo}>
-                    <Plus size={16} /> {savingCombo ? "Saving..." : "Save Partnership Combination"}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
-                    type="button"
-                    onClick={() => setShowComboBuilder(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Error state */}
-            {combosError && (
-              <div className="status-stack" style={{ padding: "1rem 0" }}>
-                <ErrorState
-                  title="Combinations Error"
-                  message={combosError}
-                  tone="danger"
-                  actionLabel="Try again"
-                  onAction={() => void fetchCombinations()}
-                />
-              </div>
-            )}
-
-            {/* Empty state — Zero tolerance for synthetic mock fallbacks */}
-            {!combosLoading && combinations.length === 0 && (
-              <div
-                style={{
-                  padding: "3.5rem 2rem",
-                  textAlign: "center",
-                  background: "var(--surface)",
-                  borderRadius: "16px",
-                  border: "1px dashed var(--border)",
-                }}
-              >
-                <Sparkles size={44} style={{ color: "var(--accent)", margin: "0 auto 1rem", opacity: 0.8 }} />
-                <h3 style={{ fontSize: "1.25rem", fontWeight: 700, margin: "0 0 0.5rem" }}>
-                  No Combination Watchlists Saved
-                </h3>
-                <p style={{ color: "var(--text-muted)", maxWidth: "480px", margin: "0 auto 1.5rem", lineHeight: 1.6 }}>
-                  Create your first Jockey+Trainer partnership, Trainer+Horse synergy, or Track Specialist combo to automatically track Metro Strike Rates and upcoming scheduled race entries.
-                </p>
-                <button
-                  className="btn btn-primary"
-                  onClick={() => setShowComboBuilder(true)}
-                  style={{ padding: "0.7rem 1.4rem" }}
-                >
-                  <Plus size={16} /> Create First Combination
-                </button>
-              </div>
-            )}
-
-            {/* Combination Cards List */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-              {combinations.map((combo) => {
-                const prefs = combo.alertPreferences || {};
-                const isEditingNotes = editingComboNotesId === combo.id;
-
-                return (
-                  <div
-                    key={combo.id}
-                    className="card"
-                    style={{
-                      background: "var(--surface)",
-                      borderRadius: "16px",
-                      padding: "1.5rem",
-                      border: "1px solid var(--border)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "1.25rem",
-                    }}
-                  >
-                    {/* Top Row: Title, Combo Badge, Metrics */}
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "flex-start",
-                        flexWrap: "wrap",
-                        gap: "1rem",
-                      }}
-                    >
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
-                          <h3 style={{ margin: 0, fontSize: "1.3rem", fontWeight: 800 }}>
-                            {combo.targetName}
+                  ) : (
+                    awaitingNextRaceConfigs.map((cfg) => (
+                      <div key={cfg.runner} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                          <h3 className="font-bold text-lg m-0 flex items-center gap-2">
+                            {cfg.runner}
+                            <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-0.5 rounded capitalize">
+                              {cfg.sport}
+                            </span>
                           </h3>
-                          <span
-                            className="badge badge-accent"
-                            style={{
-                              fontSize: "0.75rem",
-                              fontWeight: 700,
-                              textTransform: "uppercase",
-                              letterSpacing: "0.5px",
-                            }}
-                          >
-                            {combo.combinationType.replaceAll("_", " + ")}
-                          </span>
-                        </div>
-
-                        {/* Entities list */}
-                        <div
-                          style={{
-                            display: "flex",
-                            gap: "1.25rem",
-                            flexWrap: "wrap",
-                            marginTop: "0.6rem",
-                            fontSize: "0.88rem",
-                            color: "var(--text-muted)",
-                          }}
-                        >
-                          {combo.jockeyName && (
-                            <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                              <User size={14} style={{ color: "var(--accent)" }} /> Jockey: <strong>{combo.jockeyName}</strong>
-                            </span>
-                          )}
-                          {combo.trainerName && (
-                            <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                              <Award size={14} style={{ color: "var(--accent)" }} /> Trainer: <strong>{combo.trainerName}</strong>
-                            </span>
-                          )}
-                          {combo.horseName && (
-                            <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                              <Activity size={14} style={{ color: "var(--accent)" }} /> Horse: <strong>{combo.horseName}</strong>
-                            </span>
-                          )}
-                          {combo.trackName && (
-                            <span style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                              <MapPin size={14} style={{ color: "var(--accent)" }} /> Track: <strong>{combo.trackName}</strong>
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Stat Pills */}
-                      <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                        <div
-                          style={{
-                            background: "rgba(6, 182, 212, 0.1)",
-                            border: "1px solid rgba(6, 182, 212, 0.3)",
-                            borderRadius: "10px",
-                            padding: "0.5rem 0.85rem",
-                            textAlign: "center",
-                          }}
-                        >
-                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-                            Metro Strike Rate
-                          </div>
-                          <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "var(--accent)", display: "flex", alignItems: "center", gap: "0.25rem", justifyContent: "center" }}>
-                            <Flame size={15} /> {combo.metroStrikeRate}%
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            background: "rgba(34, 197, 94, 0.1)",
-                            border: "1px solid rgba(34, 197, 94, 0.3)",
-                            borderRadius: "10px",
-                            padding: "0.5rem 0.85rem",
-                            textAlign: "center",
-                          }}
-                        >
-                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>
-                            12-Month ROI
-                          </div>
-                          <div style={{ fontSize: "1.15rem", fontWeight: 800, color: "#22c55e", display: "flex", alignItems: "center", gap: "0.25rem", justifyContent: "center" }}>
-                            +{combo.roi12Month}%
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Middle Row: Alert Toggles & Custom Notes */}
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                        gap: "1rem",
-                        paddingTop: "0.75rem",
-                        borderTop: "1px solid var(--border)",
-                      }}
-                    >
-                      {/* Active Alert Toggles */}
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "0.82rem",
-                            fontWeight: 700,
-                            color: "var(--text-muted)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.5px",
-                            marginBottom: "0.6rem",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.4rem",
-                          }}
-                        >
-                          <Bell size={14} style={{ color: "var(--accent)" }} /> Alert Notification Preferences
-                        </div>
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                          <button
-                            type="button"
-                            onClick={() => toggleAlertPreference(combo.id, "email")}
-                            style={{
-                              padding: "0.4rem 0.75rem",
-                              borderRadius: "8px",
-                              border: prefs.email ? "1px solid rgba(34, 197, 94, 0.5)" : "1px solid var(--border)",
-                              background: prefs.email ? "rgba(34, 197, 94, 0.12)" : "rgba(255,255,255,0.03)",
-                              color: prefs.email ? "#22c55e" : "var(--text-muted)",
-                              fontSize: "0.82rem",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.35rem",
-                            }}
-                          >
-                            <CheckCircle2 size={13} style={{ opacity: prefs.email ? 1 : 0.4 }} /> Email
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => toggleAlertPreference(combo.id, "sms")}
-                            style={{
-                              padding: "0.4rem 0.75rem",
-                              borderRadius: "8px",
-                              border: prefs.sms ? "1px solid rgba(34, 197, 94, 0.5)" : "1px solid var(--border)",
-                              background: prefs.sms ? "rgba(34, 197, 94, 0.12)" : "rgba(255,255,255,0.03)",
-                              color: prefs.sms ? "#22c55e" : "var(--text-muted)",
-                              fontSize: "0.82rem",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.35rem",
-                            }}
-                          >
-                            <CheckCircle2 size={13} style={{ opacity: prefs.sms ? 1 : 0.4 }} /> SMS
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => toggleAlertPreference(combo.id, "push")}
-                            style={{
-                              padding: "0.4rem 0.75rem",
-                              borderRadius: "8px",
-                              border: prefs.push ? "1px solid rgba(34, 197, 94, 0.5)" : "1px solid var(--border)",
-                              background: prefs.push ? "rgba(34, 197, 94, 0.12)" : "rgba(255,255,255,0.03)",
-                              color: prefs.push ? "#22c55e" : "var(--text-muted)",
-                              fontSize: "0.82rem",
-                              fontWeight: 600,
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "0.35rem",
-                            }}
-                          >
-                            <CheckCircle2 size={13} style={{ opacity: prefs.push ? 1 : 0.4 }} /> Push
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => toggleAlertPreference(combo.id, "enabled")}
-                            style={{
-                              padding: "0.4rem 0.75rem",
-                              borderRadius: "8px",
-                              border: prefs.enabled ? "1px solid rgba(6, 182, 212, 0.5)" : "1px solid rgba(239, 68, 68, 0.5)",
-                              background: prefs.enabled ? "rgba(6, 182, 212, 0.12)" : "rgba(239, 68, 68, 0.12)",
-                              color: prefs.enabled ? "var(--accent)" : "#ef4444",
-                              fontSize: "0.82rem",
-                              fontWeight: 700,
-                              cursor: "pointer",
-                            }}
-                          >
-                            {prefs.enabled ? "Trigger Active" : "Trigger Muted"}
+                          <button onClick={() => removeConfig(cfg.runner)} className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50">
+                            <Trash2 size={16} />
                           </button>
                         </div>
-                      </div>
-
-                      {/* Custom Notes */}
-                      <div>
-                        <div
-                          style={{
-                            fontSize: "0.82rem",
-                            fontWeight: 700,
-                            color: "var(--text-muted)",
-                            textTransform: "uppercase",
-                            letterSpacing: "0.5px",
-                            marginBottom: "0.6rem",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                          }}
-                        >
-                          <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                            <PencilLine size={14} style={{ color: "var(--accent)" }} /> Custom Notes & Insights
-                          </span>
-                          {!isEditingNotes && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingComboNotesId(combo.id);
-                                setDraftComboNotes(combo.notes || "");
-                              }}
-                              style={{
-                                background: "none",
-                                border: "none",
-                                color: "var(--accent)",
-                                cursor: "pointer",
-                                fontSize: "0.8rem",
-                                display: "flex",
-                                alignItems: "center",
-                                gap: "0.25rem",
-                              }}
-                            >
-                              <Edit3 size={13} /> Edit
-                            </button>
-                          )}
+                        <div className="flex gap-4 text-sm text-slate-500">
+                          <span><strong>Paper stake:</strong> ${cfg.stake}</span>
+                          <span><strong>Trigger:</strong> win chance at {cfg.probability_threshold}%</span>
                         </div>
-
-                        {isEditingNotes ? (
-                          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                            <textarea
-                              className="form-input"
-                              rows={2}
-                              value={draftComboNotes}
-                              onChange={(e) => setDraftComboNotes(e.target.value)}
-                              placeholder="Add specific notes on this partnership..."
-                            />
-                            <div style={{ display: "flex", gap: "0.5rem" }}>
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem" }}
-                                onClick={() => void saveUpdatedNotes(combo.id)}
-                              >
-                                <Save size={13} /> Save Note
-                              </button>
-                              <button
-                                type="button"
-                                className="btn btn-secondary"
-                                style={{ padding: "0.3rem 0.75rem", fontSize: "0.82rem" }}
-                                onClick={() => setEditingComboNotesId(null)}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <p style={{ margin: 0, fontSize: "0.9rem", color: combo.notes ? "var(--text-primary)" : "var(--text-muted)", fontStyle: combo.notes ? "normal" : "italic" }}>
-                            {combo.notes || "No custom notes added for this combination yet."}
-                          </p>
-                        )}
                       </div>
-                    </div>
-
-                    {/* Bottom Row: Upcoming Scheduled Race Cards */}
-                    <div
-                      style={{
-                        paddingTop: "0.85rem",
-                        borderTop: "1px solid var(--border)",
-                      }}
-                    >
-                      <div
-                        style={{
-                          fontSize: "0.85rem",
-                          fontWeight: 700,
-                          color: "var(--text-muted)",
-                          textTransform: "uppercase",
-                          letterSpacing: "0.5px",
-                          marginBottom: "0.75rem",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "0.4rem",
-                        }}
-                      >
-                        <Calendar size={14} style={{ color: "var(--accent)" }} /> Upcoming Scheduled Race Cards
-                      </div>
-
-                      {combo.upcomingRaces && combo.upcomingRaces.length > 0 ? (
-                        <div
-                          style={{
-                            display: "grid",
-                            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                            gap: "0.75rem",
-                          }}
-                        >
-                          {combo.upcomingRaces.map((race) => (
-                            <div
-                              key={`${race.raceId}_${race.horseName}`}
-                              style={{
-                                background: "rgba(255,255,255,0.03)",
-                                border: "1px solid var(--border)",
-                                borderRadius: "10px",
-                                padding: "0.85rem",
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: "0.35rem",
-                              }}
-                            >
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                <span style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--accent)" }}>
-                                  {race.venue} R{race.raceNumber}
-                                </span>
-                                {race.barrier && (
-                                  <span className="badge badge-blue" style={{ fontSize: "0.7rem" }}>
-                                    Box {race.barrier}
-                                  </span>
-                                )}
-                              </div>
-                              <div style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-                                {race.horseName}
-                              </div>
-                              <div style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                                {race.jockeyName ? `Jockey: ${race.jockeyName}` : null}
-                                {race.jockeyName && race.trainerName ? " | " : null}
-                                {race.trainerName ? `Trainer: ${race.trainerName}` : null}
-                              </div>
-                              <div style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "0.2rem" }}>
-                                Start Time: {new Date(race.startTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                              </div>
-                              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", marginTop: "0.2rem", flexWrap: "wrap" }}>
-                                {race.betfairOdds && (
-                                  <button className="badge" style={{ background: "var(--accent)", color: "white", border: "none", cursor: "pointer", fontWeight: 700 }}>
-                                    ${race.betfairOdds.toFixed(2)}
-                                  </button>
-                                )}
-                                {race.isValue && (
-                                  <span className="badge" style={{ background: "rgba(34, 197, 94, 0.1)", color: "#22c55e", borderColor: "rgba(34, 197, 94, 0.2)" }}>
-                                    ⚡ Value
-                                  </span>
-                                )}
-                                {race.winProbability && (
-                                  <span className="badge badge-outline">
-                                    {race.winProbability.toFixed(1)}% ML
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div
-                          style={{
-                            padding: "0.85rem",
-                            background: "rgba(255,255,255,0.02)",
-                            borderRadius: "8px",
-                            border: "1px solid var(--border)",
-                            color: "var(--text-muted)",
-                            fontSize: "0.85rem",
-                            fontStyle: "italic",
-                          }}
-                        >
-                          No scheduled race entries found matching this exact combination today.
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer Row: Delete Action */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: "0.5rem" }}>
-                      <button
-                        className="btn btn-outline"
-                        style={{ color: "var(--red)", borderColor: "rgba(239, 68, 68, 0.4)", fontSize: "0.85rem", padding: "0.4rem 0.85rem" }}
-                        onClick={() => void deleteCombination(combo.id)}
-                      >
-                        <Trash2 size={15} /> Delete Combination
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
+                    ))
+                  )}
+                </div>
+              </section>
             </div>
-          </>
-        )}
+          ) : (
+            <div className="p-6">
+              <ExploreTab onAddToBlackbook={(entity) => {
+                setSearchEntity({ id: entity.name, name: entity.name, type: entity.type as "jockey" | "trainer" | "horse" });
+                setIsRuleBuilderOpen(true);
+              }} />
+            </div>
+          )}
+        </div>
       </div>
     </ErrorBoundary>
   );
