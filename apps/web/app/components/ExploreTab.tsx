@@ -24,6 +24,7 @@ type PickCard = {
   betfairOdds: number;
   isValue: boolean;
   edgePercent?: number;
+  last5?: string;
 };
 
 type Leader = {
@@ -32,6 +33,7 @@ type Leader = {
   raceCount: number;
   venues: string[];
   roi?: number | null;
+  last5?: string;
 };
 
 const containerVariants = {
@@ -119,9 +121,14 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
         <div className="pr-16">
           <div className="flex justify-between items-start mb-2">
             <h4 className="font-bold text-lg text-slate-800 leading-tight">{pick.horseName}</h4>
+            {pick.isValue && (
+              <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 border border-emerald-200">
+                ⚡ {pick.edgePercent ? `+${pick.edgePercent}% Edge` : 'VALUE'}
+              </span>
+            )}
           </div>
           <p className="text-sm font-medium text-slate-500 mb-2">{pick.venue} • R{pick.raceNumber}</p>
-          <div className="text-xs font-semibold text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded">Form: Awaiting Data Feed</div>
+          <div className="text-xs font-semibold text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded">Form: {pick.last5 || "Awaiting Data Feed"}</div>
         </div>
         
         <div className="flex items-end justify-between mt-4">

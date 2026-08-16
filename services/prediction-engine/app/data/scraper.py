@@ -488,6 +488,7 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
             metadata = runner.get("metadata", {})
             jockey_name = metadata.get("JOCKEY_NAME")
             trainer_name = metadata.get("TRAINER_NAME")
+            form_string = metadata.get("FORM", "")
 
             horses.append({
                 "horse_id": selection_id or f"bf_{market_id}_{idx}",
@@ -502,6 +503,8 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
                 "betfair_implied_prob": round(implied_prob, 4),
                 "jockey_name": jockey_name,
                 "trainer_name": trainer_name,
+                "form_string": form_string,
+                "event_type_id": market.get("eventType", {}).get("id", "7"),
                 "meeting_type": "unknown",
                 "meeting_region": "",
                 "meeting_date": melbourne_date_string(start_time or None),

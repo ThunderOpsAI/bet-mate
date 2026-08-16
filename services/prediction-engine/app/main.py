@@ -627,7 +627,7 @@ def blackbook_running_today(
             LOGGER.error("Failed to fetch user blackbook items: %s", exc)
 
     try:
-        races = racing_scraper.fetch_today_races()
+        races = racing_scraper.fetch_today_races(race_type="ALL")
     except Exception as exc:
         LOGGER.error("Failed to fetch races for blackbook running today: %s", exc)
         return []
@@ -668,7 +668,8 @@ def blackbook_running_today(
                 "mlFairOdds": fair_odds,
                 "isValue": is_value,
                 "winProbability": round(win_prob * 100, 2),
-                "last5": h_dict.get("recent_form_str", "") or h_dict.get("last_5", "") or "x-x-x-x-x"
+                "last5": h_dict.get("form_string", "") or h_dict.get("recent_form_str", "") or h_dict.get("last_5", ""),
+                "eventTypeId": h_dict.get("event_type_id", "7")
             }
             
             if resolved_user_id:
@@ -787,8 +788,15 @@ def explore_hot_picks():
     runners = blackbook_running_today()
     if not runners:
         return []
+    
     runners_sorted = sorted(runners, key=lambda x: x.get("winProbability", 0), reverse=True)
-    return runners_sorted[:50]
+    
+    # 30 Thoroughbreds (7), 10 Greyhounds (4339), 10 Harness (4337)
+    tb = [r for r in runners_sorted if r.get("eventTypeId") == "7"]
+    grey = [r for r in runners_sorted if r.get("eventTypeId") == "4339"]
+    harness = [r for r in runners_sorted if r.get("eventTypeId") == "4337"]
+    
+    return tb[:30] + grey[:10] + harness[:10]
 
 @app.get("/explore/value-plays")
 def explore_value_plays():
