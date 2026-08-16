@@ -681,9 +681,9 @@ def blackbook_running_today(
                     is_match = False
                     if e_type == "RUNNER" and t_name in runner_obj["horseName"].lower():
                         is_match = True
-                    elif e_type == "JOCKEY" and t_name in h_dict.get("jockey_name", "").lower():
+                    elif e_type == "JOCKEY" and t_name in (h_dict.get("jockey_name") or "").lower():
                         is_match = True
-                    elif e_type == "TRAINER" and t_name in h_dict.get("trainer_name", "").lower():
+                    elif e_type == "TRAINER" and t_name in (h_dict.get("trainer_name") or "").lower():
                         is_match = True
                         
                     if is_match:
@@ -709,8 +709,12 @@ def blackbook_running_today(
 
 @app.get("/blackbook/search")
 def blackbook_search(q: str = ""):
-    q = q.strip().lower()
-    if not q:
+    import re
+    def norm(s: str) -> str:
+        return re.sub(r'[^a-z0-9]', '', s.lower())
+        
+    nq = norm(q)
+    if not nq:
         return {"horses": [], "jockeys": [], "trainers": []}
         
     try:
@@ -718,9 +722,7 @@ def blackbook_search(q: str = ""):
     except Exception:
         return {"horses": [], "jockeys": [], "trainers": []}
         
-    horses = []
-    jockeys = []
-    trainers = []
+    results = []
     
     for race_dict in races:
         venue = race_dict.get("venue", "Unknown")
@@ -732,37 +734,50 @@ def blackbook_search(q: str = ""):
             jockey_name = h_dict.get("jockey_name", "")
             trainer_name = h_dict.get("trainer_name", "")
             
-            if q in horse_name.lower():
-                horses.append({
+            if horse_name and nq in norm(horse_name):
+                results.append({
+                    "id": f"horse_{horse_name}_{venue}_{race_number}",
                     "name": horse_name,
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "entityType": "horse"
+                    "type": "horse"
                 })
                 
-            if jockey_name and q in jockey_name.lower():
-                jockeys.append({
+            if jockey_name and nq in norm(jockey_name):
+                results.append({
+                    "id": f"jockey_{jockey_name}_{venue}_{race_number}",
                     "name": jockey_name,
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "entityType": "jockey"
+                    "type": "jockey"
                 })
                 
-            if trainer_name and q in trainer_name.lower():
-                trainers.append({
+            if trainer_name and nq in norm(trainer_name):
+                results.append({
+                    "id": f"trainer_{trainer_name}_{venue}_{race_number}",
                     "name": trainer_name,
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "entityType": "trainer"
+                    "type": "trainer"
                 })
                 
+    # Deduplicate results by type and name for jockeys and trainers
+    seen = set()
+    deduped_results = []
+    for r in results:
+        key = f"{r['type']}_{r['name']}"
+        if r['type'] in ('jockey', 'trainer'):
+            if key not in seen:
+                seen.add(key)
+                deduped_results.append(r)
+        else:
+            deduped_results.append(r)
+            
     return {
-        "horses": horses,
-        "jockeys": jockeys,
-        "trainers": trainers
+        "results": deduped_results
     }
 
 
@@ -773,7 +788,7 @@ def explore_hot_picks():
     if not runners:
         return []
     runners_sorted = sorted(runners, key=lambda x: x.get("winProbability", 0), reverse=True)
-    return runners_sorted[:10]
+    return runners_sorted[:50]
 
 @app.get("/explore/value-plays")
 def explore_value_plays():
@@ -787,7 +802,7 @@ def explore_value_plays():
         ml = float(r.get("mlFairOdds") or 999)
         return bf / ml if ml > 0 else 0
     value_runners_sorted = sorted(value_runners, key=edge, reverse=True)
-    return value_runners_sorted[:10]
+    return value_runners_sorted[:50]
 
 @app.get("/explore/top-jockeys")
 def explore_top_jockeys():
@@ -811,7 +826,7 @@ def explore_top_jockeys():
     for r in result:
         r["venues"] = list(r["venues"])
     result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:20]
+    return result_sorted[:50]
 
 @app.get("/explore/top-trainers")
 def explore_top_trainers():
@@ -835,7 +850,7 @@ def explore_top_trainers():
     for r in result:
         r["venues"] = list(r["venues"])
     result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:20]
+    return result_sorted[:50]
 
 
 @app.get("/api/strategy-profiles")

@@ -117,7 +117,7 @@ function PaperBetslipContent() {
   const settledBets = useMemo(() => {
     return combinedActiveBets.filter((b) => b.status === "won" || b.status === "lost" || b.status === "settled");
   }, [combinedActiveBets]);
-  const [multiStake, setMultiStake] = useState<number>(10);
+  const [multiStake, setMultiStake] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<
     "singles" | "multi" | "exotics" | "quaddie" | "sgm"
   >("singles");
@@ -360,7 +360,7 @@ function PaperBetslipContent() {
       if (res.failed === 0) {
         setIsBetslipOpen(false);
       }
-    }, 3000);
+    }, 500);
   };
 
   const handleClearBets = () => {

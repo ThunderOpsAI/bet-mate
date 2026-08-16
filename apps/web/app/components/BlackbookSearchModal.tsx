@@ -89,7 +89,7 @@ export function BlackbookSearchModal({ isOpen, onClose, onSelect }: Props) {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm"
+          className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm"
         >
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -116,8 +116,40 @@ export function BlackbookSearchModal({ isOpen, onClose, onSelect }: Props) {
               
               {!loading && query.trim().length >= 2 && results.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-8 text-gray-500 gap-2">
-                  <AlertCircle size={32} className="text-gray-300" />
-                  <p>No results found for &quot;{query}&quot;</p>
+                  <AlertCircle size={32} className="text-gray-300 mb-2" />
+                  <p className="text-center font-medium">No active runners found today for &quot;{query}&quot;</p>
+                  <p className="text-xs text-gray-400 text-center max-w-sm mb-4">
+                    The live feed only sees today's races. You can still add this to your Blackbook to catch them next time they run:
+                  </p>
+                  <div className="flex flex-col gap-2 w-full max-w-xs">
+                    <button
+                      onClick={() => {
+                        onSelect({ id: `custom-horse-${query}`, name: query, type: "horse" });
+                        onClose();
+                      }}
+                      className="w-full py-2 px-4 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-lg hover:bg-emerald-100 font-semibold transition-colors"
+                    >
+                      Add &quot;{query}&quot; as Horse
+                    </button>
+                    <button
+                      onClick={() => {
+                        onSelect({ id: `custom-jockey-${query}`, name: query, type: "jockey" });
+                        onClose();
+                      }}
+                      className="w-full py-2 px-4 bg-blue-50 text-blue-700 border border-blue-100 rounded-lg hover:bg-blue-100 font-semibold transition-colors"
+                    >
+                      Add &quot;{query}&quot; as Jockey
+                    </button>
+                    <button
+                      onClick={() => {
+                        onSelect({ id: `custom-trainer-${query}`, name: query, type: "trainer" });
+                        onClose();
+                      }}
+                      className="w-full py-2 px-4 bg-purple-50 text-purple-700 border border-purple-100 rounded-lg hover:bg-purple-100 font-semibold transition-colors"
+                    >
+                      Add &quot;{query}&quot; as Trainer
+                    </button>
+                  </div>
                 </div>
               )}
 

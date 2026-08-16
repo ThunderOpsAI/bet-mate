@@ -173,13 +173,28 @@ export default function BlackbookPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(`${ML_API}/blackbook`, {
+      const res = await fetch(`${API_BASE}/blackbook`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
       if (res.ok) {
         const data = await safeResponseJson(res);
-        setConfigs(data?.configs || []);
+        const items = data?.data || [];
+        const mappedConfigs = items.map((item: any) => ({
+          runner: item.targetName,
+          sport: "racing",
+          bet_type: item.rules?.[0]?.stakeType || "win",
+          stake: item.rules?.[0]?.stakeAmount || 10,
+          enabled: item.rules?.[0]?.isActive ?? true,
+          probability_threshold: item.rules?.[0]?.triggerValue ? Number(item.rules[0].triggerValue) : 50,
+          notify_phone: item.alertPreferences?.sms ? "yes" : null,
+          notify_email: item.alertPreferences?.email ? "yes" : null,
+          notify_pushover_key: item.alertPreferences?.push ? "yes" : null,
+          notes: item.notes,
+          entityType: item.entityType,
+          conditions: item.rules,
+        }));
+        setConfigs(mappedConfigs);
       } else {
         setFetchError("BetMate could not load your watch rules.");
       }

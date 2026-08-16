@@ -68,7 +68,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
       fetch("/api/explore/hot-picks", { headers })
         .then(res => res.json())
         .then(data => {
-          setHotPicks(data?.data || []);
+          setHotPicks(Array.isArray(data) ? data : (data?.data || []));
           setLoadingHot(false);
         })
         .catch(() => setLoadingHot(false));
@@ -77,7 +77,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
       fetch("/api/explore/value-plays", { headers })
         .then(res => res.json())
         .then(data => {
-          setValuePlays(data?.data || []);
+          setValuePlays(Array.isArray(data) ? data : (data?.data || []));
           setLoadingValue(false);
         })
         .catch(() => setLoadingValue(false));
@@ -86,7 +86,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
       fetch("/api/explore/top-jockeys", { headers })
         .then(res => res.json())
         .then(data => {
-          setTopJockeys(data?.data || []);
+          setTopJockeys(Array.isArray(data) ? data : (data?.data || []));
           setLoadingJockeys(false);
         })
         .catch(() => setLoadingJockeys(false));
@@ -95,7 +95,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
       fetch("/api/explore/top-trainers", { headers })
         .then(res => res.json())
         .then(data => {
-          setTopTrainers(data?.data || []);
+          setTopTrainers(Array.isArray(data) ? data : (data?.data || []));
           setLoadingTrainers(false);
         })
         .catch(() => setLoadingTrainers(false));

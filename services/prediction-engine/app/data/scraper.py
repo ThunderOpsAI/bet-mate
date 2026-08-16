@@ -420,43 +420,36 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
     
     all_markets = []
     from_record = 0
-    page_size = 1000
+    page_size = 50
 
-    while True:
-        market_filter = {
-            "filter": {
-                "eventTypeIds": event_type_ids,
-                "marketCountries": ["AU", "NZ", "GB", "IE", "FR", "ZA", "KR", "JP", "HK", "CN", "US", "SG"],
-                "marketTypeCodes": ["WIN"],
-                "marketStartTime": market_start_time,
-            },
-            "maxResults": str(page_size),
-            "from": str(from_record),
-            "sort": "FIRST_TO_START",
-            "marketProjection": [
-                "EVENT",
-                "RUNNER_DESCRIPTION",
-                "MARKET_START_TIME",
-                "MARKET_DESCRIPTION",
-            ],
-        }
+    market_filter = {
+        "filter": {
+            "eventTypeIds": event_type_ids,
+            "marketCountries": ["AU", "NZ", "GB", "IE", "FR", "ZA", "KR", "JP", "HK", "CN", "US", "SG"],
+            "marketTypeCodes": ["WIN"],
+            "marketStartTime": market_start_time,
+        },
+        "maxResults": page_size,
+        "sort": "FIRST_TO_START",
+        "marketProjection": [
+            "EVENT",
+            "RUNNER_DESCRIPTION",
+            "MARKET_START_TIME",
+            "MARKET_DESCRIPTION",
+            "RUNNER_METADATA",
+        ],
+    }
 
-        response = requests.post(
-            api_url,
-            data=json.dumps(market_filter),
-            headers=headers,
-            timeout=15,
-        )
-        response.raise_for_status()
-        markets = response.json()
-
-        if not markets:
-            break
-
-        all_markets.extend(markets)
-        if len(markets) < page_size:
-            break
-        from_record += len(markets)
+    response = requests.post(
+        api_url,
+        data=json.dumps(market_filter),
+        headers=headers,
+        timeout=15,
+    )
+    if response.status_code != 200:
+        print(f"[Betfair] listMarketCatalogue error: {response.text}")
+    response.raise_for_status()
+    all_markets = response.json()
 
     if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
@@ -492,6 +485,10 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
             back_price = runner_price.get("back", 0)
             implied_prob = (1 / back_price) if back_price > 1 else 0
 
+            metadata = runner.get("metadata", {})
+            jockey_name = metadata.get("JOCKEY_NAME")
+            trainer_name = metadata.get("TRAINER_NAME")
+
             horses.append({
                 "horse_id": selection_id or f"bf_{market_id}_{idx}",
                 "name": runner_name,
@@ -503,7 +500,8 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
                 "days_since_last_race": random.randint(7, 45),
                 "betfair_back_price": back_price,
                 "betfair_implied_prob": round(implied_prob, 4),
-                "jockey_name": None,
+                "jockey_name": jockey_name,
+                "trainer_name": trainer_name,
                 "meeting_type": "unknown",
                 "meeting_region": "",
                 "meeting_date": melbourne_date_string(start_time or None),
@@ -605,6 +603,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     for horse in race.get("horses", []):
         prepared_horse = dict(horse)
         prepared_horse["jockey_name"] = horse.get("jockey_name")
+        prepared_horse["trainer_name"] = horse.get("trainer_name")
         prepared_horse["meeting_type"] = horse.get("meeting_type") or meeting_type
         prepared_horse["meeting_region"] = horse.get("meeting_region") or meeting_region
         prepared_horse["meeting_date"] = horse.get("meeting_date") or meeting_date

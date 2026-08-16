@@ -85,11 +85,16 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          entity,
-          notes,
-          rating,
-          conditions,
-          alerts,
+          targetType: entity.type,
+          targetId: entity.id,
+          targetName: entity.name,
+          entityType: entity.type === "horse" ? "RUNNER" : entity.type.toUpperCase(),
+          notes: notes,
+          alertPreferences: alerts,
+          horseName: entity.type === "horse" ? entity.name : undefined,
+          jockeyName: entity.type === "jockey" ? entity.name : undefined,
+          trainerName: entity.type === "trainer" ? entity.name : undefined,
+          rules: [],
         }),
       });
       onSave();
@@ -104,13 +109,12 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
 
   return (
     <AnimatePresence>
-      {/* PARKED: Rule builder sheet disabled for now */}
-      {false && isOpen && entity && (
+      {isOpen && entity && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex justify-center items-end sm:items-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+          className="fixed inset-0 z-[100] flex justify-center items-end sm:items-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
         >
           <motion.div
             initial={{ y: "100%" }}
@@ -381,7 +385,7 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
               </div>
             </div>
 
-            <div className="p-4 border-t border-gray-100 bg-white">
+            <div className="p-4 pb-8 sm:pb-4 border-t border-gray-100 bg-white">
               <button 
                 onClick={handleSave} 
                 disabled={saving}
