@@ -104,34 +104,41 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
     fetchExploreData();
   }, [token]);
 
-  const renderPickCard = (pick: PickCard) => (
-    <motion.div key={pick.id} variants={itemVariants} className="bg-white/60 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-shadow">
-      <div>
-        <div className="flex justify-between items-start mb-2">
-          <h4 className="font-bold text-lg text-slate-800 leading-tight">{pick.horseName}</h4>
-          {pick.isValue && (
-            <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 border border-emerald-200">
-              ⚡ {pick.edgePercent ? `+${pick.edgePercent}% Edge` : 'VALUE'}
-            </span>
-          )}
+    const renderPickCard = (pick: PickCard) => {
+      return (
+      <motion.div key={pick.id} variants={itemVariants} className="bg-white/60 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-shadow relative">
+        <div className="absolute top-4 right-4">
+          <button 
+            onClick={() => onAddToBlackbook({ name: pick.horseName, type: "horse" })}
+            className="bg-cyan-50 text-cyan-700 hover:bg-cyan-100 p-2 rounded-lg transition-colors border border-cyan-100 flex items-center gap-1 text-sm font-semibold"
+            title="Add to BlackBook"
+          >
+            <Plus size={16} /> <span className="hidden sm:inline">Add</span>
+          </button>
         </div>
-        <p className="text-sm font-medium text-slate-500 mb-4">{pick.venue} • R{pick.raceNumber}</p>
-      </div>
-      
-      <div className="flex items-end justify-between mt-auto">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs text-slate-400 flex items-center gap-1"><Clock size={12}/> {pick.jumpTime}</span>
-          <span className="text-sm font-semibold text-cyan-700">{pick.winProbability}% ML</span>
+        <div className="pr-16">
+          <div className="flex justify-between items-start mb-2">
+            <h4 className="font-bold text-lg text-slate-800 leading-tight">{pick.horseName}</h4>
+          </div>
+          <p className="text-sm font-medium text-slate-500 mb-2">{pick.venue} • R{pick.raceNumber}</p>
+          <div className="text-xs font-semibold text-slate-600 bg-slate-100 inline-block px-2 py-1 rounded">Form: Awaiting Data Feed</div>
         </div>
-        <div className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-center">
-          <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">Betfair</span>
-          <span className="font-black text-slate-800">${pick.betfairOdds?.toFixed(2) || '-.--'}</span>
+        
+        <div className="flex items-end justify-between mt-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-slate-400 flex items-center gap-1"><Clock size={12}/> {pick.jumpTime}</span>
+            <span className="text-sm font-semibold text-cyan-700">{pick.winProbability}% ML</span>
+          </div>
+          <div className="bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 text-center">
+            <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-0.5">Betfair</span>
+            <span className="font-black text-slate-800">${pick.betfairOdds?.toFixed(2) || '-.--'}</span>
+          </div>
         </div>
-      </div>
-    </motion.div>
-  );
+      </motion.div>
+    )};
 
-  const renderLeaderRow = (leader: Leader, index: number, type: string) => (
+  const renderLeaderRow = (leader: Leader, index: number, type: string) => {
+    return (
     <motion.div key={leader.id} variants={itemVariants} className="flex items-center justify-between p-3 border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors group rounded-xl">
       <div className="flex items-center gap-4">
         <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-sm border border-slate-200">
@@ -139,22 +146,12 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
         </div>
         <div>
           <h4 className="font-bold text-slate-800">{leader.name}</h4>
-          <p className="text-xs text-slate-500">{leader.raceCount} rides • {leader.venues.join(', ')}</p>
+          <p className="text-xs text-slate-500">{leader.raceCount} rides • {leader.venues.slice(0,2).join(', ')}</p>
+          <div className="text-[10px] font-semibold text-slate-500 mt-1">Form: Awaiting Data Feed</div>
         </div>
       </div>
       
       <div className="flex items-center gap-4">
-        <div className="text-right hidden sm:block relative group-hover:opacity-100 transition-opacity">
-          <div className="text-xs font-semibold text-slate-400 flex items-center gap-1 justify-end cursor-help">
-            ROI {leader.roi === null || leader.roi === undefined ? 'N/A' : `${leader.roi}%`}
-            {(leader.roi === null || leader.roi === undefined) && <Info size={12} />}
-          </div>
-          {(leader.roi === null || leader.roi === undefined) && (
-            <div className="absolute right-0 bottom-full mb-1 w-32 bg-slate-800 text-white text-[10px] p-1.5 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity text-center z-10">
-              Historical ROI coming soon
-            </div>
-          )}
-        </div>
         <button 
           onClick={() => onAddToBlackbook({ name: leader.name, type })}
           className="bg-cyan-50 text-cyan-700 hover:bg-cyan-100 p-2 rounded-lg transition-colors border border-cyan-100 flex items-center gap-1 text-sm font-semibold"
@@ -164,7 +161,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
         </button>
       </div>
     </motion.div>
-  );
+  )};
 
   const renderSkeletonGrid = () => (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

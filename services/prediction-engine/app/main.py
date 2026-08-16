@@ -818,7 +818,7 @@ def explore_top_jockeys():
             j_name = horse.get("jockey_name")
             if j_name:
                 if j_name not in jockey_counts:
-                    jockey_counts[j_name] = {"jockeyName": j_name, "raceCount": 0, "venues": set(), "roi": None}
+                    jockey_counts[j_name] = {"id": j_name, "name": j_name, "raceCount": 0, "venues": set(), "roi": None}
                 jockey_counts[j_name]["raceCount"] += 1
                 jockey_counts[j_name]["venues"].add(venue)
                 
@@ -826,7 +826,7 @@ def explore_top_jockeys():
     for r in result:
         r["venues"] = list(r["venues"])
     result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:50]
+    return result_sorted[:20]
 
 @app.get("/explore/top-trainers")
 def explore_top_trainers():
@@ -842,7 +842,7 @@ def explore_top_trainers():
             t_name = horse.get("trainer_name")
             if t_name:
                 if t_name not in trainer_counts:
-                    trainer_counts[t_name] = {"trainerName": t_name, "raceCount": 0, "venues": set(), "roi": None}
+                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
                 trainer_counts[t_name]["raceCount"] += 1
                 trainer_counts[t_name]["venues"].add(venue)
                 
