@@ -301,7 +301,7 @@ export default function MMAPage() {
     return (
       <div className="dashboard-loading">
         <div className="loading-pulse">
-          <Swords size={28} />
+          <Swords size={48} />
           <p>Loading MMA snapshot...</p>
         </div>
       </div>
