@@ -6,24 +6,6 @@ from typing import Callable, Dict, List
 
 import modal
 
-import app.data.afl_scraper as afl_scraper
-import app.data.nba_scraper as nba_scraper
-import app.data.scraper as racing_scraper
-import app.data.nrl_scraper as nrl_scraper
-import app.data.soccer_scraper as soccer_scraper
-import app.data.golf_scraper as golf_scraper
-import app.data.mma_scraper as mma_scraper
-import app.database as database
-import app.nightly as nightly
-from app.main import app as fastapi_app
-from app.ml.afl import AFLPredictor
-from app.ml.nba import NBAPredictor
-from app.ml.racing import RacingPredictor
-from app.ml.nrl import NRLPredictor
-from app.ml.soccer import SoccerPredictor
-from app.ml.golf import GolfPredictor
-from app.ml.mma import MMAPredictor
-from app.time_utils import today_melbourne
 
 LOGGER = logging.getLogger("betmate.modal")
 APP_NAME = "betmate-prediction-engine"
@@ -95,6 +77,7 @@ def _common_env() -> Dict[str, str]:
 
 
 def _prepare_runtime() -> None:
+    import app.database as database
     logging.basicConfig(
         level="INFO",
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
@@ -129,6 +112,7 @@ def _run_logged_job(name: str, job: Callable[[], Dict[str, object]]) -> Dict[str
 @modal.asgi_app()
 def web():
     _prepare_runtime()
+    from app.main import app as fastapi_app
     return fastapi_app
 
 
@@ -138,11 +122,12 @@ def web():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Cron("0 5 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 20,
 )
 def nightly_strategy_refresh():
     def _job() -> Dict[str, object]:
+        import app.nightly as nightly
+        from app.time_utils import today_melbourne
         strategy_service = nightly.build_nightly_strategy_service(load_models=True)
         run_date = today_melbourne().isoformat()
         return nightly.run_nightly_cycle(
@@ -165,12 +150,15 @@ def nightly_strategy_refresh():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Cron("0 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 10,
 )
 def race_data_refresh():
     def _job() -> Dict[str, object]:
         run_date = today_melbourne().isoformat()
+        from app.ml.racing import RacingPredictor
+        from app.time_utils import today_melbourne
+        import app.data.scraper as racing_scraper
+        import app.database as database
         predictor = RacingPredictor()
         predictor.load_or_train()
         races = racing_scraper.fetch_today_races(run_date=run_date)
@@ -261,12 +249,14 @@ def race_data_refresh():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Cron("15 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )
 def afl_model_refresh():
     def _job() -> Dict[str, object]:
         run_date = today_melbourne().isoformat()
+        from app.ml.afl import AFLPredictor
+        from app.time_utils import today_melbourne
+        import app.data.afl_scraper as afl_scraper
         predictor = AFLPredictor()
         predictor.train()
         games = afl_scraper.fetch_this_week_afl(run_date=run_date)
@@ -286,12 +276,14 @@ def afl_model_refresh():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Cron("30 4 * * *", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )
 def nba_model_refresh():
     def _job() -> Dict[str, object]:
         run_date = today_melbourne().isoformat()
+        from app.ml.nba import NBAPredictor
+        from app.time_utils import today_melbourne
+        import app.data.nba_scraper as nba_scraper
         predictor = NBAPredictor()
         predictor.train()
         games = nba_scraper.fetch_today_nba(run_date=run_date)
@@ -311,12 +303,12 @@ def nba_model_refresh():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Period(minutes=10),
     timeout=60 * 5,
 )
 def prewarm_upcoming_races():
     def _job() -> Dict[str, object]:
         from app.alerts import calculate_minutes_until_jump
+        import app.data.scraper as racing_scraper
         races = racing_scraper.fetch_today_races()
         upcoming = [r for r in races if r.get("start_time") and 0 < (calculate_minutes_until_jump(r["start_time"]) or 0) <= 60]
         return {"fetched_races": len(races), "upcoming_races": len(upcoming)}
@@ -330,11 +322,12 @@ def prewarm_upcoming_races():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Cron("0 6 * * 0", timezone="Australia/Melbourne"),
     timeout=60 * 15,
 )
 def sunday_betfair_import():
     def _job() -> Dict[str, object]:
+        import app.nightly as nightly
+        from app.time_utils import today_melbourne
         run_date = today_melbourne().isoformat()
         return nightly.sunday_betfair_import(run_date=run_date)
 
@@ -346,13 +339,14 @@ def sunday_betfair_import():
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    schedule=modal.Period(minutes=15),
     timeout=60 * 5,
 )
 def evaluate_blackbook_rules():
     def _job() -> Dict[str, object]:
         import json
         import app.storage as storage
+        import app.database as database
+        import app.data.scraper as racing_scraper
         database.require_database_url()
         database.verify_database_connection()
         
@@ -514,12 +508,44 @@ def evaluate_blackbook_rules():
     return _run_logged_job("evaluate_blackbook_rules", _job)
 
 
+
 @app.function(
     image=image,
-    schedule=modal.Period(minutes=5),
-    timeout=30,
+    region="ap-southeast-2",
+    timeout=60,
+    schedule=modal.Cron("*/5 * * * *", timezone="Australia/Melbourne"),
 )
-def keep_alive():
-    """Ping every 5 minutes to prevent cold starts."""
-    # Just import the app to trigger container warmup
-    print("Keep-alive ping")
+def master_scheduler():
+    from datetime import datetime
+    import pytz
+    now = datetime.now(pytz.timezone("Australia/Melbourne"))
+    
+    print(f"Master scheduler tick at {now}")
+    
+    # 10 min jobs
+    if now.minute % 10 == 0:
+        prewarm_upcoming_races.spawn()
+        
+    # 15 min jobs
+    if now.minute % 15 == 0:
+        evaluate_blackbook_rules.spawn()
+        
+    # 4:00 AM jobs
+    if now.hour == 4 and now.minute == 0:
+        race_data_refresh.spawn()
+        
+    # 4:15 AM jobs
+    if now.hour == 4 and now.minute == 15:
+        afl_model_refresh.spawn()
+        
+    # 4:30 AM jobs
+    if now.hour == 4 and now.minute == 30:
+        nba_model_refresh.spawn()
+        
+    # 5:00 AM jobs
+    if now.hour == 5 and now.minute == 0:
+        nightly_strategy_refresh.spawn()
+        
+    # Sunday 6:00 AM jobs
+    if now.weekday() == 6 and now.hour == 6 and now.minute == 0:
+        sunday_betfair_import.spawn()

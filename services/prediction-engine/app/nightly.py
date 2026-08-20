@@ -316,10 +316,13 @@ def sunday_betfair_import(run_date: Optional[str] = None) -> Dict[str, Any]:
 
     url = os.getenv("BETFAIR_SUNDAY_INGEST_URL")
     if not url:
-        url = "https://storage.googleapis.com/betmate-betfair-ingest/saturday_markets_results.json"
+        url = "https://storage.googleapis.com/betmate-betfair-ingest/{date}_saturday_markets_results.json"
 
     if "{date}" in url:
         url = url.format(date=saturday_date_str)
+    elif "saturday_markets_results.json" in url:
+        # Fallback if the {date} placeholder was missing from the env var
+        url = url.replace("saturday_markets_results.json", f"{saturday_date_str}_saturday_markets_results.json")
 
     print(f"[Sunday Ingest] Fetching Saturday data from: {url}")
     try:
