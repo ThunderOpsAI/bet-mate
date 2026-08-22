@@ -67,6 +67,8 @@ type StrategyCard = {
     roi: number;
     net_profit: number;
     settled_bets: number;
+    won_bets: number;
+    lost_bets: number;
   } | null;
 };
 
@@ -391,19 +393,18 @@ export default function StrategyPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {cards.map((card) => {
+                const decisionBets = card.performance ? (card.performance.won_bets + card.performance.lost_bets) : 0;
+                const strikeRate = decisionBets > 0
+                  ? Math.round((card.performance!.won_bets / decisionBets) * 100)
+                  : 0;
+
                 const strategyMetric: StrategyMetricProps = {
                   id: card.profile_key,
                   name: card.display_name,
-                  strikeRate: card.performance && card.performance.settled_bets > 0
-                    ? Math.round((card.performance.net_profit > 0 ? 0.65 : 0.40) * 100)
-                    : Math.round(card.expected_edge * 100 + 50),
-                  yieldRoi: card.performance ? Math.round(card.performance.roi * 1000) / 10 : Math.round(card.expected_edge * 1000) / 10,
+                  strikeRate,
+                  yieldRoi: card.performance ? Math.round(card.performance.roi * 1000) / 10 : 0,
                   totalProfit: card.performance?.net_profit ?? 0,
-                  equityData: [
-                    { day: "Card Init", PnL: 0 },
-                    { day: "Mid Session", PnL: (card.performance?.net_profit ?? 0) * 0.4 },
-                    { day: "Current", PnL: card.performance?.net_profit ?? 0 },
-                  ],
+                  equityData: [], // Await actual historical data points
                 };
                 return <StrategyAnalyticsCard key={card.profile_key} strategy={strategyMetric} />;
               })}

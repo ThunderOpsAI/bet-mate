@@ -60,22 +60,26 @@ export default function StrategyAnalyticsCard({ strategy }: { strategy: Strategy
       {/* Sparkline Equity Curve */}
       <div>
         <div className="text-[10px] text-slate-500 font-semibold mb-1">P&L Momentum (Equity Curve)</div>
-        <div className="h-16 w-full bg-slate-950/80 rounded border border-slate-800/40 p-1 min-w-0">
-          <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={50}>
-            <LineChart data={strategy.equityData}>
-              <Tooltip
-                contentStyle={{ backgroundColor: "#0f172a", borderColor: "#1e293b", fontSize: "10px" }}
-                itemStyle={{ color: "#34d399" }}
-              />
-              <Line
-                type="monotone"
-                dataKey="PnL"
-                stroke={isPositiveYield ? "#10b981" : "#f43f5e"}
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="h-16 w-full bg-slate-950/80 rounded border border-slate-800/40 p-1 min-w-0 flex items-center justify-center">
+          {strategy.equityData && strategy.equityData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={50}>
+              <LineChart data={strategy.equityData}>
+                <Tooltip
+                  contentStyle={{ backgroundColor: "#0f172a", borderColor: "#1e293b", fontSize: "10px" }}
+                  itemStyle={{ color: "#34d399" }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="PnL"
+                  stroke={isPositiveYield ? "#10b981" : "#f43f5e"}
+                  strokeWidth={2}
+                  dot={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <span className="text-[10px] text-slate-500 italic">Awaiting Data Feed</span>
+          )}
         </div>
       </div>
     </div>

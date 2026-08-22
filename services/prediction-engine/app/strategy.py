@@ -48,7 +48,7 @@ class StrategyService:
             for profile_key, card in existing.items()
             if card_requires_refresh(card)
         }
-        if len(existing) == len(profiles) and not profiles_needing_refresh:
+        if all(profile["profile_key"] in existing and profile["profile_key"] not in profiles_needing_refresh for profile in profiles):
             return [existing[profile["profile_key"]] for profile in profiles]
 
         candidates = self.collect_candidates_for_date(run_date)
@@ -584,6 +584,91 @@ def build_multi_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
     }
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+from app.sgm import calculate_sgm_odds
+
+def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not legs:
+        return None
+    sport = str(legs[0].get("sport", "")).strip().lower()
+    
+    model_legs = []
+    market_legs = []
+    sport_counts: Dict[str, int] = {}
+    normalized_legs = []
+
+    for index, leg in enumerate(legs, start=1):
+        leg_odds = effective_odds(leg)
+        if not leg_odds:
+            return None
+            
+        leg_market = str(leg.get("market_type", "head_to_head"))
+        # Price using the model's derived probability
+        model_legs.append({
+            "probability": _clamp_probability(leg.get("model_probability", 1 / leg_odds)),
+            "market_type": leg_market
+        })
+        # Price using market offered odds
+        market_legs.append({
+            "odds": leg_odds,
+            "market_type": leg_market
+        })
+
+        leg_sport = str(leg.get("sport", "")).strip().lower()
+        if leg_sport in {"racing", "afl", "nba"}:
+            sport_counts[leg_sport] = sport_counts.get(leg_sport, 0) + 1
+            
+        normalized_legs.append(
+            {
+                "sport": leg_sport or "multi",
+                "event_id": str(leg.get("event_id", f"leg-{index}")),
+                "event_name": str(leg.get("event_name", leg.get("selection", f"Leg {index}"))),
+                "market_type": leg_market,
+                "selection": str(leg.get("selection", f"Leg {index}")),
+                "odds_used": leg_odds,
+                "odds_source": leg["odds_source"],
+            }
+        )
+
+    try:
+        model_pricing = calculate_sgm_odds(model_legs, sport)
+        market_pricing = calculate_sgm_odds(market_legs, sport)
+    except Exception as e:
+        logger.error(f"SGM pricing failed: {e}")
+        return None
+
+    combined_probability = model_pricing["adjusted_probability"]
+    odds = market_pricing["adjusted_odds"]
+    implied_probability = market_pricing["adjusted_probability"]
+    
+    odds_sources = [leg["odds_source"] for leg in normalized_legs]
+    leg_count = len(normalized_legs)
+    combined_edge = round(combined_probability - implied_probability, 4)
+    
+    return {
+        "sport": "sgm",
+        "event_id": f"sgm:{'|'.join(leg['event_id'] for leg in normalized_legs)}",
+        "event_name": " + ".join(leg["event_name"] for leg in normalized_legs),
+        "market_type": "sgm",
+        "selection": " + ".join(leg["selection"] for leg in normalized_legs),
+        "model_probability": round(combined_probability, 4),
+        "market_odds": None,
+        "derived_odds": round(odds, 2),
+        "odds_source": odds_sources[0] if len(set(odds_sources)) == 1 else "composite",
+        "edge": combined_edge,
+        "confidence": confidence_bucket(combined_probability, combined_edge),
+        "legs": normalized_legs,
+        "sport_allocation": {
+            s: round(count / leg_count, 4)
+            for s, count in sport_counts.items()
+        },
+        "odds_used": round(odds, 2),
+        "odds_sources": odds_sources,
+    }
+
+
 def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not rule_set.get("allow_multis"):
         return []
@@ -595,13 +680,26 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
 
     top_candidates = eligible[: max(4, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
     multis = []
+    
     for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):
         for legs in combinations(top_candidates, leg_count):
-            if len({leg["event_id"] for leg in legs}) != leg_count:
-                continue
-            multi = build_multi_candidate(list(legs))
-            if multi and multi["edge"] > 0:
-                multis.append(multi)
+            try:
+                event_ids = {leg["event_id"] for leg in legs}
+                
+                # Check for SGMs vs Traditional Multis
+                if len(event_ids) == 1:
+                    multi = build_sgm_candidate(list(legs))
+                elif len(event_ids) == leg_count:
+                    multi = build_multi_candidate(list(legs))
+                else:
+                    # Ignore mixed multis (SGM + external legs)
+                    continue
+                    
+                if multi and multi["edge"] > 0:
+                    multis.append(multi)
+            except Exception as e:
+                # Catch failures so we avoid silent errors skipping the rest of the generation.
+                logger.error(f"Failed to build multi/sgm for legs: {[leg.get('event_id') for leg in legs]}. Error: {e}")
 
     multis.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     return multis[: max(1, int(rule_set["max_bets_per_day"]))]

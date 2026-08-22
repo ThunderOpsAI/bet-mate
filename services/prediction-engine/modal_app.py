@@ -517,8 +517,8 @@ def evaluate_blackbook_rules():
 )
 def master_scheduler():
     from datetime import datetime
-    import pytz
-    now = datetime.now(pytz.timezone("Australia/Melbourne"))
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("Australia/Melbourne"))
     
     print(f"Master scheduler tick at {now}")
     
