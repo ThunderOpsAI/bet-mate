@@ -122,6 +122,38 @@ router.post("/settle-bets", async (req, res) => {
       });
     }
 
+    // Sync strategy bots to leaderboard
+    const allStrategies = await prisma.strategy_profiles.findMany();
+    const strategyBets = await prisma.system_bets.findMany();
+
+    for (const strategy of allStrategies) {
+      const bets = strategyBets.filter((b: any) => b.profile_key === strategy.profile_key);
+      const settledBets = bets.filter((b: any) => b.status !== "pending");
+      const totalStaked = settledBets.reduce((sum: number, b: any) => sum + b.stake, 0);
+      const netProfit = settledBets.reduce((sum: number, b: any) => sum + (b.profit || 0), 0);
+      
+      const startingBankroll = 10000.0;
+      const currentBankroll = startingBankroll + netProfit;
+
+      await prisma.bankroll.upsert({
+        where: { userId: `strategy_${strategy.profile_key}` },
+        update: {
+          balance: currentBankroll,
+          monthlySpend: totalStaked,
+          totalBetsPlaced: bets.length,
+          username: `🤖 ${strategy.display_name}`,
+        },
+        create: {
+          userId: `strategy_${strategy.profile_key}`,
+          username: `🤖 ${strategy.display_name}`,
+          balance: currentBankroll,
+          startingBalance: startingBankroll,
+          monthlySpend: totalStaked,
+          totalBetsPlaced: bets.length,
+        },
+      });
+    }
+
     // 4. Trigger Prediction Engine Strategy Card Placement for the New Day
     let refreshedStrategyCards = 0;
     try {

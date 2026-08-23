@@ -70,6 +70,7 @@ export default function AskBobLabCard({
       <form onSubmit={onSubmit} className="flex gap-2">
         <div className="relative flex-1">
           <input
+            suppressHydrationWarning
             type="text"
             className="w-full bg-slate-950/80 border border-slate-800 rounded-lg pl-3 pr-9 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
             value={chatInput}

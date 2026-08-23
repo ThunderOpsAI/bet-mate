@@ -80,7 +80,7 @@ def _get_pg_pool():
 
         _pg_pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=1,
-            maxconn=5,
+            maxconn=50,
             dsn=conn_str,
         )
         print(f"[Database] PostgreSQL pool created (Neon)")
@@ -112,8 +112,8 @@ class _PgCursorWrapper:
 
     def executemany(self, sql: str, params_list):
         sql = _translate_sql(sql)
-        for params in params_list:
-            self._cursor.execute(sql, params)
+        import psycopg2.extras
+        psycopg2.extras.execute_batch(self._cursor, sql, params_list)
         return self
 
     def fetchone(self):

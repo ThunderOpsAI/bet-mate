@@ -66,6 +66,11 @@ class StrategyService:
         candidates.extend(self._racing_candidates(run_date))
         candidates.extend(self._afl_candidates(run_date))
         candidates.extend(self._nba_candidates(run_date))
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
 
@@ -156,6 +161,11 @@ class StrategyService:
             )
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -199,6 +209,11 @@ class StrategyService:
                 build_head_to_head_candidate("afl", game, game["home_team"], home_probability, baseline_home),
                 build_head_to_head_candidate("afl", game, game["away_team"], away_probability, baseline_away),
             ])
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -242,6 +257,11 @@ class StrategyService:
                 build_head_to_head_candidate("nba", game, game["home_team"], home_probability, home_baseline),
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
             ])
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
 
@@ -322,9 +342,28 @@ def build_quinella_candidates(race: Dict[str, Any], ranked: List[Dict[str, Any]]
 
 def build_strategy_card(profile: Dict[str, Any], candidates: List[Dict[str, Any]], run_date: str) -> Dict[str, Any]:
     rule_set = profile["rule_set"]
+    # Enforce at least 3 bets per day in the rule set
+    if int(rule_set.get("max_bets_per_day", 0)) < 3:
+        rule_set["max_bets_per_day"] = 3
+        
     bankroll_available = storage.DEFAULT_PREMIUM_BANKROLL if is_melbourne_premium_day(run_date) else storage.DEFAULT_STANDARD_BANKROLL
     qualified, skipped = qualify_candidates(candidates, rule_set)
     selected = allocate_candidates(qualified, rule_set, bankroll_available)
+    
+    if len(selected) < 3:
+        relaxed_rule_set = dict(rule_set)
+        relaxed_rule_set["min_edge"] = 0.01
+        relaxed_rule_set["min_confidence"] = "low"
+        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set)
+        selected = allocate_candidates(qualified, relaxed_rule_set, bankroll_available)
+        
+    if len(selected) < 3:
+        relaxed_rule_set2 = dict(rule_set)
+        relaxed_rule_set2["min_edge"] = -0.05
+        relaxed_rule_set2["min_confidence"] = "low"
+        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set2)
+        selected = allocate_candidates(qualified, relaxed_rule_set2, bankroll_available)
+
     total_allocated = round(sum(bet["stake"] for bet in selected), 2)
     sport_mix = summarize_sport_mix(selected, total_allocated)
     expected_edge = round(sum(bet["edge"] * bet["stake"] for bet in selected) / total_allocated, 4) if total_allocated > 0 else 0.0
@@ -386,7 +425,18 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
         for sport in ("racing", "afl", "nba")
     }
     per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba")}
-    selection_pool = list(candidates)
+    selection_pool = []
+    
+    # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
+    is_multi_only = rule_set.get("allow_multis") and (
+        "sgm_exclusive" in rule_set["profile_key"] or 
+        "multi" in rule_set["profile_key"] or
+        rule_set.get("allowed_markets") == ["multi", "sgm"]
+    )
+
+    if not is_multi_only:
+        selection_pool.extend(candidates)
+        
     selection_pool.extend(build_multi_candidates(candidates, rule_set))
     selection_pool.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     remaining_bankroll = bankroll_available
@@ -678,7 +728,10 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
     if len(eligible) < 2:
         return []
 
-    top_candidates = eligible[: max(4, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
+    # Cap the number of items heavily to prevent combinatorial explosion that crashes the server
+    top_candidates = eligible[: max(15, min(len(eligible), int(rule_set["max_bets_per_day"]) * 3))]
+    # Hard cap at 20 candidates to keep combinations small (C(20,4)=4845)
+    top_candidates = top_candidates[:20]
     multis = []
     
     for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):

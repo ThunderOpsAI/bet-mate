@@ -53,7 +53,7 @@ export default function PromoCarousel() {
                   fill
                   sizes="(max-width: 768px) 100vw, 50vw"
                   className="object-contain p-0.5"
-                  priority
+                  priority={idx === 0}
                   unoptimized
                 />
               </div>

@@ -19,7 +19,6 @@ import Leaderboard from "../components/Leaderboard";
 import Achievements from "../components/Achievements";
 import StrategyAnalyticsCard, { StrategyMetricProps } from "../components/StrategyAnalyticsCard";
 import AskBobLabCard from "../components/AskBobLabCard";
-import { MultiBetCardPrototype, PrototypeSwitcher } from "./MultiPrototype";
 import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
@@ -86,47 +85,50 @@ export default function StrategyPage() {
 
   useEffect(() => {
     const load = async () => {
-      try {
-        const response = await fetchWithTimeout(`${ML_API}/api/strategy-cards`, {
-          cache: "no-store",
-          timeoutMs: 60000,
-        });
-        const data = await safeResponseJson(response);
-        if (!response.ok || !data) {
-          throw new Error("Strategy cards unavailable");
+      let retries = 0;
+      const maxRetries = 4; // Increased for longer HMR rebuilds
+      
+      while (retries <= maxRetries) {
+        try {
+          const response = await fetchWithTimeout(`${ML_API}/api/strategy-cards`, {
+            cache: "no-store",
+            timeoutMs: 60000,
+          });
+
+          if (response.status >= 500 && retries < maxRetries) {
+            retries++;
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+
+          const data = await safeResponseJson(response);
+          if (!response.ok || !data) {
+            if (retries < maxRetries) {
+              retries++;
+              await new Promise((resolve) => setTimeout(resolve, 1500));
+              continue;
+            }
+            console.warn(`Strategy cards unavailable (Status: ${response.status})`);
+            setLoadError("Awaiting Daily Strategy Card Generation");
+            break;
+          }
+          
+          const loadedCards = data?.cards ?? [];
+          setCards(loadedCards);
+          break;
+        } catch (error) {
+          if (retries < maxRetries) {
+            retries++;
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+            continue;
+          }
+          // Use console.warn instead of console.error to prevent Next.js from throwing a full-page Error overlay in Dev
+          console.warn("Failed to load strategy cards after retries:", error);
+          setLoadError("Awaiting Daily Strategy Card Generation");
+          break;
         }
-        
-        // PROTOTYPE: Inject a fake multi into the first card for demonstration
-        const loadedCards = data?.cards ?? [];
-        const racingMulti = loadedCards.find((c: any) => c.profile_key === "racing_multi");
-        if (racingMulti) {
-            racingMulti.selected_bets = [
-                {
-                    sport: "racing",
-                    event_id: "fake_multi",
-                    event_name: "Goulburn R3",
-                    market_type: "multi",
-                    selection: "Peace Bird + Purple Rose + The Eyes Have It",
-                    odds_used: 11.75,
-                    odds_source: "composite",
-                    edge: 0.15,
-                    stake: 20.00,
-                    legs: [
-                        {sport: "racing", event_id: "e1", event_name: "Goulburn R3", selection: "2.Peace Bird (5)", market_type: "win", odds_used: 2.50, odds_source: "market"},
-                        {sport: "racing", event_id: "e2", event_name: "Goulburn R3", selection: "3.Purple Rose (2)", market_type: "win", odds_used: 1.80, odds_source: "market"},
-                        {sport: "racing", event_id: "e2", event_name: "Goulburn R3", selection: "4.The Eyes Have It (1)", market_type: "win", odds_used: 1.50, odds_source: "market"},
-                    ]
-                },
-                ...racingMulti.selected_bets
-            ];
-        }
-        setCards(loadedCards);
-      } catch (error) {
-        console.error("Failed to load strategy cards", error);
-        setLoadError("Awaiting Daily Strategy Card Generation");
-      } finally {
-        setLoading(false);
       }
+      setLoading(false);
     };
     void load();
   }, []);
@@ -235,11 +237,14 @@ export default function StrategyPage() {
       {/* TAB 1: STRATEGIES */}
       {activeSection === "strategies" && (
         <section id="strategies" className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
             <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
               <Bot size={20} className="text-emerald-400" /> Strategies & Daily Cards
             </h2>
-            <span className="badge badge-accent text-xs px-2.5 py-1">{cards.length} Active Cards</span>
+            <div className="flex items-center gap-3">
+              
+              <span className="badge badge-accent text-xs px-2.5 py-1.5">{cards.length} Active</span>
+            </div>
           </div>
 
           {loading ? (
@@ -256,112 +261,51 @@ export default function StrategyPage() {
               No strategy cards are available yet for today.
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {cards.map((card) => (
-                <div key={card.profile_key} className="racing-card-gradient rounded-xl p-4.5 shadow-lg space-y-3.5">
-                  <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-                    <div>
-                      <span className="text-base font-bold text-slate-100 tracking-tight">{card.display_name}</span>
-                      <span className="text-xs text-slate-400 ml-2.5 font-medium">{card.card_date}</span>
-                    </div>
-                    <span className="badge badge-accent text-xs px-2.5 py-0.5">{card.selected_bets.length} bets</span>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex gap-2 flex-wrap text-xs">
-                      <span className="badge badge-muted flex items-center gap-1">
-                        <Wallet size={12} /> ${card.total_allocated.toFixed(2)} / ${card.bankroll_available.toFixed(2)}
-                      </span>
-                      <span className="badge badge-blue flex items-center gap-1">
-                        <TrendingUp size={12} /> Edge {Math.round(card.expected_edge * 1000) / 10}%
-                      </span>
-                      {card.performance && (
-                        <span className="badge badge-accent">
-                          ROI {Math.round(card.performance.roi * 1000) / 10}%
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="space-y-2.5">
-                      {card.selected_bets.map((bet) => {
-                          if (bet.market_type === "multi" || bet.market_type === "sgm") {
-                              return <MultiBetCardPrototype key={`${bet.event_id}-${bet.selection}`} bet={bet} cardDisplayName={card.display_name} cardProfileKey={card.profile_key} />;
-                          }
-                          return (
-                        <div key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} className="bg-slate-950/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3.5 space-y-2.5 transition-all">
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2.5">
-                              <span className="w-6 h-6 rounded-md bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center border border-emerald-500/30">
-                                {bet.sport.slice(0, 1).toUpperCase()}
-                              </span>
-                              <div>
-                                <div className="text-xs font-semibold text-slate-100">{bet.selection}</div>
-                                <div className="text-[11px] text-slate-400">
-                                  {bet.event_name} · {bet.market_type}
-                                </div>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="font-bold text-slate-200">{bet.odds_used.toFixed(2)}</span>
-                              <span className="font-bold text-emerald-400">${bet.stake.toFixed(2)}</span>
-                              <span className="badge badge-muted text-[10px]">{bet.odds_source}</span>
-                            </div>
-                          </div>
-                          {supportsStrategyCopy(bet) ? (
-                            <PaperBetAction
-                              variant="phase1"
-                              label="Copy to bet slip"
-                              loggedLabel="Copied to bet slip"
-                              cancelLabel="Remove from slip"
-                              fullWidth
-                              bet={{
-                                sport: bet.sport,
-                                event_id: bet.event_id,
-                                event_name: bet.event_name,
-                                selection: bet.selection,
-                                odds: bet.odds_used,
-                                bet_type: bet.market_type,
-                                stake: bet.stake,
-                                notes: JSON.stringify({
-                                  strategy_name: card.display_name,
-                                  confidence: deriveStrategyConfidence(bet.edge),
-                                  snapshot: {
-                                    edge: `${Math.round(bet.edge * 1000) / 10}%`,
-                                    odds_source: bet.odds_source,
-                                    profile: card.profile_key,
-                                  },
-                                }),
-                                odds_source: bet.odds_source === "live_market" ? "market" : "model_fair",
-                              }}
-                            />
-                          ) : (
-                            <div className="text-[11px] text-slate-400 bg-slate-900/60 p-2 rounded-lg border border-slate-800/40">
-                              Multi bets stay visible here and in analytics, but they are not copyable to the bet slip yet.
-                            </div>
+            <>
+              {/* MASONRY LAYOUT */}
+              
+                <div className="columns-1 lg:columns-2 xl:columns-3 gap-4 space-y-4">
+                  {cards.map((card) => (
+                    <div key={card.profile_key} className="break-inside-avoid racing-card-gradient rounded-xl p-4.5 shadow-lg flex flex-col mb-4">
+                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 mb-3.5">
+                        <div>
+                          <span className="text-base font-bold text-slate-100 tracking-tight">{card.display_name}</span>
+                          <span className="text-xs text-slate-400 ml-2.5 font-medium">{card.card_date}</span>
+                        </div>
+                        <span className="badge badge-accent text-xs px-2.5 py-0.5">{card.selected_bets.length} bets</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <div className="flex gap-2 flex-wrap text-xs mb-3.5">
+                          <span className="badge badge-muted flex items-center gap-1">
+                            <Wallet size={12} /> ${card.total_allocated.toFixed(2)}
+                          </span>
+                          <span className="badge badge-blue flex items-center gap-1">
+                            <TrendingUp size={12} /> Edge {Math.round(card.expected_edge * 1000) / 10}%
+                          </span>
+                          {card.performance && (
+                            <span className="badge badge-accent">
+                              ROI {Math.round(card.performance.roi * 1000) / 10}%
+                            </span>
                           )}
                         </div>
-                      );
-                      })}
-                    </div>
 
-                    {card.skipped_opportunities.length > 0 && (
-                      <div className="text-[11px] text-slate-400 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40">
-                        Skipped: {card.skipped_opportunities.slice(0, 2).map((item) => `${item.selection} (${item.reason})`).join(", ")}
+                        <div className="space-y-2.5">
+                          {card.selected_bets.map((bet) => (
+                            <RenderBetCard key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} bet={bet} card={card} />
+                          ))}
+                        </div>
+
+                        {card.skipped_opportunities.length > 0 && (
+                          <div className="text-[11px] text-slate-400 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40 mt-3">
+                            Skipped: {card.skipped_opportunities.slice(0, 2).map((item) => `${item.selection} (${item.reason})`).join(", ")}
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+            </>
           )}
-
-          {/* Ask Bob Redesigned Card */}
-          <AskBobLabCard
-            chatInput={chatInput}
-            setChatInput={setChatInput}
-            chatReply={chatReply}
-            chatLoading={chatLoading}
-            onSubmit={handleBobChat}
-          />
         </section>
       )}
 
@@ -469,7 +413,99 @@ export default function StrategyPage() {
       )}
 
       <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
-      <PrototypeSwitcher />
+    </div>
+  );
+}
+
+function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
+  const isMulti = bet.market_type === "multi" || bet.market_type === "sgm";
+  const displaySport = isMulti ? "SRM" : bet.sport.slice(0, 1).toUpperCase();
+  const displayEvent = isMulti ? (bet.legs?.[0]?.event_name || "Multi") : `${bet.event_name} · ${bet.market_type}`;
+  
+  return (
+    <div className="bg-slate-950/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3 shadow-sm flex items-center justify-between gap-4 transition-all shrink-0">
+       {/* Event and Selection on the left */}
+       <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-500/30">
+               {displaySport}
+             </span>
+             <span className="text-xs text-slate-400 truncate">
+               {displayEvent}
+             </span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+             {isMulti && bet.legs && bet.legs.length > 0 ? (
+               bet.legs.map((leg, i) => (
+                 <div key={i} className="text-sm font-semibold text-slate-200 flex items-center gap-2 truncate">
+                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                   <span className="truncate">{leg.selection}</span>
+                 </div>
+               ))
+             ) : (
+               <div className="text-sm font-semibold text-slate-200 flex items-center gap-2 truncate">
+                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                 <span className="truncate">{bet.selection}</span>
+               </div>
+             )}
+          </div>
+       </div>
+
+       {/* Price & Stake in the middle */}
+       <div className="flex items-center justify-center gap-5 px-5 shrink-0 border-l border-slate-800/60 min-w-[180px]">
+           {/* MI Column */}
+           <div className="flex flex-col items-center justify-center cursor-help" title="Model Implied Odds">
+               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">MI</span>
+               <span className="text-base font-bold text-slate-300">
+                 {bet.model_probability ? (1 / bet.model_probability).toFixed(2) : (bet.odds_source === "model" ? bet.odds_used.toFixed(2) : "-")}
+               </span>
+           </div>
+           
+           {/* Live Column */}
+           <div className="flex flex-col items-center justify-center cursor-help" title="Live Betfair Odds">
+               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Live</span>
+               <span className="text-lg font-bold text-slate-100">
+                 {bet.odds_source === "live_market" ? bet.odds_used.toFixed(2) : "-"}
+               </span>
+           </div>
+
+           {/* Stake Column */}
+           <div className="flex flex-col items-center justify-center">
+               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Stake</span>
+               <span className="text-base font-bold text-emerald-400">
+                 ${bet.stake.toFixed(2)}
+               </span>
+           </div>
+       </div>
+
+       {/* Add Button on the right hand side */}
+       <div className="w-20 shrink-0">
+          <PaperBetAction
+            variant="phase1"
+            label="Add"
+            loggedLabel="Added"
+            cancelLabel="Remove"
+            bet={{
+              sport: isMulti ? "racing" : bet.sport,
+              event_id: isMulti ? (bet.event_id || "multi") : bet.event_id,
+              event_name: isMulti ? "Multi" : bet.event_name,
+              selection: isMulti ? (bet.selection || "Multi") : bet.selection,
+              odds: bet.odds_used,
+              bet_type: isMulti ? "multi" : bet.market_type,
+              stake: bet.stake,
+              notes: JSON.stringify({
+                strategy_name: card.display_name,
+                confidence: isMulti ? "Medium" : deriveStrategyConfidence(bet.edge),
+                snapshot: {
+                  edge: `${Math.round(bet.edge * 1000) / 10}%`,
+                  odds_source: bet.odds_source,
+                  profile: card.profile_key,
+                },
+              }),
+              odds_source: bet.odds_source === "live_market" ? "market" : "model_fair",
+            }}
+          />
+       </div>
     </div>
   );
 }

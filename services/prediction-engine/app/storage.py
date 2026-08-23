@@ -20,8 +20,8 @@ def _to_date_string(val) -> str:
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
 ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head"}
-DEFAULT_STANDARD_BANKROLL = 250.0
-DEFAULT_PREMIUM_BANKROLL = 500.0
+DEFAULT_STANDARD_BANKROLL = 10000.0
+DEFAULT_PREMIUM_BANKROLL = 10000.0
 DEFAULT_STRATEGY_PROFILES = [
     {
         "profile_key": "bob",
@@ -1252,7 +1252,6 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
     return trend[-days:]
 
 
-def ensure_default_strategy_profiles() -> None:
     with _connect() as conn:
         rows = conn.execute("SELECT profile_key FROM strategy_profiles").fetchall()
         existing = {row["profile_key"] for row in rows}
@@ -1285,7 +1284,6 @@ def ensure_default_strategy_profiles() -> None:
 
 
 def list_strategy_profiles() -> List[Dict[str, Any]]:
-    ensure_default_strategy_profiles()
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -1298,7 +1296,6 @@ def list_strategy_profiles() -> List[Dict[str, Any]]:
 
 
 def get_strategy_profile(profile_key: str) -> Optional[Dict[str, Any]]:
-    ensure_default_strategy_profiles()
     with _connect() as conn:
         row = conn.execute(
             """
@@ -1360,7 +1357,6 @@ def get_strategy_card(profile_key: str, run_date: str) -> Optional[Dict[str, Any
 
 
 def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
-    ensure_default_strategy_profiles()
     with _connect() as conn:
         rows = conn.execute(
             """
@@ -1375,7 +1371,6 @@ def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
 
 
 def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str, Any]:
-    ensure_default_strategy_profiles()
     profile_key = str(card["profile_key"])
     run_date = str(card["card_date"])
     existing = get_strategy_card(profile_key, run_date)
@@ -1488,8 +1483,32 @@ def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str,
         ).fetchone()
         run_id = run_row["id"]
 
-        for bet in card.get("selected_bets", []):
-            conn.execute(
+        bets = card.get("selected_bets", [])
+        if bets:
+            values = [
+                (
+                    run_id,
+                    profile_key,
+                    bet["sport"],
+                    bet["event_id"],
+                    bet["event_name"],
+                    bet["market_type"],
+                    bet["selection"],
+                    float(bet["model_probability"]),
+                    float(bet["odds_used"]),
+                    bet["odds_source"],
+                    float(bet["edge"]),
+                    float(bet["stake"]),
+                    _dumps_json(bet.get("legs") or []),
+                    bet.get("status", "pending"),
+                    _optional_float(bet.get("payout")),
+                    _optional_float(bet.get("profit")),
+                    bet.get("settled_at"),
+                    created_at,
+                )
+                for bet in bets
+            ]
+            conn.executemany(
                 """
                 INSERT INTO system_bets (
                     run_id,
@@ -1513,26 +1532,7 @@ def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str,
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (
-                    run_id,
-                    profile_key,
-                    bet["sport"],
-                    bet["event_id"],
-                    bet["event_name"],
-                    bet["market_type"],
-                    bet["selection"],
-                    float(bet["model_probability"]),
-                    float(bet["odds_used"]),
-                    bet["odds_source"],
-                    float(bet["edge"]),
-                    float(bet["stake"]),
-                    _dumps_json(bet.get("legs") or []),
-                    bet.get("status", "pending"),
-                    _optional_float(bet.get("payout")),
-                    _optional_float(bet.get("profit")),
-                    bet.get("settled_at"),
-                    created_at,
-                ),
+                values,
             )
 
         conn.commit()
@@ -1757,7 +1757,6 @@ def run_weekly_retrain(reference_date: str, profile_keys: Optional[List[str]] = 
 def init_db() -> None:
     """Initialize the database schema once. Delegates to database module."""
     init_database()
-    ensure_default_strategy_profiles()
 
 
 def _connect():
