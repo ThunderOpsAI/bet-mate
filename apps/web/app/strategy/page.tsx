@@ -19,6 +19,7 @@ import Leaderboard from "../components/Leaderboard";
 import Achievements from "../components/Achievements";
 import StrategyAnalyticsCard, { StrategyMetricProps } from "../components/StrategyAnalyticsCard";
 import AskBobLabCard from "../components/AskBobLabCard";
+import { MultiBetCardPrototype, PrototypeSwitcher } from "./MultiPrototype";
 import { useAuth } from "../providers/AuthProvider";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
@@ -88,13 +89,38 @@ export default function StrategyPage() {
       try {
         const response = await fetchWithTimeout(`${ML_API}/api/strategy-cards`, {
           cache: "no-store",
-          timeoutMs: 8000,
+          timeoutMs: 60000,
         });
         const data = await safeResponseJson(response);
         if (!response.ok || !data) {
           throw new Error("Strategy cards unavailable");
         }
-        setCards(data?.cards ?? []);
+        
+        // PROTOTYPE: Inject a fake multi into the first card for demonstration
+        const loadedCards = data?.cards ?? [];
+        const racingMulti = loadedCards.find((c: any) => c.profile_key === "racing_multi");
+        if (racingMulti) {
+            racingMulti.selected_bets = [
+                {
+                    sport: "racing",
+                    event_id: "fake_multi",
+                    event_name: "Goulburn R3",
+                    market_type: "multi",
+                    selection: "Peace Bird + Purple Rose + The Eyes Have It",
+                    odds_used: 11.75,
+                    odds_source: "composite",
+                    edge: 0.15,
+                    stake: 20.00,
+                    legs: [
+                        {sport: "racing", event_id: "e1", event_name: "Goulburn R3", selection: "2.Peace Bird (5)", market_type: "win", odds_used: 2.50, odds_source: "market"},
+                        {sport: "racing", event_id: "e2", event_name: "Goulburn R3", selection: "3.Purple Rose (2)", market_type: "win", odds_used: 1.80, odds_source: "market"},
+                        {sport: "racing", event_id: "e2", event_name: "Goulburn R3", selection: "4.The Eyes Have It (1)", market_type: "win", odds_used: 1.50, odds_source: "market"},
+                    ]
+                },
+                ...racingMulti.selected_bets
+            ];
+        }
+        setCards(loadedCards);
       } catch (error) {
         console.error("Failed to load strategy cards", error);
         setLoadError("Awaiting Daily Strategy Card Generation");
@@ -256,7 +282,11 @@ export default function StrategyPage() {
                     </div>
 
                     <div className="space-y-2.5">
-                      {card.selected_bets.map((bet) => (
+                      {card.selected_bets.map((bet) => {
+                          if (bet.market_type === "multi" || bet.market_type === "sgm") {
+                              return <MultiBetCardPrototype key={`${bet.event_id}-${bet.selection}`} bet={bet} cardDisplayName={card.display_name} cardProfileKey={card.profile_key} />;
+                          }
+                          return (
                         <div key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} className="bg-slate-950/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3.5 space-y-2.5 transition-all">
                           <div className="flex items-center justify-between gap-2 flex-wrap">
                             <div className="flex items-center gap-2.5">
@@ -309,7 +339,8 @@ export default function StrategyPage() {
                             </div>
                           )}
                         </div>
-                      ))}
+                      );
+                      })}
                     </div>
 
                     {card.skipped_opportunities.length > 0 && (
@@ -438,6 +469,7 @@ export default function StrategyPage() {
       )}
 
       <GuestModal open={showGuestModal} onClose={() => setShowGuestModal(false)} />
+      <PrototypeSwitcher />
     </div>
   );
 }
