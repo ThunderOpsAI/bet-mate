@@ -227,8 +227,8 @@ export default function RunnerRow({
           <div className="runner-odds-buttons flex items-center gap-2">
             <PaperBetAction
               variant="odds-button"
-              label={`WIN $${horse!.betfair_back_price!.toFixed(2)}`}
-              loggedLabel="✓ WIN"
+              label={`$${horse!.betfair_back_price!.toFixed(2)}`}
+              loggedLabel="✓"
               cancelLabel="✕"
               openBetslipOnAdd={false}
               bet={{
@@ -249,8 +249,8 @@ export default function RunnerRow({
             />
             <PaperBetAction
               variant="odds-button"
-              label={`PLACE $${calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price).toFixed(2)}`}
-              loggedLabel="✓ PLACE"
+              label={`$${calculatePlaceOdds(horse!.betfair_back_price!, horse?.betfair_place_price).toFixed(2)}`}
+              loggedLabel="✓"
               cancelLabel="✕"
               openBetslipOnAdd={false}
               bet={{
@@ -280,8 +280,8 @@ export default function RunnerRow({
           <div className="runner-odds-buttons flex items-center gap-2">
             <PaperBetAction
               variant="odds-button"
-              label={`WIN $${prediction.fair_odds.toFixed(2)}`}
-              loggedLabel="✓ WIN"
+              label={`$${prediction.fair_odds.toFixed(2)}`}
+              loggedLabel="✓"
               cancelLabel="✕"
               openBetslipOnAdd={false}
               bet={{
@@ -302,8 +302,8 @@ export default function RunnerRow({
             />
             <PaperBetAction
               variant="odds-button"
-              label={`PLACE $${calculatePlaceOdds(prediction.fair_odds).toFixed(2)}`}
-              loggedLabel="✓ PLACE"
+              label={`$${calculatePlaceOdds(prediction.fair_odds).toFixed(2)}`}
+              loggedLabel="✓"
               cancelLabel="✕"
               openBetslipOnAdd={false}
               bet={{

@@ -37,8 +37,8 @@ export default function VariantRunnerTable({ race, prediction, variant }: Varian
         <span className="col-num">#</span>
         <span className="col-horse">RUNNER</span>
         <span className="col-form">FORM / JOCKEY</span>
-        <span className="col-fair">MODEL FAIR</span>
-        <span className="col-odds">WIN ODDS</span>
+        <span className="col-fair" title="Model Implied">MI</span>
+        <span className="col-odds" title="Betfair Price">Price</span>
       </div>
 
       <div className="runner-list">
@@ -88,7 +88,6 @@ export default function VariantRunnerTable({ race, prediction, variant }: Varian
                   className={`odds-btn odds-btn-${variant}`}
                   onClick={() => handleOddsClick(horse.name, numericOdds, horse.horse_id)}
                 >
-                  <span className="odds-label">WIN</span>
                   <span className="odds-val">{winOdds}</span>
                 </button>
               </div>

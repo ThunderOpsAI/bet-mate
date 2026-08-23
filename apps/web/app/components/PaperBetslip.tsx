@@ -792,6 +792,52 @@ function PaperBetslipContent() {
                     const winOdds = bet.odds && bet.odds > 1 ? bet.odds : 1.0;
                     const placeOdds = Number((1 + (winOdds - 1) * 0.25).toFixed(2));
 
+                    if (bet.bet_type === "multi") {
+                      const legs = bet.selection.split(" + ");
+                      return (
+                        <div key={bet.id} className="p-0 mb-3 bg-slate-900 border border-slate-700 rounded-lg shadow-sm overflow-hidden">
+                          <div className="flex justify-between items-center p-3 bg-slate-800 border-b border-slate-700">
+                            <div className="flex items-center gap-2">
+                              <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-xs font-bold">M</span>
+                              <div className="font-bold text-slate-100 text-sm">Same Race Multi <span className="text-slate-400 font-normal ml-1">{legs.length} Legs</span></div>
+                            </div>
+                            <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={() => removeBet(bet.id)}><X size={16} /></button>
+                          </div>
+                          <div className="divide-y divide-slate-800/50 bg-slate-900">
+                            {legs.map((leg, i) => (
+                              <div key={i} className="px-3 py-2 flex items-start gap-2">
+                                <div className="w-3 h-3 bg-yellow-400/80 rounded-sm mt-1 shrink-0 border border-slate-600"></div>
+                                <div>
+                                  <div className="text-xs font-bold text-slate-200">{leg}</div>
+                                  <div className="text-[10px] text-slate-500">Top 4</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-b border-t border-slate-800">
+                            <div className="text-lg font-black text-fuchsia-200 ml-1">{winOdds.toFixed(2)}</div>
+                            <div className="flex items-center space-x-2">
+                              <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
+                              <div className="relative w-24">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+                                <input
+                                  type="number"
+                                  value={bet.stake === 0 ? "" : bet.stake}
+                                  onChange={(e) => {
+                                    const raw = e.target.value;
+                                    const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
+                                    updateBet(bet.id, { stake: cleanNum });
+                                  }}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                  placeholder="0"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={bet.id} className="p-3 mb-2 bg-slate-900 border border-slate-700 rounded-lg shadow-sm">
                         <div className="flex justify-between items-start mb-3">
