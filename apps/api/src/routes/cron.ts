@@ -11,35 +11,84 @@ function getMelbourneTime(): Date {
   return new Date(melbourneString);
 }
 
-// Monthly 10k Virtual Bankroll Reset Cron (1st of Month, 00:00 Australia/Melbourne)
-router.post("/monthly-reset", async (req, res) => {
+// Start of current week (Monday 00:00 Australia/Melbourne)
+function getMelbourneWeekStart(): Date {
+  const melNow = getMelbourneTime();
+  const day = melNow.getDay(); // 0 is Sunday, 1 is Monday...
+  const diff = melNow.getDate() - day + (day === 0 ? -6 : 1); // Adjust to Monday
+  const weekStart = new Date(melNow.setDate(diff));
+  weekStart.setHours(0, 0, 0, 0);
+  return weekStart;
+}
+
+// Start of current month (1st of Month 00:00 Australia/Melbourne)
+function getMelbourneMonthStart(): Date {
+  const melNow = getMelbourneTime();
+  const monthStart = new Date(melNow.getFullYear(), melNow.getMonth(), 1, 0, 0, 0, 0);
+  return monthStart;
+}
+
+// Weekly 10k Virtual Bankroll Reset Cron (Every Monday, 00:00 Australia/Melbourne)
+router.post("/weekly-reset", async (req, res) => {
   try {
     const melbourneNow = getMelbourneTime();
-    if (melbourneNow.getDate() === 1) {
+    const isMonday = melbourneNow.getDay() === 1;
+    const isForce = req.query.force === "true" || req.body?.force === true;
+
+    if (isMonday || isForce) {
       await prisma.bankroll.updateMany({
         data: {
           balance: 10000.0,
           startingBalance: 10000.0,
-          monthlySpend: 0.0,
-          totalBetsPlaced: 0
-        }
+          weeklySpend: 0.0,
+          weeklyBetsPlaced: 0,
+        },
       });
       await prisma.user.updateMany({
         data: {
           currentBankroll: 10000.0,
           startingBankroll: 10000.0,
-        }
+        },
       });
       return res.json({
         success: true,
         timezone: "Australia/Melbourne",
-        message: "Monthly 10k virtual bankrolls successfully reset."
+        message: "Weekly 10k virtual bankrolls successfully reset for the new week sprint.",
       });
     }
     return res.json({
       success: true,
       timezone: "Australia/Melbourne",
-      message: "Not 1st of month in Australia/Melbourne. Reset skipped."
+      message: "Not Monday in Australia/Melbourne. Weekly reset skipped.",
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Failed to process weekly bankroll reset" });
+  }
+});
+
+// Monthly Overall ROI & Spend Reset Cron (1st of Month, 00:00 Australia/Melbourne)
+router.post("/monthly-reset", async (req, res) => {
+  try {
+    const melbourneNow = getMelbourneTime();
+    const isFirst = melbourneNow.getDate() === 1;
+    const isForce = req.query.force === "true" || req.body?.force === true;
+
+    if (isFirst || isForce) {
+      await prisma.bankroll.updateMany({
+        data: {
+          monthlySpend: 0.0,
+        },
+      });
+      return res.json({
+        success: true,
+        timezone: "Australia/Melbourne",
+        message: "Monthly spend tracking successfully reset for new calendar month.",
+      });
+    }
+    return res.json({
+      success: true,
+      timezone: "Australia/Melbourne",
+      message: "Not 1st of month in Australia/Melbourne. Monthly reset skipped.",
     });
   } catch (error) {
     return res.status(500).json({ success: false, error: "Failed to process monthly bankroll reset" });
@@ -51,6 +100,8 @@ router.post("/monthly-reset", async (req, res) => {
 router.post("/settle-bets", async (req, res) => {
   try {
     const melbourneNow = getMelbourneTime();
+    const weekStart = getMelbourneWeekStart();
+    const monthStart = getMelbourneMonthStart();
     
     // 1. Fetch pending bets from Bet table and paper_bet_log
     const pendingBets = await prisma.bet.findMany({
@@ -66,10 +117,8 @@ router.post("/settle-bets", async (req, res) => {
 
     // 2. Perform settlement transaction for pending user bets
     for (const bet of pendingBets) {
-      // Settle pending bet if past event time or mock settled
       const eventTime = bet.eventTime ? new Date(bet.eventTime) : new Date(bet.createdAt);
       if (now.getTime() > eventTime.getTime() + 7200000) { // 2 hours after event start
-        // Win probability mock-evaluation based on odds or live results
         const isWin = Math.random() < (1 / bet.odds);
         const status = isWin ? "WON" : "LOST";
         const payout = isWin ? bet.stake * bet.odds : 0;
@@ -97,17 +146,24 @@ router.post("/settle-bets", async (req, res) => {
     }
 
     // 3. Post-Settlement Leaderboard & Strategy Analytics Update
-    // Recalculate monthlySpend and totalBetsPlaced for bankroll leaderboards
+    // Recalculate weekly & monthly metrics for bankroll leaderboards
     const allUsers = await prisma.user.findMany({ include: { bets: true } });
     for (const user of allUsers) {
       const settledUserBets = user.bets.filter((b) => b.status !== "PENDING");
-      const totalStaked = settledUserBets.reduce((sum, b) => sum + b.stake, 0);
       
+      const weeklyBets = settledUserBets.filter((b) => new Date(b.createdAt) >= weekStart);
+      const weeklySpend = weeklyBets.reduce((sum, b) => sum + b.stake, 0);
+      
+      const monthlyBets = settledUserBets.filter((b) => new Date(b.createdAt) >= monthStart);
+      const monthlySpend = monthlyBets.reduce((sum, b) => sum + b.stake, 0);
+
       await prisma.bankroll.upsert({
         where: { userId: user.id },
         update: {
           balance: user.currentBankroll,
-          monthlySpend: totalStaked,
+          weeklySpend,
+          weeklyBetsPlaced: user.bets.filter((b) => new Date(b.createdAt) >= weekStart).length,
+          monthlySpend,
           totalBetsPlaced: user.bets.length,
           username: user.username,
         },
@@ -116,7 +172,9 @@ router.post("/settle-bets", async (req, res) => {
           username: user.username,
           balance: user.currentBankroll,
           startingBalance: user.startingBankroll,
-          monthlySpend: totalStaked,
+          weeklySpend,
+          weeklyBetsPlaced: user.bets.filter((b) => new Date(b.createdAt) >= weekStart).length,
+          monthlySpend,
           totalBetsPlaced: user.bets.length,
         },
       });
@@ -129,6 +187,14 @@ router.post("/settle-bets", async (req, res) => {
     for (const strategy of allStrategies) {
       const bets = strategyBets.filter((b: any) => b.profile_key === strategy.profile_key);
       const settledBets = bets.filter((b: any) => b.status !== "pending");
+      
+      const weeklySettled = settledBets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart);
+      const weeklySpend = weeklySettled.reduce((sum: number, b: any) => sum + b.stake, 0);
+      const weeklyNetProfit = weeklySettled.reduce((sum: number, b: any) => sum + (b.profit || 0), 0);
+      
+      const monthlySettled = settledBets.filter((b: any) => b.created_at && new Date(b.created_at) >= monthStart);
+      const monthlySpend = monthlySettled.reduce((sum: number, b: any) => sum + b.stake, 0);
+
       const totalStaked = settledBets.reduce((sum: number, b: any) => sum + b.stake, 0);
       const netProfit = settledBets.reduce((sum: number, b: any) => sum + (b.profit || 0), 0);
       
@@ -139,7 +205,9 @@ router.post("/settle-bets", async (req, res) => {
         where: { userId: `strategy_${strategy.profile_key}` },
         update: {
           balance: currentBankroll,
-          monthlySpend: totalStaked,
+          weeklySpend,
+          weeklyBetsPlaced: bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart).length,
+          monthlySpend,
           totalBetsPlaced: bets.length,
           username: `🤖 ${strategy.display_name}`,
         },
@@ -148,7 +216,9 @@ router.post("/settle-bets", async (req, res) => {
           username: `🤖 ${strategy.display_name}`,
           balance: currentBankroll,
           startingBalance: startingBankroll,
-          monthlySpend: totalStaked,
+          weeklySpend,
+          weeklyBetsPlaced: bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart).length,
+          monthlySpend,
           totalBetsPlaced: bets.length,
         },
       });

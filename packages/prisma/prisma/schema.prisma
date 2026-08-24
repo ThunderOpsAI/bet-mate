@@ -197,15 +197,17 @@ enum TriggerType {
 }
 
 model Bankroll {
-  id              String   @id @default(cuid())
-  userId          String   @unique
-  username        String   @default("Anonymous")
-  balance         Float    @default(10000.0)
-  startingBalance Float    @default(10000.0)
-  monthlySpend    Float    @default(0.0)
-  totalBetsPlaced Int      @default(0)
-  createdAt       DateTime @default(now()) @db.Timestamptz(6)
-  updatedAt       DateTime @updatedAt @db.Timestamptz(6)
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  username         String   @default("Anonymous")
+  balance          Float    @default(10000.0)
+  startingBalance  Float    @default(10000.0)
+  weeklySpend      Float    @default(0.0)
+  weeklyBetsPlaced Int      @default(0)
+  monthlySpend     Float    @default(0.0)
+  totalBetsPlaced  Int      @default(0)
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
 
   @@schema("public")
 }
