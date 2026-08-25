@@ -85,6 +85,8 @@ function PaperBetslipContent() {
     updateBet,
     defaultStake,
     setDefaultStake,
+    settleAllCompletedBets,
+    clearResultedBets,
     addToast,
   } = usePaperBetslip();
 
@@ -111,11 +113,17 @@ function PaperBetslipContent() {
   }, [contextActiveBets, activeBets]);
 
   const unsettledBets = useMemo(() => {
-    return combinedActiveBets.filter((b) => b.status === "active" || b.status === "pending");
+    return combinedActiveBets.filter((b) => {
+      const s = (b.status || "").toLowerCase();
+      return s === "active" || s === "pending";
+    });
   }, [combinedActiveBets]);
 
   const settledBets = useMemo(() => {
-    return combinedActiveBets.filter((b) => b.status === "won" || b.status === "lost" || b.status === "settled");
+    return combinedActiveBets.filter((b) => {
+      const s = (b.status || "").toLowerCase();
+      return s === "won" || s === "lost" || s === "settled";
+    });
   }, [combinedActiveBets]);
   const [multiStake, setMultiStake] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<
@@ -474,6 +482,45 @@ function PaperBetslipContent() {
                 Resulted ({settledBets.length})
               </button>
             </div>
+
+            {/* Settle / Management Toolbar */}
+            {myBetsSubTab === "active" && unsettledBets.length > 0 && (
+              <div className="px-3 py-2 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {unsettledBets.length} active paper bet{unsettledBets.length === 1 ? "" : "s"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    settleAllCompletedBets();
+                    addToast("Settled past paper bets!", "success");
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer"
+                >
+                  <Sparkles size={13} className="text-emerald-400" />
+                  <span>Settle All Completed</span>
+                </button>
+              </div>
+            )}
+
+            {myBetsSubTab === "settled" && settledBets.length > 0 && (
+              <div className="px-3 py-2 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400 font-medium">
+                  {settledBets.length} resulted bet{settledBets.length === 1 ? "" : "s"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearResultedBets();
+                    addToast("Resulted bets cleared", "info");
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-all cursor-pointer"
+                >
+                  <Trash2 size={13} className="text-slate-400" />
+                  <span>Clear History</span>
+                </button>
+              </div>
+            )}
 
             {/* List Body */}
             <div className="flex-1 overflow-y-auto p-3 space-y-3">

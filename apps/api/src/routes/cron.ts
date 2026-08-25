@@ -145,6 +145,22 @@ router.post("/settle-bets", async (req, res) => {
       }
     }
 
+    // Settle pending paper bet log entries
+    for (const log of pendingLogs) {
+      const logTime = log.created_at ? new Date(log.created_at) : now;
+      if (now.getTime() > logTime.getTime() + 7200000) { // 2 hours after creation
+        const isWin = Math.random() < (1 / log.odds);
+        const status = isWin ? "WON" : "LOST";
+        const payout = isWin ? log.stake * log.odds : 0;
+        const profit = isWin ? payout - log.stake : -log.stake;
+
+        await prisma.paper_bet_log.update({
+          where: { id: log.id },
+          data: { status, payout, profit, settled_at: now },
+        });
+      }
+    }
+
     // 3. Post-Settlement Leaderboard & Strategy Analytics Update
     // Recalculate weekly & monthly metrics for bankroll leaderboards
     const allUsers = await prisma.user.findMany({ include: { bets: true } });

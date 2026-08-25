@@ -111,6 +111,8 @@ interface PaperBetslipContextType {
   removeToast: (id: string) => void;
   defaultStake: number;
   setDefaultStake: (stake: number) => void;
+  settleAllCompletedBets: () => void;
+  clearResultedBets: () => void;
 }
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(
@@ -207,7 +209,30 @@ export function PaperBetslipProvider({
     try {
       const rawActive = window.localStorage.getItem("paper_active_bets_list");
       if (rawActive) {
-        setActiveBets(JSON.parse(rawActive));
+        const parsed: ActiveBetItem[] = JSON.parse(rawActive);
+        let hasChanges = false;
+        const settledList: ActiveBetItem[] = parsed.map((bet) => {
+          if (bet.status === "active" || bet.status === "pending") {
+            const placedMs = bet.placed_at ? new Date(bet.placed_at).getTime() : 0;
+            // Auto-settle bets placed over 30 minutes ago
+            if (placedMs === 0 || nowMs - placedMs > 30 * 60 * 1000) {
+              hasChanges = true;
+              const isWin = Math.random() < (1 / (bet.odds || 2.0));
+              const payout = isWin ? (bet.stake || 10) * (bet.odds || 1.85) : 0;
+              return {
+                ...bet,
+                status: isWin ? "won" : "lost",
+                payout,
+              };
+            }
+          }
+          return bet;
+        });
+
+        if (hasChanges && typeof window !== "undefined" && window.localStorage) {
+          window.localStorage.setItem("paper_active_bets_list", JSON.stringify(settledList));
+        }
+        setActiveBets(settledList);
       }
     } catch {}
 
@@ -228,6 +253,37 @@ export function PaperBetslipProvider({
       betsRef.current = nextBets;
       setBets(nextBets);
       setIsBetslipOpen(nextOpen);
+    });
+  }, []);
+
+  const settleAllCompletedBets = useCallback(() => {
+    setActiveBets((prev) => {
+      const next = prev.map((b) => {
+        if (b.status === "active" || b.status === "pending") {
+          const isWin = Math.random() < (1 / (b.odds || 2.0));
+          const payout = isWin ? (b.stake || 10) * (b.odds || 1.85) : 0;
+          return {
+            ...b,
+            status: isWin ? ("won" as const) : ("lost" as const),
+            payout,
+          };
+        }
+        return b;
+      });
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+      }
+      return next;
+    });
+  }, []);
+
+  const clearResultedBets = useCallback(() => {
+    setActiveBets((prev) => {
+      const next = prev.filter((b) => b.status === "active" || b.status === "pending");
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+      }
+      return next;
     });
   }, []);
 
@@ -611,6 +667,8 @@ export function PaperBetslipProvider({
         removeToast,
         defaultStake,
         setDefaultStake,
+        settleAllCompletedBets,
+        clearResultedBets,
       }}
     >
       {children}
