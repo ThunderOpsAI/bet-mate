@@ -157,7 +157,7 @@ function HomePageContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ races: racesData }),
-          timeoutMs: 5000,
+          timeoutMs: 15000,
         });
         
         if (predsRes.ok) {

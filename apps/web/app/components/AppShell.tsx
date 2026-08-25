@@ -141,29 +141,30 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell flex flex-col min-h-screen">
       <div className="main-area flex-1 flex flex-col min-w-0">
-        <header className="top-header">
-          <div className="top-header-primary">
-            <Link href="/" className="flex items-center gap-2 group">
+        <header className="top-header px-3 sm:px-6 flex items-center justify-between gap-2 overflow-hidden">
+          <div className="top-header-primary shrink-0 min-w-0 flex items-center">
+            <Link href="/" className="flex items-center gap-1.5 group shrink-0">
               <Image
                 src="/brand/betmate-logo.png"
                 alt="BetMate"
                 width={120}
                 height={32}
-                style={{ width: "auto", height: "30px", objectFit: "contain" }}
+                style={{ width: "auto", height: "26px", objectFit: "contain" }}
+                className="h-6 sm:h-7 w-auto"
                 priority
               />
             </Link>
-            <h2 className="hidden sm:block text-slate-200 text-sm font-semibold ml-2 border-l border-slate-700/60 pl-3">
+            <h2 className="hidden md:block text-slate-200 text-sm font-semibold ml-2 border-l border-slate-700/60 pl-3 truncate">
               {getPageTitle(pathname)}
             </h2>
           </div>
 
-          <div className="flex-1 mx-4 hidden md:block max-w-xl">
+          <div className="flex-1 mx-4 hidden lg:block max-w-xl">
             <PromoCarousel />
           </div>
 
           {/* Right Header Control Group */}
-          <div className="flex items-center gap-1.5 sm:gap-2 max-w-[50%] justify-end">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end ml-auto">
             {/* 1. Refresh Button */}
             <button
               type="button"
@@ -173,21 +174,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   window.location.reload();
                 }
               }}
-              className="h-10 w-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
               title="Refresh Page & Data Feeds"
               aria-label="Refresh Page & Data Feeds"
             >
-              <RotateCw size={20} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
+              <RotateCw size={16} className={isRefreshing ? "animate-spin text-emerald-400" : ""} />
             </button>
 
             {/* 2. Settings Button */}
             <Link
               href="/settings"
-              className="h-10 w-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0"
               title="Settings"
               aria-label="Settings"
             >
-              <Settings size={20} />
+              <Settings size={16} />
             </Link>
 
             {/* 3. User Profile Capsule (Bankroll in Middle) */}
@@ -197,13 +198,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setProfileDropdownOpen((prev) => !prev)}
-                    className="user-badge flex items-center gap-2 px-3.5 h-10 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition-all text-xs font-bold shadow-sm cursor-pointer"
+                    className="user-badge flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 h-8 sm:h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition-all text-xs font-bold shadow-sm cursor-pointer shrink-0"
                     aria-expanded={profileDropdownOpen}
                     aria-label="User Profile Menu"
                     title={`User: ${user.username} | Balance: $${currentBalance.toLocaleString()}`}
                   >
-                    <UserIcon size={18} className="text-emerald-400 shrink-0" />
-                    <span className="text-xs font-black font-mono text-emerald-400 tracking-tight">
+                    <UserIcon size={15} className="text-emerald-400 shrink-0" />
+                    <span className="text-[11px] sm:text-xs font-black font-mono text-emerald-400 tracking-tight">
                       ${currentBalance.toLocaleString()}
                     </span>
                   </button>

@@ -441,7 +441,7 @@ function PaperBetslipContent() {
             <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-900/60 text-slate-100">
               <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
               <span className="text-xs font-black font-mono text-slate-100">
-                ${user ? (user as any).balance?.toLocaleString() ?? "10,000" : "10,000"}
+                ${user?.currentBankroll !== undefined ? user.currentBankroll.toLocaleString() : "10,000"}
               </span>
             </div>
           </div>
@@ -602,13 +602,39 @@ function PaperBetslipContent() {
           <>
             <div className="betslip-status-stack">
               {blockingIssues.length > 0 ? (
-                <div className="betslip-banner danger">
-                  <AlertTriangle size={16} />
-                  <span>
-                    {blockingIssues.length} selection
-                    {blockingIssues.length === 1 ? "" : "s"} need fixing before
-                    you can log this slip.
-                  </span>
+                <div className="betslip-banner danger flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle size={16} className="shrink-0" />
+                    <span>
+                      {blockingIssues.length} selection
+                      {blockingIssues.length === 1 ? "" : "s"} expired or invalid.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const expiredIds = bets
+                        .filter(
+                          (b) =>
+                            hasEventStarted({
+                              eventStartTime: b.event_start_time,
+                              eventDate: b.event_date,
+                              isClosed: b.is_closed,
+                            }) || b.is_unavailable,
+                        )
+                        .map((b) => b.id);
+                      if (expiredIds.length > 0) {
+                        expiredIds.forEach((id) => removeBet(id));
+                        addToast(`Cleared ${expiredIds.length} expired pick(s)`, "info");
+                      } else {
+                        clearBetslip();
+                        addToast("Cleared invalid selections", "info");
+                      }
+                    }}
+                    className="px-2 py-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-700/60 text-rose-200 text-[11px] font-bold rounded shrink-0 transition-colors cursor-pointer"
+                  >
+                    Clear Expired
+                  </button>
                 </div>
               ) : null}
 

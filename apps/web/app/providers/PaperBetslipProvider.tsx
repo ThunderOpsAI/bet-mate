@@ -182,8 +182,26 @@ export function PaperBetslipProvider({
 
   useEffect(() => {
     const persistedBets = loadPersistedBetslip();
-    betsRef.current = persistedBets;
-    setBets(persistedBets);
+    const nowMs = Date.now();
+    // Auto-filter unplaced bets whose start time was over 12 hours ago or added over 48 hours ago
+    const validBets = persistedBets.filter((bet) => {
+      if (bet.event_start_time) {
+        const startMs = new Date(bet.event_start_time).getTime();
+        if (!isNaN(startMs) && nowMs - startMs > 12 * 60 * 60 * 1000) {
+          return false;
+        }
+      }
+      if (bet.added_at) {
+        const addedMs = new Date(bet.added_at).getTime();
+        if (!isNaN(addedMs) && nowMs - addedMs > 48 * 60 * 60 * 1000) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    betsRef.current = validBets;
+    setBets(validBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
 
     try {
