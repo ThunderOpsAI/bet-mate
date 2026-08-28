@@ -100,7 +100,7 @@ export default function NotificationDrawer({
   const fetchPreferences = async () => {
     setIsLoading(true);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
       const res = await fetch(`${apiBaseUrl}/preferences`, {
         headers: {
           "Content-Type": "application/json",
@@ -129,7 +129,7 @@ export default function NotificationDrawer({
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
       const res = await fetch(`${apiBaseUrl}/preferences`, {
         method: "POST",
         headers: {
@@ -155,7 +155,7 @@ export default function NotificationDrawer({
     setTestSending(true);
     setTestFeedback(null);
     try {
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
       const res = await fetch(`${apiBaseUrl}/test`, {
         method: "POST",
         headers: {

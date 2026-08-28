@@ -67,19 +67,16 @@ function computeCombinationStats(combo: {
   return { metroStrikeRate, roi12Month };
 }
 
-async function fetchUpcomingRacesForCombo(combo: {
-  jockeyName?: string | null;
-  trainerName?: string | null;
-  horseName?: string | null;
-  trackName?: string | null;
-}) {
+async function fetchUpcomingRacesForCombo(
+  combo: {
+    jockeyName?: string | null;
+    trainerName?: string | null;
+    horseName?: string | null;
+    trackName?: string | null;
+  },
+  races: any[]
+) {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const res = await fetch(`${mlApi}/api/races/today`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) return [];
-    const data = await res.json();
-    const races = data.races || [];
-
     const matches: any[] = [];
     for (const race of races) {
       const trackMatches =
@@ -127,6 +124,18 @@ router.get("/", async (req: AuthRequest, res) => {
       orderBy: { createdAt: "desc" },
     });
 
+    let todayRaces: any[] = [];
+    try {
+      const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+      const racesRes = await fetch(`${mlApi}/api/races/today`, { signal: AbortSignal.timeout(1500) });
+      if (racesRes.ok) {
+        const data = await racesRes.json();
+        todayRaces = data.races || [];
+      }
+    } catch (e) {
+      // Ignore
+    }
+
     const combinations = await Promise.all(
       items.map(async (item: any) => {
         const stats = computeCombinationStats({
@@ -142,7 +151,7 @@ router.get("/", async (req: AuthRequest, res) => {
           trainerName: item.trainerName,
           horseName: item.horseName,
           trackName: item.trackName,
-        });
+        }, todayRaces);
 
         return {
           id: item.id,

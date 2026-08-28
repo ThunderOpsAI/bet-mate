@@ -132,7 +132,7 @@ function PaperBetslipContent() {
 
   useEffect(() => {
     if (isBetslipOpen && user && user.id !== "guest") {
-      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_auth_token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
       setLoadingActiveBets(true);
       fetch(`${API_BASE}/bets`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},

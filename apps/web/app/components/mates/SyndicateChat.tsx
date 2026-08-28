@@ -117,7 +117,7 @@ export default function SyndicateChat({
     try {
       const res = await fetch(`${API_BASE}/chat/${syndicateId}?limit=50`, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+          Authorization: `Bearer ${localStorage.getItem("betmate_token") || ""}`,
         },
       });
 
@@ -203,7 +203,7 @@ export default function SyndicateChat({
     setActionSuccessMessage(null);
 
     try {
-      const token = localStorage.getItem("token") || "";
+      const token = localStorage.getItem("betmate_token") || "";
       const res = await fetch(`${API_BASE}/chat/${syndicateId}`, {
         method: "POST",
         headers: {
@@ -242,7 +242,7 @@ export default function SyndicateChat({
   // Report message handler
   const handleReportMessage = async (messageId: string) => {
     try {
-      const token = localStorage.getItem("token") || "";
+      const token = localStorage.getItem("betmate_token") || "";
       const res = await fetch(`${API_BASE}/chat/messages/${messageId}/report`, {
         method: "POST",
         headers: {
@@ -279,7 +279,7 @@ export default function SyndicateChat({
     setTailingBets((prev) => ({ ...prev, [messageId]: "loading" }));
 
     try {
-      const token = localStorage.getItem("token") || "";
+      const token = localStorage.getItem("betmate_token") || "";
       const res = await fetch(`${API_BASE}/bets`, {
         method: "POST",
         headers: {

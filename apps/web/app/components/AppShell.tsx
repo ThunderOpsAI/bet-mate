@@ -41,6 +41,8 @@ function HeaderBetslipControlInner() {
   const isSlipActive = isBetslipOpen && activeTab === "slip";
   const isMyBetsActive = isBetslipOpen && (activeTab === "active" || activeTab === "settled");
 
+  const pendingActiveCount = activeBets.filter((b) => b.status === "active" || b.status === "pending").length;
+
   return (
     <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-950 h-10 shrink-0">
       {/* My Bets Block Button */}
@@ -58,13 +60,13 @@ function HeaderBetslipControlInner() {
             ? "bg-emerald-700 text-white font-black"
             : "bg-emerald-600 text-white hover:bg-emerald-700"
         }`}
-        title={`Open My Bets (${activeBets.length} active)`}
+        title={`Open My Bets (${pendingActiveCount} active)`}
       >
         <span className="text-[9px] font-extrabold tracking-tight leading-none text-emerald-100 uppercase">
           My Bets
         </span>
         <span className="text-xs font-black font-mono leading-none mt-0.5 text-white">
-          {activeBets.length}
+          {pendingActiveCount}
         </span>
       </button>
 

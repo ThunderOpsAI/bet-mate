@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
-const DEFAULT_LOCAL_ML_TARGET = "http://127.0.0.1:8000";
+const DEFAULT_LOCAL_ML_TARGET = "http://localhost:8000";
 const DEFAULT_PRODUCTION_ML_TARGET = "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
-const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
+const DEFAULT_LOCAL_API_TARGET = "http://localhost:3001";
 
 const nextConfig = {
   async headers() {

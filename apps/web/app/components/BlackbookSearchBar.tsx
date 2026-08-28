@@ -116,7 +116,7 @@ export default function BlackbookSearchBar({
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
-      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
 
       const response = await fetch(`${apiUrl}/api/blackbook`, {
         method: "POST",

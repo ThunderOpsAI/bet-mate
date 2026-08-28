@@ -540,7 +540,7 @@ export default function BlackbookPage() {
     );
   }
 
-  if (loading && combosLoading) {
+  if (loading || combosLoading) {
     return (
       <div className="dashboard-loading">
         <div className="loading-pulse">
