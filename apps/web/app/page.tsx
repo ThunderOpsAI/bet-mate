@@ -59,9 +59,9 @@ function HomePageContent() {
   } = useQuery({
     queryKey: ["home-racing", raceType],
     queryFn: async () => {
-      let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 30000 }).catch(() => null);
+      let racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=${raceType}`, { timeoutMs: 60000 }).catch(() => null);
       if ((!racesRes || !racesRes.ok) && raceType !== "T") {
-        racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 30000 }).catch(() => null);
+        racesRes = await fetchWithTimeout(`${ML_API}/api/races/today?type=T`, { timeoutMs: 60000 }).catch(() => null);
       }
 
       if (!racesRes || !racesRes.ok) throw new Error("Unable to load live racing data.");
@@ -157,7 +157,7 @@ function HomePageContent() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ races: racesData }),
-          timeoutMs: 15000,
+          timeoutMs: 60000,
         });
         
         if (predsRes.ok) {
@@ -232,7 +232,7 @@ function HomePageContent() {
     queryFn: async () => {
       const results = await Promise.allSettled([
         // AFL
-        fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 30000 })
+        fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 60000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);
@@ -251,7 +251,7 @@ function HomePageContent() {
           })
           .catch(() => []),
         // NRL
-        fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 30000 })
+        fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 60000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);
@@ -270,7 +270,7 @@ function HomePageContent() {
           })
           .catch(() => []),
         // NBA
-        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
+        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 60000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);
@@ -289,7 +289,7 @@ function HomePageContent() {
           })
           .catch(() => []),
         // Soccer
-        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 30000 })
+        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 60000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);

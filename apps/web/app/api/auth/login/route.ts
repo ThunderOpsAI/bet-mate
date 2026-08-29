@@ -28,9 +28,15 @@ export async function POST(req: Request) {
         if (proxyRes.ok) {
           const data = await proxyRes.json();
           return NextResponse.json(data, { status: 200 });
+        } else {
+          const errData = await proxyRes.json().catch(() => null);
+          return NextResponse.json(
+            { error: errData?.error || "Invalid credentials" },
+            { status: proxyRes.status }
+          );
         }
       } catch {
-        // Fall back to local Next.js authentication processing below
+        // Only fall back if the fetch itself fails (e.g. ECONNREFUSED)
       }
     }
 

@@ -192,7 +192,7 @@ async function fetchTodayRacesSingle(raceType: string = "T", targetDateStr?: str
 
   let response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}`, {
     cache: "no-store",
-    timeoutMs: 15000,
+    timeoutMs: 60000,
   }).catch(() => null);
 
   let data = response && response.ok ? await safeResponseJson(response) : null;
@@ -205,7 +205,7 @@ async function fetchTodayRacesSingle(raceType: string = "T", targetDateStr?: str
     const sep = queryString ? "&" : "?";
     response = await fetchWithTimeout(`${ML_API}/api/races/today${queryString}${sep}date=${fallbackDateStr}`, {
       cache: "no-store",
-      timeoutMs: 15000,
+      timeoutMs: 60000,
     }).catch(() => null);
     if (response && response.ok) {
       data = await safeResponseJson(response);
