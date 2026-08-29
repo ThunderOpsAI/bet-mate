@@ -178,7 +178,7 @@ export default function BlackbookPage() {
 
       if (res.ok) {
         const data = await safeResponseJson(res);
-        const items = data?.data || [];
+        const items = data?.data || data?.blackbook || [];
         const mappedConfigs = items.map((item: any) => ({
           runner: item.targetName,
           sport: "racing",
