@@ -2,6 +2,7 @@
 const DEFAULT_LOCAL_ML_TARGET = "http://localhost:8000";
 const DEFAULT_PRODUCTION_ML_TARGET = "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
 const DEFAULT_LOCAL_API_TARGET = "http://localhost:3001";
+const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
 
 const nextConfig = {
   async headers() {
@@ -23,7 +24,7 @@ const nextConfig = {
       (process.env.NODE_ENV === "development" ? DEFAULT_LOCAL_ML_TARGET : DEFAULT_PRODUCTION_ML_TARGET);
     const apiProxyTarget =
       process.env.API_PROXY_TARGET ||
-      (process.env.NODE_ENV === "development" ? DEFAULT_LOCAL_API_TARGET : "");
+      (process.env.NODE_ENV === "development" ? DEFAULT_LOCAL_API_TARGET : DEFAULT_PRODUCTION_API_TARGET);
 
     const rewrites = [];
 

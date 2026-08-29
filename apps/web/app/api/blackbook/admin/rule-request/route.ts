@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { API_BASE } from "../../../../lib/api";
+
+const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
+const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const token = req.headers.get("Authorization") || "";
+    const targetBase =
+      (process.env.API_PROXY_TARGET && process.env.API_PROXY_TARGET !== "/api" ? process.env.API_PROXY_TARGET : null) ||
+      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_API_TARGET : DEFAULT_LOCAL_API_TARGET);
     
-    const response = await fetch(`${API_BASE}/blackbook/admin/rule-request`, {
+    const response = await fetch(`${targetBase.replace(/\/+$/, "")}/api/blackbook/admin/rule-request`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

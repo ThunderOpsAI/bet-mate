@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
+const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
 
 // In-memory fallback user store for standalone web deployments without Express backend
 const localUsersMap = new Map<
@@ -20,7 +21,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetBase = process.env.API_PROXY_TARGET || process.env.NEXT_PUBLIC_API_URL || DEFAULT_LOCAL_API_TARGET;
+    const targetBase =
+      (process.env.API_PROXY_TARGET && process.env.API_PROXY_TARGET !== "/api" ? process.env.API_PROXY_TARGET : null) ||
+      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_API_TARGET : DEFAULT_LOCAL_API_TARGET);
 
     // Try forwarding to external API backend if available
     if (targetBase && targetBase !== "/api") {

@@ -74,7 +74,7 @@ async function fetchUpcomingRacesForCombo(
     horseName?: string | null;
     trackName?: string | null;
   },
-  races: any[]
+  races: any[] = []
 ) {
   try {
     const matches: any[] = [];

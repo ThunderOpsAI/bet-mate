@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ML_API } from "../../../lib/mlApi";
+
+const DEFAULT_LOCAL_ML_TARGET = "http://127.0.0.1:8000";
+const DEFAULT_PRODUCTION_ML_TARGET = "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -10,8 +12,11 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const mlApiUrl = process.env.ML_API_URL || "http://localhost:8000";
-    const response = await fetch(`${mlApiUrl}/blackbook/search?q=${encodeURIComponent(q)}`, {
+    const mlApiUrl =
+      process.env.ML_API_URL ||
+      process.env.ML_API_PROXY_TARGET ||
+      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_ML_TARGET : DEFAULT_LOCAL_ML_TARGET);
+    const response = await fetch(`${mlApiUrl.replace(/\/+$/, "")}/blackbook/search?q=${encodeURIComponent(q)}`, {
       headers: {
         "Authorization": req.headers.get("Authorization") || "",
       }
