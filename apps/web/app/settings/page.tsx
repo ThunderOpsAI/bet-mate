@@ -187,14 +187,7 @@ function SettingsContent() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-          <h4 style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>Account Info</h4>
-          {user && user.id !== "guest" && (
-            <button type="button" className="btn btn-danger btn-sm" onClick={logout}>
-              <LogOut size={14} /> Sign Out
-            </button>
-          )}
-        </div>
+        <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>Account Info</h4>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
           User ID: <code style={{ fontSize: "0.8rem", background: "var(--bg-glass)", padding: "0.15rem 0.4rem", borderRadius: 4 }}>{user?.id}</code>
         </p>
@@ -373,6 +366,27 @@ function SettingsContent() {
           <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>James configuration is unavailable.</p>
         )}
       </div>
+
+      {user && user.id !== "guest" && (
+        <div style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            className="btn btn-danger"
+            style={{
+              width: "100%",
+              justifyContent: "center",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.75rem 1rem",
+              fontWeight: 600,
+            }}
+            onClick={logout}
+          >
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      )}
 
       <div className="disclaimer" style={{ marginTop: "1rem" }}>
         <strong>18+</strong> | This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Please gamble responsibly.
