@@ -388,32 +388,32 @@ router.post("/", async (req: AuthRequest, res) => {
         },
       });
 
-      // Sync bet into paper_bet_log for ML feedback loop
-      await tx.paper_bet_log
-        .create({
-          data: {
-            sport: eventType,
-            event_id: eventId,
-            event_name: eventName,
-            selection,
-            bet_type: betType,
-            odds,
-            stake,
-            status: "PENDING",
-            notes,
-            origin: "user",
-            user_id: userId,
-          },
-        })
-        .catch((e: any) =>
-          console.warn(
-            "Failed to sync paper_bet_log for ML engine:",
-            e.message,
-          ),
-        );
-
       return bet;
     });
+
+    // Sync bet into paper_bet_log for ML feedback loop (outside transaction so it doesn't fail the bet)
+    prisma.paper_bet_log
+      .create({
+        data: {
+          sport: eventType,
+          event_id: eventId,
+          event_name: eventName,
+          selection,
+          bet_type: betType,
+          odds,
+          stake,
+          status: "PENDING",
+          notes,
+          origin: "user",
+          user_id: userId,
+        },
+      })
+      .catch((e: any) =>
+        console.warn(
+          "Failed to sync paper_bet_log for ML engine:",
+          e.message,
+        ),
+      );
 
     return res.status(201).json({ bet: result });
   } catch (err: any) {
@@ -500,28 +500,26 @@ router.post("/batch", async (req: AuthRequest, res) => {
         },
       });
 
-      // Sync batch bets into paper_bet_log for ML engine training loop
-      try {
-        await tx.paper_bet_log.createMany({
-          data: betsData.map((b) => ({
-            sport: b.eventType,
-            event_id: b.eventId,
-            event_name: b.eventName,
-            selection: b.selection,
-            bet_type: b.betType,
-            odds: b.odds,
-            stake: b.stake,
-            status: "PENDING",
-            notes: b.notes,
-            origin: "user",
-            user_id: userId,
-          })),
-        });
-      } catch (e: any) {
-        console.warn("Batch paper_bet_log sync failed:", e.message);
-      }
-
       return bets;
+    });
+
+    // Sync batch bets into paper_bet_log for ML engine training loop outside transaction
+    prisma.paper_bet_log.createMany({
+      data: betsData.map((b) => ({
+        sport: b.eventType,
+        event_id: b.eventId,
+        event_name: b.eventName,
+        selection: b.selection,
+        bet_type: b.betType,
+        odds: b.odds,
+        stake: b.stake,
+        status: "PENDING",
+        notes: b.notes,
+        origin: "user",
+        user_id: userId,
+      })),
+    }).catch((e: any) => {
+      console.warn("Batch paper_bet_log sync failed:", e.message);
     });
 
     return res

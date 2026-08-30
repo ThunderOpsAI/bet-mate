@@ -14,6 +14,7 @@ import {
   Shield,
   Layers,
 } from "lucide-react";
+import { API_BASE } from "../lib/api";
 
 export interface SearchResultItem {
   id: string;
@@ -83,9 +84,8 @@ export default function BlackbookSearchBar({
     const timer = setTimeout(async () => {
       setLoading(true);
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
         const res = await fetch(
-          `${apiUrl}/api/search?q=${encodeURIComponent(query)}&category=${activeCategory}`
+          `${API_BASE}/search?q=${encodeURIComponent(query)}&category=${activeCategory}`
         );
         if (res.ok) {
           const data = await res.json();
@@ -115,10 +115,9 @@ export default function BlackbookSearchBar({
     setAddingId(item.id);
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:3001";
       const token = typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null;
 
-      const response = await fetch(`${apiUrl}/api/blackbook`, {
+      const response = await fetch(`${API_BASE}/blackbook`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
