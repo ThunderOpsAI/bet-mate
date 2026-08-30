@@ -32,7 +32,7 @@ export function BlackbookSearchModal({ isOpen, onClose, onSelect }: Props) {
 
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (query.trim().length < 2) {
+      if (query.trim().length === 1) {
         setResults([]);
         return;
       }

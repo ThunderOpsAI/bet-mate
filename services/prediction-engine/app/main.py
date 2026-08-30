@@ -715,8 +715,6 @@ def blackbook_search(q: str = ""):
         return re.sub(r'[^a-z0-9]', '', s.lower())
         
     nq = norm(q)
-    if not nq:
-        return {"horses": [], "jockeys": [], "trainers": []}
         
     try:
         races = racing_scraper.fetch_today_races()
@@ -735,7 +733,7 @@ def blackbook_search(q: str = ""):
             jockey_name = h_dict.get("jockey_name", "")
             trainer_name = h_dict.get("trainer_name", "")
             
-            if horse_name and nq in norm(horse_name):
+            if horse_name and (not nq or nq in norm(horse_name)):
                 results.append({
                     "id": f"horse_{horse_name}_{venue}_{race_number}",
                     "name": horse_name,
@@ -745,7 +743,7 @@ def blackbook_search(q: str = ""):
                     "type": "horse"
                 })
                 
-            if jockey_name and nq in norm(jockey_name):
+            if jockey_name and (not nq or nq in norm(jockey_name)):
                 results.append({
                     "id": f"jockey_{jockey_name}_{venue}_{race_number}",
                     "name": jockey_name,
@@ -755,7 +753,7 @@ def blackbook_search(q: str = ""):
                     "type": "jockey"
                 })
                 
-            if trainer_name and nq in norm(trainer_name):
+            if trainer_name and (not nq or nq in norm(trainer_name)):
                 results.append({
                     "id": f"trainer_{trainer_name}_{venue}_{race_number}",
                     "name": trainer_name,
