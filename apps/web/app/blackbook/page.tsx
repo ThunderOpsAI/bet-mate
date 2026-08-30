@@ -596,7 +596,83 @@ export default function BlackbookPage() {
               readOnly
             />
           </div>
+          <div className="flex justify-end mt-2">
+            <button 
+              onClick={() => setShowComboBuilder(true)}
+              className="text-cyan-700 bg-cyan-50 hover:bg-cyan-100 border border-cyan-100 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 transition-colors"
+            >
+              <Plus size={16} /> Manually Add Entry / Combo
+            </button>
+          </div>
         </div>
+
+        {showComboBuilder && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
+              <div className="flex justify-between items-center p-4 border-b border-slate-100 bg-slate-50">
+                <h3 className="font-bold text-lg">Manually Add to Blackbook</h3>
+                <button onClick={() => setShowComboBuilder(false)} className="p-1 hover:bg-slate-200 rounded-full"><X size={20}/></button>
+              </div>
+              <form onSubmit={saveCombination} className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold mb-1">Type</label>
+                  <select 
+                    value={comboDraft.combinationType}
+                    onChange={(e) => setComboDraft({...comboDraft, combinationType: e.target.value})}
+                    className="w-full border border-slate-200 rounded-lg p-2 text-sm"
+                  >
+                    <option value="RUNNER">Single Runner</option>
+                    <option value="JOCKEY">Single Jockey</option>
+                    <option value="TRAINER">Single Trainer</option>
+                    <option value="JOCKEY_TRAINER">Jockey + Trainer</option>
+                    <option value="JOCKEY_HORSE">Jockey + Horse</option>
+                    <option value="TRAINER_TRACK">Trainer + Track</option>
+                  </select>
+                </div>
+
+                {["RUNNER", "JOCKEY_HORSE"].includes(comboDraft.combinationType) && (
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Horse Name</label>
+                    <input type="text" required value={comboDraft.horseName} onChange={e => setComboDraft({...comboDraft, horseName: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Winx" />
+                  </div>
+                )}
+                
+                {["JOCKEY", "JOCKEY_TRAINER", "JOCKEY_HORSE"].includes(comboDraft.combinationType) && (
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Jockey Name</label>
+                    <input type="text" required value={comboDraft.jockeyName} onChange={e => setComboDraft({...comboDraft, jockeyName: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. J McDonald" />
+                  </div>
+                )}
+                
+                {["TRAINER", "JOCKEY_TRAINER", "TRAINER_TRACK"].includes(comboDraft.combinationType) && (
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Trainer Name</label>
+                    <input type="text" required value={comboDraft.trainerName} onChange={e => setComboDraft({...comboDraft, trainerName: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. C Waller" />
+                  </div>
+                )}
+
+                {comboDraft.combinationType === "TRAINER_TRACK" && (
+                  <div>
+                    <label className="block text-sm font-semibold mb-1">Track Name</label>
+                    <input type="text" required value={comboDraft.trackName} onChange={e => setComboDraft({...comboDraft, trackName: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm" placeholder="e.g. Flemington" />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-semibold mb-1">Notes (Optional)</label>
+                  <textarea value={comboDraft.notes} onChange={e => setComboDraft({...comboDraft, notes: e.target.value})} className="w-full border border-slate-200 rounded-lg p-2 text-sm resize-none" rows={2} placeholder="Why are you watching this?"></textarea>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 flex justify-end gap-2">
+                  <button type="button" onClick={() => setShowComboBuilder(false)} className="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+                  <button type="submit" disabled={savingCombo} className="px-4 py-2 text-sm font-bold bg-cyan-600 text-white hover:bg-cyan-700 rounded-lg disabled:opacity-50">
+                    {savingCombo ? "Saving..." : "Save Entry"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         <BlackbookSearchModal 
           isOpen={isSearchOpen} 
