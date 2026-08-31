@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, Suspense } from "react";
 import {
   Activity,
   Award,
@@ -32,6 +32,12 @@ import { ExploreTab } from "../components/ExploreTab";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
+import { useSearchParams } from "next/navigation";
+import { PrototypeSwitcher } from "../components/PrototypeSwitcher";
+import { VariantA } from "./prototype/VariantA";
+import { VariantB } from "./prototype/VariantB";
+import { VariantC } from "./prototype/VariantC";
+import { BlackbookViewProps } from "./prototype/SharedProps";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
 import { TrackPicker } from "../components/TrackPicker";
@@ -114,7 +120,9 @@ const DEFAULT_RULE: DraftRule = {
   notify_pushover_key: "",
 };
 
-export default function BlackbookPage() {
+function BlackbookPageContent() {
+  const searchParams = useSearchParams();
+  const variant = searchParams?.get("variant") || "A";
   const { isLoading, token, user } = useAuth();
 
   // Tab state: "explore" | "list"
@@ -605,8 +613,27 @@ export default function BlackbookPage() {
   }
 
 
+  
+  const viewProps: BlackbookViewProps = {
+    activeTab, setActiveTab,
+    isSearchOpen, setIsSearchOpen,
+    showComboBuilder, setShowComboBuilder,
+    searchEntity, setSearchEntity,
+    isRuleBuilderOpen, setIsRuleBuilderOpen,
+    fetchConfigs,
+    runningTodayConfigs, activeAlertsConfigs, awaitingNextRaceConfigs, dailyRunners, dailyRunnersLoading,
+    removeConfig, deleteCombination,
+    comboDraft, setComboDraft, saveCombination, savingCombo
+  };
+
+  if (variant === "A") return <><VariantA {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
+  if (variant === "B") return <><VariantB {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
+  if (variant === "C") return <><VariantC {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
+
   return (
-    <ErrorBoundary sectionName="Blackbook content">
+    <>
+      <ErrorBoundary sectionName="Blackbook content">
+
       <div className="flex flex-col min-h-screen bg-slate-50 overflow-hidden">
         {/* Page Header */}
         <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-col gap-4">
@@ -945,5 +972,15 @@ export default function BlackbookPage() {
         </div>
       </div>
     </ErrorBoundary>
+      <PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} />
+    </>
+  );
+}
+
+export default function BlackbookPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-slate-500">Loading Blackbook...</div>}>
+      <BlackbookPageContent />
+    </Suspense>
   );
 }
