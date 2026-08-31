@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Star, Link as LinkIcon, Save } from "lucide-react";
 import { TrackPicker } from "./TrackPicker";
 import { SearchResult } from "./BlackbookSearchModal";
+import { useAuth } from "../providers/AuthProvider";
 
 interface Props {
   isOpen: boolean;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: Props) {
+  const { token } = useAuth();
   const [notes, setNotes] = useState("");
   const [rating, setRating] = useState(0);
   const [conditions, setConditions] = useState({
@@ -57,9 +59,13 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
     if (!ruleRequestText.trim()) return;
     setRuleRequestStatus("submitting");
     try {
+      const authToken = token || (typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null);
       const res = await fetch("/api/blackbook/admin/rule-request", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({ request: ruleRequestText }),
       });
       if (res.ok) {
@@ -81,9 +87,13 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
     if (!entity) return;
     setSaving(true);
     try {
-      await fetch("/api/blackbook", {
+      const authToken = token || (typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null);
+      const res = await fetch("/api/blackbook", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({
           targetType: entity.type === "combination" ? "COMBINATION" : (entity.type === "horse" ? "RUNNER" : entity.type.toUpperCase()),
           targetId: entity.id,
@@ -97,6 +107,9 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
           rules: [],
         }),
       });
+      if (!res.ok) {
+        throw new Error(`Failed to save: ${res.statusText}`);
+      }
       onSave();
       onClose();
     } catch (e) {
