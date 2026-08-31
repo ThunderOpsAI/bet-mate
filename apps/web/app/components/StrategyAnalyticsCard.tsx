@@ -17,7 +17,7 @@ export default function StrategyAnalyticsCard({ strategy }: { strategy: Strategy
   const isPositiveYield = strategy.yieldRoi >= 0;
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 shadow-md flex flex-col justify-between hover:border-slate-700 transition-all">
+    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 shadow-md flex flex-col justify-between hover:border-slate-700 transition-all">
       <div>
         <div className="flex items-center justify-between mb-3">
           <h4 className="text-sm font-bold text-slate-100">{strategy.name}</h4>
@@ -31,7 +31,7 @@ export default function StrategyAnalyticsCard({ strategy }: { strategy: Strategy
         </div>
 
         {/* Core Metrics Grid */}
-        <div className="grid grid-cols-3 gap-2 mb-4 bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/60 text-center">
+        <div className="grid grid-cols-3 gap-2 mb-4 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/60 text-center">
           <div>
             <div className="text-[10px] text-slate-500 flex items-center justify-center gap-1">
               <Target className="w-3 h-3 text-slate-400" /> Strike Rate
@@ -60,7 +60,7 @@ export default function StrategyAnalyticsCard({ strategy }: { strategy: Strategy
       {/* Sparkline Equity Curve */}
       <div>
         <div className="text-[10px] text-slate-500 font-semibold mb-1">P&L Momentum (Equity Curve)</div>
-        <div className="h-16 w-full bg-slate-950/80 rounded border border-slate-800/40 p-1 min-w-0 flex items-center justify-center">
+        <div className="h-16 w-full bg-slate-900/80 rounded border border-slate-800/40 p-1 min-w-0 flex items-center justify-center">
           {strategy.equityData && strategy.equityData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={100} minHeight={50}>
               <LineChart data={strategy.equityData}>

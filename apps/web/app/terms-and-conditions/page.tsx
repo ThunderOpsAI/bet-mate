@@ -54,7 +54,7 @@ export default function TermsAndConditionsPage() {
           <section
             key={section.id}
             id={section.id}
-            className={`p-6 rounded-2xl bg-slate-900/80 border ${
+            className={`p-6 rounded-2xl bg-slate-950/80 border ${
               section.isNotice
                 ? "border-emerald-500/30 bg-emerald-950/20"
                 : "border-slate-800"
@@ -89,7 +89,7 @@ export default function TermsAndConditionsPage() {
       </div>
 
       {/* Footer Info */}
-      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+      <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
         <div>
           <span>Questions about these terms? Contact </span>
           <a

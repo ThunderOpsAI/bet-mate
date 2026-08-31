@@ -15,7 +15,7 @@ export default function SportPage() {
   return (
     <ErrorBoundary sectionName="Sport Landing">
       <div className="space-y-6 max-w-7xl mx-auto px-4 sm:px-6">
-        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
+        <section className="bg-slate-950/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
           <div className="text-emerald-400 font-semibold text-sm mb-2 flex items-center gap-2">
             <Trophy size={16} />
             <span>Select a Sport</span>
@@ -33,7 +33,7 @@ export default function SportPage() {
             <Link
               key={s.path}
               href={s.path}
-              className="flex flex-col items-center justify-center p-6 bg-slate-900/50 border border-slate-800 rounded-2xl hover:bg-slate-800 hover:border-emerald-500/50 transition-all group"
+              className="flex flex-col items-center justify-center p-6 bg-slate-950/50 border border-slate-800 rounded-2xl hover:bg-slate-800 hover:border-emerald-500/50 transition-all group"
             >
               <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4 group-hover:bg-emerald-900/50 transition-colors">
                 <Trophy size={28} className="text-slate-400 group-hover:text-emerald-400" />

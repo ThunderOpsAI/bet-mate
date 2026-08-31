@@ -367,11 +367,11 @@ function PaperBetslipContent() {
   return (
     <>
       <div
-        className="betslip-overlay-backdrop fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[100] transition-opacity animate-in fade-in duration-200 flex justify-end"
+        className="betslip-overlay-backdrop fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] transition-opacity animate-in fade-in duration-200 flex justify-end"
         onClick={() => setIsBetslipOpen(false)}
       >
         <div
-          className="betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden bg-slate-900 border-l border-slate-700/80 transition-transform animate-in slide-in-from-right duration-300"
+          className="betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden bg-slate-950 border-l border-slate-700/80 transition-transform animate-in slide-in-from-right duration-300"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Sportsbet Style Header Bar */}
@@ -392,13 +392,13 @@ function PaperBetslipContent() {
             </div>
 
             {/* Header Main Tabs */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-900/60 rounded-xl border border-slate-600/30">
+            <div className="flex items-center gap-1 p-0.5 bg-slate-950/60 rounded-xl border border-slate-600/30">
               <button
                 type="button"
                 onClick={() => setContextMainTab("slip")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "slip"
-                    ? "bg-slate-950 text-amber-400 shadow-sm"
+                    ? "bg-slate-900 text-amber-400 shadow-sm"
                     : "text-slate-300 hover:bg-slate-100/10"
                 }`}
               >
@@ -413,7 +413,7 @@ function PaperBetslipContent() {
                 onClick={() => setContextMainTab("active")}
                 className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
                   contextMainTab === "active" || contextMainTab === "settled"
-                    ? "bg-slate-950 text-sky-400 shadow-sm"
+                    ? "bg-slate-900 text-sky-400 shadow-sm"
                     : "text-slate-300 hover:bg-slate-100/10"
                 }`}
               >
@@ -427,7 +427,7 @@ function PaperBetslipContent() {
             </div>
 
             {/* Sportsbet Style Balance Tag */}
-            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-900/60 text-slate-100">
+            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/60 text-slate-100">
               <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
               <span className="text-xs font-black font-mono text-slate-100">
                 ${user?.currentBankroll !== undefined ? user.currentBankroll.toLocaleString() : "10,000"}
@@ -437,9 +437,9 @@ function PaperBetslipContent() {
 
         {/* MY BETS SECTION (Active & Settled Sub-Tabs) */}
         {contextMainTab === "active" || contextMainTab === "settled" ? (
-          <div className="betslip-content flex-1 flex flex-col min-h-[300px] overflow-hidden bg-slate-900/90">
+          <div className="betslip-content flex-1 flex flex-col min-h-[300px] overflow-hidden bg-slate-950/90">
             {/* Sub-Tab Bar: Pending vs Resulted */}
-            <div className="flex items-center gap-2 p-2 bg-slate-950/80 border-b border-slate-800/80">
+            <div className="flex items-center gap-2 p-2 bg-slate-900/80 border-b border-slate-800/80">
               <button
                 type="button"
                 onClick={() => setMyBetsSubTab("active")}
@@ -466,7 +466,7 @@ function PaperBetslipContent() {
 
             {/* Settle / Management Toolbar */}
             {myBetsSubTab === "active" && unsettledBets.length > 0 && (
-              <div className="px-3 py-2 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between">
+              <div className="px-3 py-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center justify-between">
                 <span className="text-[11px] text-slate-400 font-medium">
                   {unsettledBets.length} active paper bet{unsettledBets.length === 1 ? "" : "s"}
                 </span>
@@ -485,7 +485,7 @@ function PaperBetslipContent() {
             )}
 
             {myBetsSubTab === "settled" && settledBets.length > 0 && (
-              <div className="px-3 py-2 bg-slate-950/60 border-b border-slate-800/60 flex items-center justify-between">
+              <div className="px-3 py-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center justify-between">
                 <span className="text-[11px] text-slate-400 font-medium">
                   {settledBets.length} resulted bet{settledBets.length === 1 ? "" : "s"}
                 </span>
@@ -520,7 +520,7 @@ function PaperBetslipContent() {
                   unsettledBets.map((bet) => (
                     <div
                       key={bet.id}
-                      className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 shadow-md space-y-2.5"
+                      className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 shadow-md space-y-2.5"
                     >
                       <div className="flex items-start justify-between gap-2 border-b border-slate-800/80 pb-2">
                         <div>
@@ -554,7 +554,7 @@ function PaperBetslipContent() {
                         onClick={() => {
                           addToast(`Simulated Cash Out triggered for ${bet.selection}!`, "success");
                         }}
-                        className="w-full py-2 px-3 rounded-lg bg-slate-900 hover:bg-slate-850 border border-slate-700/80 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-all"
+                        className="w-full py-2 px-3 rounded-lg bg-slate-950 hover:bg-slate-850 border border-slate-700/80 text-slate-200 font-bold text-xs flex items-center justify-center gap-2 transition-all"
                       >
                         <RotateCw size={14} className="text-amber-400" />
                         <span>Cash Out @ ${((bet.stake * (bet.odds * 0.95))).toFixed(2)}</span>
@@ -577,7 +577,7 @@ function PaperBetslipContent() {
                   settledBets.map((bet) => (
                     <div
                       key={bet.id}
-                      className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 shadow-md flex items-center justify-between"
+                      className="p-3.5 rounded-xl bg-slate-900 border border-slate-800 shadow-md flex items-center justify-between"
                     >
                       <div>
                         <div className="flex items-center gap-1.5 mb-1">
@@ -729,7 +729,7 @@ function PaperBetslipContent() {
                   </p>
                 </div>
               ) : (
-                <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-sm mb-4">
+                <div className="bg-slate-950 border border-slate-700 rounded-lg shadow-sm mb-4">
                   <div className="bg-slate-800 p-3 border-b border-slate-700 rounded-t-lg flex justify-between items-center">
                     <div className="font-bold text-slate-100">{singlesBets.length}-Leg Multi</div>
                     <div className="text-[17.5px] font-black text-fuchsia-200">{combinedMultiOdds.toFixed(2)}</div>
@@ -765,7 +765,7 @@ function PaperBetslipContent() {
                   </div>
 
                   {/* Multi Stake Input */}
-                  <div className="p-3 border-t border-slate-800 bg-slate-900 flex justify-end">
+                  <div className="p-3 border-t border-slate-800 bg-slate-950 flex justify-end">
                     <div className="flex items-center space-x-2">
                       <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
                       <div className="relative w-24">
@@ -778,7 +778,7 @@ function PaperBetslipContent() {
                             const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                             setMultiStake(cleanNum);
                           }}
-                          className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right"
+                          className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right"
                           placeholder="0"
                         />
                       </div>
@@ -786,7 +786,7 @@ function PaperBetslipContent() {
                   </div>
 
                   {/* Multi Est. Return */}
-                  <div className="p-3 bg-slate-950 rounded-b-lg border-t border-slate-800 text-right">
+                  <div className="p-3 bg-slate-900 rounded-b-lg border-t border-slate-800 text-right">
                     <span className="text-[13px] text-slate-400 font-medium pr-1">
                       Total Return: ${(estMultiCollect).toFixed(2)} | Cost: ${(multiStake).toFixed(2)}
                     </span>
@@ -846,7 +846,7 @@ function PaperBetslipContent() {
                     if (bet.bet_type === "multi") {
                       const legs = bet.selection.split(" + ");
                       return (
-                        <div key={bet.id} className="p-0 mb-3 bg-slate-900 border border-slate-700 rounded-lg shadow-sm overflow-hidden">
+                        <div key={bet.id} className="p-0 mb-3 bg-slate-950 border border-slate-700 rounded-lg shadow-sm overflow-hidden">
                           <div className="flex justify-between items-center p-3 bg-slate-800 border-b border-slate-700">
                             <div className="flex items-center gap-2">
                               <span className="w-5 h-5 rounded-full bg-slate-700 flex items-center justify-center text-slate-300 text-xs font-bold">M</span>
@@ -854,7 +854,7 @@ function PaperBetslipContent() {
                             </div>
                             <button className="text-slate-500 hover:text-slate-300 transition-colors" onClick={() => removeBet(bet.id)}><X size={16} /></button>
                           </div>
-                          <div className="divide-y divide-slate-800/50 bg-slate-900">
+                          <div className="divide-y divide-slate-800/50 bg-slate-950">
                             {legs.map((leg, i) => (
                               <div key={i} className="px-3 py-2 flex items-start gap-2">
                                 <div className="w-3 h-3 bg-yellow-400/80 rounded-sm mt-1 shrink-0 border border-slate-600"></div>
@@ -865,7 +865,7 @@ function PaperBetslipContent() {
                               </div>
                             ))}
                           </div>
-                          <div className="flex items-center justify-between bg-slate-950 p-2.5 rounded-b border-t border-slate-800">
+                          <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-b border-t border-slate-800">
                             <div className="text-lg font-black text-fuchsia-200 ml-1">{winOdds.toFixed(2)}</div>
                             <div className="flex items-center space-x-2">
                               <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
@@ -879,7 +879,7 @@ function PaperBetslipContent() {
                                     const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                                     updateBet(bet.id, { stake: cleanNum });
                                   }}
-                                  className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                  className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
                                   placeholder="0"
                                 />
                               </div>
@@ -890,7 +890,7 @@ function PaperBetslipContent() {
                     }
 
                     return (
-                      <div key={bet.id} className="p-3 mb-2 bg-slate-900 border border-slate-700 rounded-lg shadow-sm">
+                      <div key={bet.id} className="p-3 mb-2 bg-slate-950 border border-slate-700 rounded-lg shadow-sm">
                         <div className="flex justify-between items-start mb-3">
                           <div className="flex-1 pr-2">
                             <div className="text-[13px] text-slate-400 font-medium mb-1">{bet.event_name}</div>
@@ -933,7 +933,7 @@ function PaperBetslipContent() {
                             </div>
                           )}
                           
-                          <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
+                          <div className="flex items-center justify-between bg-slate-900 p-2 rounded border border-slate-800">
                              <div className="text-[17.5px] font-black text-fuchsia-200 ml-2">{winOdds.toFixed(2)}</div>
                              <div className="flex items-center space-x-2">
                                 <span className="text-[13px] font-bold text-slate-400 uppercase">
@@ -949,7 +949,7 @@ function PaperBetslipContent() {
                                       const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                                       updateBet(bet.id, { stake: cleanNum });
                                     }}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
                                     placeholder="0"
                                   />
                                 </div>
@@ -980,7 +980,7 @@ function PaperBetslipContent() {
 
                 {/* Auto-Multi Banner in Singles Tab */}
                 {singlesBets.length >= 2 && (
-                  <div className="my-3 p-3 bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-900 border border-emerald-500/40 rounded-xl flex items-center justify-between shadow-md">
+                  <div className="my-3 p-3 bg-gradient-to-r from-emerald-950/70 via-slate-950 to-slate-950 border border-emerald-500/40 rounded-xl flex items-center justify-between shadow-md">
                     <div>
                       <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
                         <Zap size={14} />
@@ -993,7 +993,7 @@ function PaperBetslipContent() {
                     <button
                       type="button"
                       onClick={() => setActiveTab("multi")}
-                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm shrink-0"
+                      className="bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold text-xs px-3 py-1.5 rounded-lg transition-all shadow-sm shrink-0"
                     >
                       View Multi →
                     </button>
@@ -1125,7 +1125,7 @@ function PaperBetslipContent() {
     )}
 
     {/* Sportsbet Responsible Gambling Footer Notice */}
-    <div className="mt-auto border-t border-slate-800/80 p-3 bg-slate-950 text-center">
+    <div className="mt-auto border-t border-slate-800/80 p-3 bg-slate-900 text-center">
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-2.5">
         <p className="text-[11px] font-black uppercase text-amber-400 tracking-wide">
           WHAT'S GAMBLING REALLY COSTING YOU?

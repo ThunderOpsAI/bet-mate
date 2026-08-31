@@ -268,7 +268,7 @@ export default function LiveOddsButton({
 
           {/* Floating Price Movement History Overlay Tooltip */}
           {showHistoryTooltip && (
-            <div className="absolute right-0 bottom-full mb-2 z-30 w-max max-w-xs bg-slate-950 border border-slate-700/80 shadow-xl rounded-lg p-2.5 text-xs animate-fadeIn backdrop-blur-md">
+            <div className="absolute right-0 bottom-full mb-2 z-30 w-max max-w-xs bg-slate-900 border border-slate-700/80 shadow-xl rounded-lg p-2.5 text-xs animate-fadeIn backdrop-blur-md">
               <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5 mb-1.5 text-slate-300 font-medium">
                 <span className="flex items-center gap-1">
                   <History size={12} className="text-purple-400" /> Price Movement History
@@ -334,7 +334,7 @@ export function SortByMarketMoversControl({
       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
         isSortedByMovers
           ? "bg-rose-950/70 border-rose-500/60 text-rose-200 shadow-md shadow-rose-950/40 ring-1 ring-rose-500/40"
-          : "bg-slate-900/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+          : "bg-slate-950/80 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
       } ${className}`}
       title="Sort runners by market move intensity (biggest price shortening)"
     >

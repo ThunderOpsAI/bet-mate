@@ -33,7 +33,7 @@ const BADGES: AchievementBadge[] = [
     categoryKey: "highest_roi",
     description: "Highest yield paper-bettor of the week (min 5 bets)",
     icon: <Trophy className="w-6 h-6 text-emerald-400" />,
-    bgGradient: "from-emerald-950/40 to-slate-900",
+    bgGradient: "from-emerald-950/40 to-slate-950",
     borderColor: "border-emerald-500/30",
     badgeColor: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
   },
@@ -44,7 +44,7 @@ const BADGES: AchievementBadge[] = [
     categoryKey: "high_rollers",
     description: "Most virtual currency wagered across strategy cards",
     icon: <Crown className="w-6 h-6 text-amber-400" />,
-    bgGradient: "from-amber-950/40 to-slate-900",
+    bgGradient: "from-amber-950/40 to-slate-950",
     borderColor: "border-amber-500/30",
     badgeColor: "bg-amber-500/20 text-amber-400 border-amber-500/30",
   },
@@ -55,7 +55,7 @@ const BADGES: AchievementBadge[] = [
     categoryKey: "grinders",
     description: "Highest total number of paper bets placed this week",
     icon: <Flame className="w-6 h-6 text-orange-400" />,
-    bgGradient: "from-orange-950/40 to-slate-900",
+    bgGradient: "from-orange-950/40 to-slate-950",
     borderColor: "border-orange-500/30",
     badgeColor: "bg-orange-500/20 text-orange-400 border-orange-500/30",
   },
@@ -66,7 +66,7 @@ const BADGES: AchievementBadge[] = [
     categoryKey: "tight_ass",
     description: "Active bettor with lowest total monthly spend",
     icon: <ShieldAlert className="w-6 h-6 text-blue-400" />,
-    bgGradient: "from-blue-950/40 to-slate-900",
+    bgGradient: "from-blue-950/40 to-slate-950",
     borderColor: "border-blue-500/30",
     badgeColor: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   },
@@ -105,7 +105,7 @@ export default function Achievements() {
   }, []);
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg">
+    <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-5 shadow-lg">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Award className="w-5 h-5 text-amber-400" />
@@ -132,7 +132,7 @@ export default function Achievements() {
                 <div>
                   <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-lg bg-slate-900/80 border border-slate-800 shadow-inner">
+                      <div className="p-2.5 rounded-lg bg-slate-950/80 border border-slate-800 shadow-inner">
                         {badge.icon}
                       </div>
                       <div>

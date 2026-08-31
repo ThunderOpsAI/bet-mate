@@ -77,7 +77,7 @@ export default function RaceDetailPage() {
 
   if (!race) {
     return (
-      <div className="max-w-md mx-auto my-12 p-6 text-center card bg-slate-900 border border-slate-800 rounded-xl space-y-3">
+      <div className="max-w-md mx-auto my-12 p-6 text-center card bg-slate-950 border border-slate-800 rounded-xl space-y-3">
         <h4 className="text-lg font-bold text-slate-200">Race not found</h4>
         <p className="text-xs text-slate-400">The requested race details could not be loaded.</p>
         <button
@@ -103,7 +103,7 @@ export default function RaceDetailPage() {
         </button>
 
         {/* Header card */}
-        <div className="card p-4 md:p-6 bg-slate-900/90 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="card p-4 md:p-6 bg-slate-950/90 border border-slate-800 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black text-slate-100">
               {race.venue || "Race"} — Race {race.raceNumber}
@@ -141,7 +141,7 @@ export default function RaceDetailPage() {
             return (
               <div
                 key={pred.horseName}
-                className={`card p-4 bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
+                className={`card p-4 bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all ${
                   i === 0 ? "border-l-4 border-l-amber-400" : ""
                 }`}
               >

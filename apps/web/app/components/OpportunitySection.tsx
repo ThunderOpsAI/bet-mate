@@ -86,7 +86,7 @@ export default function OpportunitySection({
   };
 
   return (
-    <section className="bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl p-4 sm:p-5 backdrop-blur-md mb-6 shadow-xl transition-all">
+    <section className="bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl p-4 sm:p-5 backdrop-blur-md mb-6 shadow-xl transition-all">
       <div className="flex items-center justify-between pb-3 mb-4 border-b border-slate-800/80">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm">
@@ -109,7 +109,7 @@ export default function OpportunitySection({
       </div>
 
       {opportunities.length === 0 ? (
-        <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center text-xs text-slate-400">
+        <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
           {emptyMessage}
         </div>
       ) : (
@@ -125,7 +125,7 @@ export default function OpportunitySection({
             return (
               <article
                 key={opp.id}
-                className="bg-slate-950/70 border border-slate-800 hover:border-emerald-500/40 rounded-xl p-3 sm:p-4 transition-all flex items-center justify-between gap-2 shadow-md"
+                className="bg-slate-900/70 border border-slate-800 hover:border-emerald-500/40 rounded-xl p-3 sm:p-4 transition-all flex items-center justify-between gap-2 shadow-md"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 mb-1 flex-wrap">

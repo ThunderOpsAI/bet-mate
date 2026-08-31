@@ -110,7 +110,7 @@ function RegisterForm() {
         </div>
 
         {registeredEmail ? (
-          <div className="p-6 bg-slate-900 border border-emerald-500/40 rounded-2xl text-center space-y-4 my-4">
+          <div className="p-6 bg-slate-950 border border-emerald-500/40 rounded-2xl text-center space-y-4 my-4">
             <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto text-2xl">
               ✉️
             </div>

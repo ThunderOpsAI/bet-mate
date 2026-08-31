@@ -154,9 +154,9 @@ export default function BlackbookSearchBar({
     results.COMBINATION.length;
 
   const content = (
-    <div className="w-full max-w-3xl bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transition-all">
+    <div className="w-full max-w-3xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] transition-all">
       {/* Search Input Bar Header */}
-      <div className="relative flex items-center px-4 py-3.5 border-b border-slate-800 bg-slate-950/60">
+      <div className="relative flex items-center px-4 py-3.5 border-b border-slate-800 bg-slate-900/60">
         <Search className="w-5 h-5 text-emerald-400 shrink-0 mr-3" />
         <input
           ref={inputRef}
@@ -181,7 +181,7 @@ export default function BlackbookSearchBar({
       </div>
 
       {/* Category Filter Badges */}
-      <div className="flex items-center gap-1.5 px-4 py-2 bg-slate-950/30 border-b border-slate-800/60 overflow-x-auto scrollbar-none">
+      <div className="flex items-center gap-1.5 px-4 py-2 bg-slate-900/30 border-b border-slate-800/60 overflow-x-auto scrollbar-none">
         {CATEGORIES.map((cat) => (
           <button
             key={cat.id}
@@ -214,7 +214,7 @@ export default function BlackbookSearchBar({
                 return (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700/80 transition-all group"
+                    className="flex items-center justify-between p-3 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:border-slate-700/80 transition-all group"
                   >
                     <div className="flex items-center gap-3 min-w-0 pr-2">
                       <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
@@ -354,7 +354,7 @@ export default function BlackbookSearchBar({
       </div>
 
       {/* Footer info bar */}
-      <div className="px-4 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
+      <div className="px-4 py-2.5 bg-slate-900 border-t border-slate-800 flex items-center justify-between text-xs text-slate-500">
         <span>Click "+ BlackBook" to receive instant alert notifications</span>
         <span className="font-mono text-[10px] text-slate-600">ESC to close</span>
       </div>
@@ -366,7 +366,7 @@ export default function BlackbookSearchBar({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 md:pt-24 px-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-start justify-center pt-16 md:pt-24 px-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-150">
       <div className="fixed inset-0" onClick={onClose} />
       <div className="relative z-10 w-full flex justify-center">{content}</div>
     </div>
@@ -398,7 +398,7 @@ function renderResultRow(
   return (
     <div
       key={item.id}
-      className="flex items-center justify-between p-3 rounded-xl bg-slate-950/40 border border-slate-800/60 hover:bg-slate-800/40 transition-all group"
+      className="flex items-center justify-between p-3 rounded-xl bg-slate-900/40 border border-slate-800/60 hover:bg-slate-800/40 transition-all group"
     >
       <div className="flex items-center gap-3 min-w-0 pr-2">
         <div className="p-2 rounded-lg bg-slate-800 text-slate-300 border border-slate-700/50 shrink-0">

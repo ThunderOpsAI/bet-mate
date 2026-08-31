@@ -191,7 +191,7 @@ export default function StrategyPage() {
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 activeSection === "strategies"
                   ? "bg-slate-800 text-emerald-400 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-950/50 border border-transparent"
               }`}
             >
               <Bot className="w-4 h-4" /> Strategies
@@ -202,7 +202,7 @@ export default function StrategyPage() {
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 activeSection === "analytics"
                   ? "bg-slate-800 text-emerald-400 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-950/50 border border-transparent"
               }`}
             >
               <BarChart3 className="w-4 h-4" /> Analytics
@@ -213,7 +213,7 @@ export default function StrategyPage() {
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 activeSection === "leaderboard"
                   ? "bg-slate-800 text-emerald-400 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-950/50 border border-transparent"
               }`}
             >
               <Trophy className="w-4 h-4" /> Leaderboard
@@ -224,7 +224,7 @@ export default function StrategyPage() {
               className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all cursor-pointer ${
                 activeSection === "achievements"
                   ? "bg-slate-800 text-emerald-400 border border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.15)]"
-                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/50 border border-transparent"
+                  : "text-slate-400 hover:text-slate-200 hover:bg-slate-950/50 border border-transparent"
               }`}
             >
               <Award className="w-4 h-4" /> Achievements
@@ -253,7 +253,7 @@ export default function StrategyPage() {
               Loading strategy cards...
             </div>
           ) : loadError ? (
-            <div className="bg-slate-900/90 border border-rose-900/50 rounded-xl p-5 text-xs text-rose-400 shadow-md">
+            <div className="bg-slate-950/90 border border-rose-900/50 rounded-xl p-5 text-xs text-rose-400 shadow-md">
               {loadError}
             </div>
           ) : cards.length === 0 ? (
@@ -296,7 +296,7 @@ export default function StrategyPage() {
                         </div>
 
                         {card.skipped_opportunities.length > 0 && (
-                          <div className="text-[11px] text-slate-400 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40 mt-3">
+                          <div className="text-[11px] text-slate-400 bg-slate-900/40 p-2 rounded-lg border border-slate-800/40 mt-3">
                             Skipped: {card.skipped_opportunities.slice(0, 2).map((item) => `${item.selection} (${item.reason})`).join(", ")}
                           </div>
                         )}
@@ -423,7 +423,7 @@ function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
   const displayEvent = isMulti ? (bet.legs?.[0]?.event_name || "Multi") : `${bet.event_name} · ${bet.market_type}`;
   
   return (
-    <div className="bg-slate-950/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3 shadow-sm flex items-center justify-between gap-4 transition-all shrink-0">
+    <div className="bg-slate-900/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3 shadow-sm flex items-center justify-between gap-4 transition-all shrink-0">
        {/* Event and Selection on the left */}
        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">

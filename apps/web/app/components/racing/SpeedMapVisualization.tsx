@@ -70,7 +70,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
 
   if (!race || !race.horses || race.horses.length === 0) {
     return (
-      <div className="speed-map-empty bg-slate-950/80 border border-slate-800 rounded-xl p-6 text-center text-slate-400 my-4">
+      <div className="speed-map-empty bg-slate-900/80 border border-slate-800 rounded-xl p-6 text-center text-slate-400 my-4">
         <Compass className="w-10 h-10 mx-auto text-purple-400/60 mb-2 animate-pulse" />
         <h4 className="font-semibold text-slate-200 text-sm">Speed Map Unavailable</h4>
         <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
@@ -101,7 +101,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
   );
 
   return (
-    <div className="speed-map-container bg-slate-950/90 border border-purple-500/20 rounded-xl p-4 md:p-5 my-4 shadow-xl space-y-4">
+    <div className="speed-map-container bg-slate-900/90 border border-purple-500/20 rounded-xl p-4 md:p-5 my-4 shadow-xl space-y-4">
       {/* Top Banner: Race Info & Predicted Pace */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
         <div>
@@ -116,7 +116,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
           </p>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
+        <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
           <Zap className="w-4 h-4 text-amber-400" />
           <div className="text-xs">
             <span className="text-slate-400">Predicted Pace: </span>
@@ -153,10 +153,10 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
       </div>
 
       {/* 2D Speed Map Grid Layout (Direction: Right to Left approaching turn) */}
-      <div className="speed-map-grid bg-slate-900/90 border border-slate-800 rounded-xl p-4 relative overflow-x-auto min-w-[600px]">
+      <div className="speed-map-grid bg-slate-950/90 border border-slate-800 rounded-xl p-4 relative overflow-x-auto min-w-[600px]">
         {/* Rail Line Visual at top */}
         <div className="absolute top-2 left-4 right-4 h-1 bg-emerald-500/40 rounded flex items-center justify-between px-2">
-          <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest bg-slate-950 px-2 py-0.5 rounded border border-emerald-500/30">
+          <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-widest bg-slate-900 px-2 py-0.5 rounded border border-emerald-500/30">
             Inside Rail
           </span>
           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
@@ -167,7 +167,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
         {/* 4 Settling Columns */}
         <div className="grid grid-cols-4 gap-3 pt-7 pb-2 min-h-[220px]">
           {/* Column 1: Leaders */}
-          <div className="settling-column bg-slate-950/60 border border-red-500/20 rounded-lg p-2.5 flex flex-col justify-between">
+          <div className="settling-column bg-slate-900/60 border border-red-500/20 rounded-lg p-2.5 flex flex-col justify-between">
             <div className="column-header text-center border-b border-red-500/30 pb-1.5 mb-2">
               <span className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center justify-center gap-1">
                 ⚡ Leaders ({leaders.length})
@@ -193,7 +193,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
           </div>
 
           {/* Column 2: On-Pace */}
-          <div className="settling-column bg-slate-950/60 border border-amber-500/20 rounded-lg p-2.5 flex flex-col justify-between">
+          <div className="settling-column bg-slate-900/60 border border-amber-500/20 rounded-lg p-2.5 flex flex-col justify-between">
             <div className="column-header text-center border-b border-amber-500/30 pb-1.5 mb-2">
               <span className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center justify-center gap-1">
                 🏃 On-Pace ({onPace.length})
@@ -219,7 +219,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
           </div>
 
           {/* Column 3: Midfield */}
-          <div className="settling-column bg-slate-950/60 border border-blue-500/20 rounded-lg p-2.5 flex flex-col justify-between">
+          <div className="settling-column bg-slate-900/60 border border-blue-500/20 rounded-lg p-2.5 flex flex-col justify-between">
             <div className="column-header text-center border-b border-blue-500/30 pb-1.5 mb-2">
               <span className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center justify-center gap-1">
                 🎯 Midfield ({midfield.length})
@@ -245,7 +245,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
           </div>
 
           {/* Column 4: Backmarkers */}
-          <div className="settling-column bg-slate-950/60 border border-purple-500/20 rounded-lg p-2.5 flex flex-col justify-between">
+          <div className="settling-column bg-slate-900/60 border border-purple-500/20 rounded-lg p-2.5 flex flex-col justify-between">
             <div className="column-header text-center border-b border-purple-500/30 pb-1.5 mb-2">
               <span className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center justify-center gap-1">
                 ⏳ Backmarkers ({backmarkers.length})
@@ -274,7 +274,7 @@ export default function SpeedMapVisualization({ race }: SpeedMapVisualizationPro
 
       {/* Bottom Selected/Hovered Runner Preview Card */}
       {selectedHorse ? (
-        <div className="bg-slate-900 border border-purple-500/40 rounded-lg p-3 flex items-center justify-between gap-3 animate-fadeIn">
+        <div className="bg-slate-950 border border-purple-500/40 rounded-lg p-3 flex items-center justify-between gap-3 animate-fadeIn">
           <div className="flex items-center gap-3">
             <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${silkGradients[selectedHorse.barrier % silkGradients.length]} flex items-center justify-center font-bold text-white text-xs border border-white/20 shadow-md`}>
               B{selectedHorse.barrier}
@@ -335,7 +335,7 @@ function RunnerNode({
       onClick={onSelect}
       onMouseEnter={() => onHover(true)}
       onMouseLeave={() => onHover(false)}
-      className={`runner-node flex items-center gap-2 p-1.5 rounded-lg border transition-all text-left w-full bg-slate-900/80 ${colorClass} ${
+      className={`runner-node flex items-center gap-2 p-1.5 rounded-lg border transition-all text-left w-full bg-slate-950/80 ${colorClass} ${
         isSelected ? "ring-2 ring-purple-400 bg-purple-950/50" : ""
       }`}
     >

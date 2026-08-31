@@ -117,7 +117,7 @@ export default function RunnerRow({
 
   return (
     <div
-      className={`runner-row relative p-3 rounded-lg border border-slate-800 bg-slate-900/60 hover:bg-slate-800/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+      className={`runner-row relative p-3 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
         index < 3 && hasTopPrediction
           ? "runner-top border-purple-500/30 bg-purple-950/10"
           : ""
@@ -336,7 +336,7 @@ export default function RunnerRow({
 
       {/* Quick-Add Micro-Modal for Jockey/Trainer */}
       {microModalTarget && (
-        <div className="absolute top-0 left-0 w-full h-full bg-slate-950/90 backdrop-blur-xs rounded-lg z-20 flex items-center justify-between px-4 py-2 border border-purple-500/40 animate-fadeIn">
+        <div className="absolute top-0 left-0 w-full h-full bg-slate-900/90 backdrop-blur-xs rounded-lg z-20 flex items-center justify-between px-4 py-2 border border-purple-500/40 animate-fadeIn">
           <div className="flex items-center gap-2">
             <Bookmark size={14} className="text-purple-400" />
             <span className="text-xs text-slate-200">

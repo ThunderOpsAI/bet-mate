@@ -668,7 +668,7 @@ function RacingPageContent() {
 
               if (next10.length === 0) {
                 return (
-                  <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+                  <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center">
                     <p className="text-sm font-bold text-slate-300">No upcoming races found</p>
                     <p className="text-xs text-slate-400 mt-1">Try toggling different race code filters above.</p>
                   </div>
@@ -704,7 +704,7 @@ function RacingPageContent() {
                           setSelectedVenueName(race.venue);
                           setSelectedRaceId(race.race_id);
                         }}
-                        className="group bg-slate-900/90 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-3.5 sm:p-4 transition-all duration-200 cursor-pointer shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                        className="group bg-slate-950/90 border border-slate-800 hover:border-amber-500/40 rounded-2xl p-3.5 sm:p-4 transition-all duration-200 cursor-pointer shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                       >
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-1.5 flex-wrap">

@@ -54,7 +54,7 @@ export default function PrivacyPolicyPage() {
           <section
             key={section.id}
             id={section.id}
-            className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-4"
+            className="p-6 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-4"
           >
             <h2 className="text-lg font-bold text-white">
               {section.title}
@@ -80,7 +80,7 @@ export default function PrivacyPolicyPage() {
       </div>
 
       {/* Footer Info */}
-      <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
+      <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3 text-center sm:text-left">
         <div>
           <span>Have questions about your data? Email </span>
           <a

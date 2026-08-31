@@ -117,22 +117,22 @@ export default function BetsPage() {
 
         {/* Stats bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="card p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
             <span className="text-[11px] font-medium text-slate-400">Active Bets</span>
             <div className="text-xl font-bold text-purple-400 mt-0.5">{activeCount}</div>
           </div>
 
-          <div className="card p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
             <span className="text-[11px] font-medium text-slate-400">Settled Bets</span>
             <div className="text-xl font-bold text-slate-200 mt-0.5">{settledCount}</div>
           </div>
 
-          <div className="card p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
             <span className="text-[11px] font-medium text-slate-400">Total Selections</span>
             <div className="text-xl font-bold text-slate-200 mt-0.5">{allBets.length}</div>
           </div>
 
-          <div className="card p-3 bg-slate-900/80 border border-slate-800 rounded-xl">
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
             <span className="text-[11px] font-medium text-slate-400">Blackbook Ready</span>
             <div className="text-xl font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
               <Bookmark size={16} /> Quick-Add
@@ -186,7 +186,7 @@ export default function BetsPage() {
             <div className="skeleton h-20 w-full rounded-xl" />
           </div>
         ) : filteredBets.length === 0 ? (
-          <div className="card p-8 text-center bg-slate-900/40 border border-slate-800/80 rounded-xl space-y-3">
+          <div className="card p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-xl space-y-3">
             <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
               <History size={24} />
             </div>
@@ -209,7 +209,7 @@ export default function BetsPage() {
               return (
                 <div
                   key={bet.id}
-                  className="card p-4 bg-slate-900/80 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
+                  className="card p-4 bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
                 >
                   {/* Left: Selection & Event */}
                   <div className="space-y-1 flex-1 min-w-0">

@@ -346,10 +346,10 @@ export default function SyndicateChat({
 
   return (
     <div
-      className={`flex flex-col h-[600px] w-full bg-slate-900/90 border border-slate-800 rounded-xl shadow-2xl overflow-hidden backdrop-blur-md ${className}`}
+      className={`flex flex-col h-[600px] w-full bg-slate-950/90 border border-slate-800 rounded-xl shadow-2xl overflow-hidden backdrop-blur-md ${className}`}
     >
       {/* Header Bar */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-950/80 border-b border-slate-800">
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-900/80 border-b border-slate-800">
         <div className="flex items-center gap-2.5">
           <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
             <MessageSquare className="w-4 h-4" />
@@ -452,7 +452,7 @@ export default function SyndicateChat({
             if (msg.isSystem) {
               return (
                 <div key={msg.id} className="flex justify-center my-2">
-                  <span className="text-[11px] text-slate-400 bg-slate-950/80 border border-slate-800 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <span className="text-[11px] text-slate-400 bg-slate-900/80 border border-slate-800 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
                     <Sparkles className="w-3 h-3 text-amber-400" />
                     {msg.text}
                   </span>
@@ -516,7 +516,7 @@ export default function SyndicateChat({
 
                 {/* Paper Bet Placement Card */}
                 {msg.betPayload && (
-                  <div className="max-w-[90%] w-[320px] p-3.5 rounded-xl bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border border-emerald-500/30 shadow-xl space-y-2.5 my-1">
+                  <div className="max-w-[90%] w-[320px] p-3.5 rounded-xl bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 border border-emerald-500/30 shadow-xl space-y-2.5 my-1">
                     <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
                       <div className="flex items-center gap-1.5 text-emerald-400 font-semibold">
                         <TrendingUp className="w-3.5 h-3.5" />
@@ -541,7 +541,7 @@ export default function SyndicateChat({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-900/90 p-2 rounded-lg border border-slate-800">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-950/90 p-2 rounded-lg border border-slate-800">
                       <span>Stake: ${msg.betPayload.stake.toFixed(2)}</span>
                       <span>Type: {msg.betPayload.betType}</span>
                     </div>
@@ -592,14 +592,14 @@ export default function SyndicateChat({
       {/* Input Composer */}
       <form
         onSubmit={(e) => handleSendMessage(e)}
-        className="p-3 bg-slate-950/90 border-t border-slate-800 flex items-center gap-2"
+        className="p-3 bg-slate-900/90 border-t border-slate-800 flex items-center gap-2"
       >
         <input
           type="text"
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           placeholder="Type a message to your syndicate..."
-          className="flex-1 px-3.5 py-2 text-xs bg-slate-900 text-slate-100 border border-slate-800 rounded-xl focus:outline-none focus:border-emerald-500/60 placeholder-slate-500"
+          className="flex-1 px-3.5 py-2 text-xs bg-slate-950 text-slate-100 border border-slate-800 rounded-xl focus:outline-none focus:border-emerald-500/60 placeholder-slate-500"
         />
 
         <button
@@ -619,7 +619,7 @@ export default function SyndicateChat({
       {/* Share Bet Placement Card Modal */}
       {showShareBetModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <Share2 className="w-4 h-4 text-emerald-400" />
@@ -642,7 +642,7 @@ export default function SyndicateChat({
                   onChange={(e) =>
                     setBetCardForm({ ...betCardForm, eventName: e.target.value })
                   }
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                   placeholder="e.g. Flemington Race 7"
                 />
               </div>
@@ -656,7 +656,7 @@ export default function SyndicateChat({
                     onChange={(e) =>
                       setBetCardForm({ ...betCardForm, selection: e.target.value })
                     }
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                     placeholder="e.g. Thunderbolt"
                   />
                 </div>
@@ -670,7 +670,7 @@ export default function SyndicateChat({
                     onChange={(e) =>
                       setBetCardForm({ ...betCardForm, odds: e.target.value })
                     }
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
@@ -685,7 +685,7 @@ export default function SyndicateChat({
                     onChange={(e) =>
                       setBetCardForm({ ...betCardForm, stake: e.target.value })
                     }
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
 
@@ -696,7 +696,7 @@ export default function SyndicateChat({
                     onChange={(e) =>
                       setBetCardForm({ ...betCardForm, betType: e.target.value })
                     }
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                   >
                     <option value="WIN">WIN</option>
                     <option value="PLACE">PLACE</option>
@@ -713,7 +713,7 @@ export default function SyndicateChat({
                   onChange={(e) =>
                     setBetCardForm({ ...betCardForm, notes: e.target.value })
                   }
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-emerald-500"
                   placeholder="Optional commentary..."
                 />
               </div>
@@ -753,7 +753,7 @@ export default function SyndicateChat({
       {/* Moderation Settings Modal */}
       {showModerationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h4 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-emerald-400" />
@@ -768,7 +768,7 @@ export default function SyndicateChat({
             </div>
 
             <div className="space-y-4 text-xs">
-              <div className="flex items-center justify-between bg-slate-950 p-3 rounded-xl border border-slate-800">
+              <div className="flex items-center justify-between bg-slate-900 p-3 rounded-xl border border-slate-800">
                 <div>
                   <div className="font-semibold text-slate-200">Show Reported Messages</div>
                   <div className="text-slate-400 text-[11px]">
@@ -788,7 +788,7 @@ export default function SyndicateChat({
                   Blocked Users ({blockedUserIds.length})
                 </h5>
                 {blockedUserIds.length === 0 ? (
-                  <p className="text-slate-500 text-[11px] italic bg-slate-950 p-3 rounded-xl border border-slate-800 text-center">
+                  <p className="text-slate-500 text-[11px] italic bg-slate-900 p-3 rounded-xl border border-slate-800 text-center">
                     No users currently blocked.
                   </p>
                 ) : (
@@ -796,7 +796,7 @@ export default function SyndicateChat({
                     {blockedUserIds.map((uid) => (
                       <div
                         key={uid}
-                        className="flex items-center justify-between bg-slate-950 p-2.5 rounded-lg border border-slate-800"
+                        className="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-800"
                       >
                         <span className="font-mono text-slate-300">{uid}</span>
                         <button

@@ -35,7 +35,7 @@ export default function PromoCarousel() {
   }, []);
 
   return (
-    <div className="relative w-full max-w-3xl h-12 md:h-14 mx-auto rounded-lg overflow-hidden bg-slate-950 border border-slate-800/80 shadow-sm flex items-center justify-center">
+    <div className="relative w-full max-w-3xl h-12 md:h-14 mx-auto rounded-lg overflow-hidden bg-slate-900 border border-slate-800/80 shadow-sm flex items-center justify-center">
       {BANNERS.map((banner, idx) => {
         const isActive = idx === currentIndex;
         return (
@@ -46,7 +46,7 @@ export default function PromoCarousel() {
             }`}
           >
             <Link href={banner.href} className="w-full h-full block">
-              <div className="w-full h-full relative flex items-center justify-center bg-slate-950">
+              <div className="w-full h-full relative flex items-center justify-center bg-slate-900">
                 <Image
                   src={banner.src}
                   alt={banner.alt}

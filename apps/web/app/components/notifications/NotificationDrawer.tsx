@@ -203,16 +203,16 @@ export default function NotificationDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-hidden bg-slate-950/80 backdrop-blur-sm transition-opacity"
+      className="fixed inset-0 z-50 overflow-hidden bg-slate-900/80 backdrop-blur-sm transition-opacity"
       aria-modal="true"
       role="dialog"
     >
       <div className="absolute inset-0" onClick={onClose} />
 
       <aside className="absolute inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-md bg-slate-900 border-l border-slate-800 text-slate-100 shadow-2xl flex flex-col justify-between">
+        <div className="w-screen max-w-md bg-slate-950 border-l border-slate-800 text-slate-100 shadow-2xl flex flex-col justify-between">
           {/* Header */}
-          <div className="p-6 border-b border-slate-800/80 flex items-center justify-between bg-slate-950/60">
+          <div className="p-6 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/60">
             <div className="flex items-center gap-3">
               <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
                 <Bell className="w-5 h-5" />
@@ -270,7 +270,7 @@ export default function NotificationDrawer({
                   </p>
 
                   {preferences.dailyDigestEnabled && (
-                    <div className="space-y-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80">
+                    <div className="space-y-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-slate-300 font-medium">Morning Dispatch Time</span>
                         <select
@@ -278,7 +278,7 @@ export default function NotificationDrawer({
                           onChange={(e) =>
                             setPreferences({ ...preferences, dailyDigestTime: e.target.value })
                           }
-                          className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:ring-1 focus:ring-amber-400"
+                          className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:ring-1 focus:ring-amber-400"
                         >
                           <option value="07:00">07:00 AM (Early Morning)</option>
                           <option value="08:00">08:00 AM (Recommended)</option>
@@ -331,7 +331,7 @@ export default function NotificationDrawer({
                               className={`flex-1 py-2 px-3 rounded-xl border text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                                 isActive
                                   ? "bg-amber-500/20 border-amber-500/40 text-amber-300 shadow-sm"
-                                  : "bg-slate-950/40 border-slate-800 text-slate-400 hover:border-slate-700"
+                                  : "bg-slate-900/40 border-slate-800 text-slate-400 hover:border-slate-700"
                               }`}
                             >
                               <Clock className="w-3.5 h-3.5" />
@@ -356,8 +356,8 @@ export default function NotificationDrawer({
                     <label
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         preferences.channelEmail
-                          ? "bg-slate-950/80 border-emerald-500/40 text-emerald-300"
-                          : "bg-slate-950/30 border-slate-800 text-slate-400"
+                          ? "bg-slate-900/80 border-emerald-500/40 text-emerald-300"
+                          : "bg-slate-900/30 border-slate-800 text-slate-400"
                       }`}
                     >
                       <div className="flex items-center gap-2 text-xs font-medium">
@@ -370,15 +370,15 @@ export default function NotificationDrawer({
                         onChange={(e) =>
                           setPreferences({ ...preferences, channelEmail: e.target.checked })
                         }
-                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-400"
+                        className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-400"
                       />
                     </label>
 
                     <label
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         preferences.channelPush
-                          ? "bg-slate-950/80 border-emerald-500/40 text-emerald-300"
-                          : "bg-slate-950/30 border-slate-800 text-slate-400"
+                          ? "bg-slate-900/80 border-emerald-500/40 text-emerald-300"
+                          : "bg-slate-900/30 border-slate-800 text-slate-400"
                       }`}
                     >
                       <div className="flex items-center gap-2 text-xs font-medium">
@@ -391,15 +391,15 @@ export default function NotificationDrawer({
                         onChange={(e) =>
                           setPreferences({ ...preferences, channelPush: e.target.checked })
                         }
-                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-400"
+                        className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-400"
                       />
                     </label>
 
                     <label
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         preferences.channelSms
-                          ? "bg-slate-950/80 border-emerald-500/40 text-emerald-300"
-                          : "bg-slate-950/30 border-slate-800 text-slate-400"
+                          ? "bg-slate-900/80 border-emerald-500/40 text-emerald-300"
+                          : "bg-slate-900/30 border-slate-800 text-slate-400"
                       }`}
                     >
                       <div className="flex items-center gap-2 text-xs font-medium">
@@ -412,15 +412,15 @@ export default function NotificationDrawer({
                         onChange={(e) =>
                           setPreferences({ ...preferences, channelSms: e.target.checked })
                         }
-                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-400"
+                        className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-400"
                       />
                     </label>
 
                     <label
                       className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
                         preferences.channelInApp
-                          ? "bg-slate-950/80 border-emerald-500/40 text-emerald-300"
-                          : "bg-slate-950/30 border-slate-800 text-slate-400"
+                          ? "bg-slate-900/80 border-emerald-500/40 text-emerald-300"
+                          : "bg-slate-900/30 border-slate-800 text-slate-400"
                       }`}
                     >
                       <div className="flex items-center gap-2 text-xs font-medium">
@@ -433,7 +433,7 @@ export default function NotificationDrawer({
                         onChange={(e) =>
                           setPreferences({ ...preferences, channelInApp: e.target.checked })
                         }
-                        className="rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-400"
+                        className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-400"
                       />
                     </label>
                   </div>
@@ -454,7 +454,7 @@ export default function NotificationDrawer({
                   </p>
 
                   {blackbookItems.length === 0 ? (
-                    <div className="p-3.5 rounded-xl bg-slate-950/40 border border-slate-800 text-center text-xs text-slate-500">
+                    <div className="p-3.5 rounded-xl bg-slate-900/40 border border-slate-800 text-center text-xs text-slate-500">
                       No BlackBook entities added yet. Add horses or jockeys from race cards to toggle bells.
                     </div>
                   ) : (
@@ -464,7 +464,7 @@ export default function NotificationDrawer({
                         return (
                           <div
                             key={item.id}
-                            className="flex items-center justify-between p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-xs"
+                            className="flex items-center justify-between p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-xs"
                           >
                             <span className="font-semibold text-slate-200 truncate max-w-[200px]">
                               {item.targetName}
@@ -536,7 +536,7 @@ export default function NotificationDrawer({
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t border-slate-800/80 bg-slate-950/80 flex items-center gap-3">
+          <div className="p-4 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-3">
             <button
               type="button"
               onClick={onClose}
@@ -548,7 +548,7 @@ export default function NotificationDrawer({
               type="button"
               disabled={isSaving}
               onClick={handleSave}
-              className="flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 disabled:opacity-50"
+              className="flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-900 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-amber-500/20 disabled:opacity-50"
             >
               {isSaving ? (
                 <>

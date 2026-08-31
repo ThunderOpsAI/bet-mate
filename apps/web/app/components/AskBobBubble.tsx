@@ -101,16 +101,16 @@ export default function AskBobBubble() {
 
   return (
     <div
-      className="ask-bob-backdrop fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      className="ask-bob-backdrop fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
       onClick={() => setIsOpen(false)}
     >
       <div
-        className="ask-bob-panel w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden relative"
+        className="ask-bob-panel w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl bg-slate-950 border border-slate-700/80 shadow-2xl overflow-hidden relative"
         style={{ position: "relative", bottom: "auto", right: "auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="ask-bob-panel-header flex items-center justify-between p-4 bg-slate-900 border-b border-slate-800">
+        <div className="ask-bob-panel-header flex items-center justify-between p-4 bg-slate-950 border-b border-slate-800">
           <div className="ask-bob-panel-title-area flex items-center gap-3">
             <div className="ask-bob-header-avatar-container relative w-8 h-8 rounded-full overflow-hidden border border-emerald-500/30">
               <Image
@@ -208,19 +208,19 @@ export default function AskBobBubble() {
         </div>
 
         {/* Footer Input */}
-        <form onSubmit={handleSendMessage} className="ask-bob-panel-footer p-3 bg-slate-900 border-t border-slate-800 flex items-center gap-2">
+        <form onSubmit={handleSendMessage} className="ask-bob-panel-footer p-3 bg-slate-950 border-t border-slate-800 flex items-center gap-2">
           <input
             type="text"
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             placeholder="Why did Cats qualify today?"
-            className="ask-bob-input flex-1 px-3.5 py-2 rounded-xl bg-slate-950 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
+            className="ask-bob-input flex-1 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700/80 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition-colors"
             disabled={loading}
             maxLength={200}
           />
           <button
             type="submit"
-            className="ask-bob-send-btn p-2 rounded-xl bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-50 transition-all"
+            className="ask-bob-send-btn p-2 rounded-xl bg-emerald-500 text-slate-900 hover:bg-emerald-400 disabled:opacity-50 transition-all"
             disabled={!inputValue.trim() || loading}
           >
             {loading ? (

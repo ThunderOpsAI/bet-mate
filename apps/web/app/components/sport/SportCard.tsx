@@ -86,7 +86,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
   return (
     <div
       onClick={() => onOpenDrawer(matchup)}
-      className="group card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl transition-all duration-200 cursor-pointer shadow-xl hover:shadow-2xl hover:shadow-slate-950/40 mb-4"
+      className="group card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/60 rounded-2xl transition-all duration-200 cursor-pointer shadow-xl hover:shadow-2xl hover:shadow-slate-900/40 mb-4"
     >
       {/* Header Row: Matchup Name & Details trigger */}
       <div className="flex items-center justify-between gap-2 mb-2 pb-2.5 border-b border-slate-800/80 px-1">
@@ -142,7 +142,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
           return (
             <div
               key={outcome.name}
-              className="card-inner-item flex items-center justify-between gap-2 bg-slate-950/70 border border-slate-800/70 rounded-lg hover:border-slate-700 transition-colors px-3 py-1.5"
+              className="card-inner-item flex items-center justify-between gap-2 bg-slate-900/70 border border-slate-800/70 rounded-lg hover:border-slate-700 transition-colors px-3 py-1.5"
             >
               {/* Left: Team Name & Model Win % */}
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -193,7 +193,7 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
                 className={`px-1.5 py-1 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 shrink-0 transition-all ${
                   inSlip
                     ? "bg-slate-800 text-emerald-400 border border-slate-700 hover:bg-slate-750"
-                    : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-sm"
+                    : "bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-sm"
                 }`}
               >
                 {inSlip ? (

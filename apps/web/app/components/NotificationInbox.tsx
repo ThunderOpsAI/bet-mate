@@ -36,12 +36,12 @@ export default function NotificationInbox() {
       {/* Bell Icon & Badge */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-lg bg-slate-900 border border-slate-800 text-slate-300 hover:text-slate-100 hover:border-slate-700 transition-all"
+        className="relative p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-300 hover:text-slate-100 hover:border-slate-700 transition-all"
         title="Blackbook Rule Notifications"
       >
         <Bell className="w-5 h-5 text-amber-400" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-950 bg-amber-400 rounded-full animate-pulse">
+          <span className="absolute -top-1 -right-1 px-1.5 py-0.5 text-[10px] font-bold text-slate-900 bg-amber-400 rounded-full animate-pulse">
             {unreadCount}
           </span>
         )}
@@ -49,8 +49,8 @@ export default function NotificationInbox() {
 
       {/* Popover Inbox */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-          <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="p-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/80">
             <div className="flex items-center gap-1.5">
               <Zap className="w-4 h-4 text-emerald-400" />
               <h4 className="text-sm font-bold text-slate-100">Blackbook Alerts</h4>
@@ -66,7 +66,7 @@ export default function NotificationInbox() {
                 <div
                   key={notif.id}
                   className={`p-3 transition-colors ${
-                    notif.isRead ? "bg-slate-900/40" : "bg-slate-900/90 border-l-2 border-amber-400"
+                    notif.isRead ? "bg-slate-950/40" : "bg-slate-950/90 border-l-2 border-amber-400"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2 mb-1">
@@ -90,9 +90,9 @@ export default function NotificationInbox() {
                     ) : (
                       <button
                         onClick={() => handle1ClickPaperBet(notif)}
-                        className="px-2.5 py-1 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded shadow transition-all flex items-center gap-1"
+                        className="px-2.5 py-1 text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-900 rounded shadow transition-all flex items-center gap-1"
                       >
-                        <Zap className="w-3 h-3 fill-slate-950" /> 1-Click Bet
+                        <Zap className="w-3 h-3 fill-slate-900" /> 1-Click Bet
                       </button>
                     )}
                   </div>

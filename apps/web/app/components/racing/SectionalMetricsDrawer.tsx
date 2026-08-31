@@ -66,13 +66,13 @@ export default function SectionalMetricsDrawer({
   // Clean empty state if no sectional metrics are available for this runner
   if (!data || !data.runs || data.runs.length === 0) {
     return (
-      <div className="sectional-drawer bg-slate-950/80 border border-slate-800/80 rounded-b-lg p-4 my-1 text-slate-400">
+      <div className="sectional-drawer bg-slate-900/80 border border-slate-800/80 rounded-b-lg p-4 my-1 text-slate-400">
         <div className="flex items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2 text-slate-400">
             <Activity size={15} className="text-purple-400/70 shrink-0" />
             <span className="font-semibold text-slate-300">Sectional Metrics — {runnerName}</span>
           </div>
-          <span className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider rounded bg-slate-900 border border-slate-800 text-slate-400">
+          <span className="px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider rounded bg-slate-950 border border-slate-800 text-slate-400">
             Awaiting Feed
           </span>
         </div>
@@ -96,7 +96,7 @@ export default function SectionalMetricsDrawer({
   );
 
   return (
-    <div className="sectional-drawer bg-slate-950/90 border border-purple-500/20 rounded-b-lg p-3.5 my-1 text-slate-200 animate-fadeIn space-y-3">
+    <div className="sectional-drawer bg-slate-900/90 border border-purple-500/20 rounded-b-lg p-3.5 my-1 text-slate-200 animate-fadeIn space-y-3">
       {/* Header & Metric Selector */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
         <div className="flex items-center gap-2">
@@ -106,7 +106,7 @@ export default function SectionalMetricsDrawer({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-md border border-slate-800">
+        <div className="flex items-center gap-1 bg-slate-950 p-0.5 rounded-md border border-slate-800">
           <button
             type="button"
             onClick={() => setSelectedMetric("600m")}
@@ -160,7 +160,7 @@ export default function SectionalMetricsDrawer({
           return (
             <div
               key={idx}
-              className="run-sectional-item bg-slate-900/80 border border-slate-800/80 rounded-md p-2.5 flex flex-col gap-2"
+              className="run-sectional-item bg-slate-950/80 border border-slate-800/80 rounded-md p-2.5 flex flex-col gap-2"
             >
               {/* Top row: Run info */}
               <div className="flex items-center justify-between text-xs">
@@ -199,7 +199,7 @@ export default function SectionalMetricsDrawer({
               </div>
 
               {/* Bar visualization comparing to 0.0s Benchmark baseline */}
-              <div className="relative w-full h-4 bg-slate-950 rounded overflow-hidden flex items-center border border-slate-800">
+              <div className="relative w-full h-4 bg-slate-900 rounded overflow-hidden flex items-center border border-slate-800">
                 {/* Benchmark Center Line (0.0s) */}
                 <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-slate-600 z-10" />
 
@@ -224,7 +224,7 @@ export default function SectionalMetricsDrawer({
       </div>
 
       {/* Bottom Summary Pill */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-900/60 px-2.5 py-1.5 rounded border border-slate-800/60">
+      <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-950/60 px-2.5 py-1.5 rounded border border-slate-800/60">
         <div className="flex items-center gap-1.5 text-slate-300">
           <TrendingUp size={13} className="text-purple-400" />
           <span>

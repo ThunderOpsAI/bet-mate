@@ -20,7 +20,7 @@ export default function HowItWorksPage() {
 
       {/* 4 Core Pillars */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+        <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
             <Target size={20} />
           </div>
@@ -30,7 +30,7 @@ export default function HowItWorksPage() {
           </p>
         </div>
 
-        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+        <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
           <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
             <Brain size={20} />
           </div>
@@ -40,7 +40,7 @@ export default function HowItWorksPage() {
           </p>
         </div>
 
-        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+        <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
           <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
             <FlaskConical size={20} />
           </div>
@@ -50,7 +50,7 @@ export default function HowItWorksPage() {
           </p>
         </div>
 
-        <div className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
+        <div className="p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
           <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
             <Trophy size={20} />
           </div>
@@ -62,7 +62,7 @@ export default function HowItWorksPage() {
       </div>
 
       {/* Guidelines List */}
-      <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
+      <div className="p-6 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
           <CheckCircle2 size={18} className="text-emerald-400" />
           <span>Platform Principles</span>
@@ -98,7 +98,7 @@ export default function HowItWorksPage() {
       <div className="flex justify-center pt-2">
         <Link
           href="/racing"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-950 font-bold text-sm hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 text-slate-900 font-bold text-sm hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20"
         >
           <span>Explore Today&apos;s Predictions</span>
           <ArrowRight size={16} />

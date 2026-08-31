@@ -198,14 +198,14 @@ export default function SportMatchupDrawer({
         onClose={() => setActiveExplanation(null)}
       />
 
-      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4">
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-900/80 backdrop-blur-sm flex justify-center items-end sm:items-center p-0 sm:p-4">
         {/* Backdrop click */}
         <div className="fixed inset-0" onClick={onClose} />
 
         {/* Modal Content */}
-        <div className="relative z-10 w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in slide-in-from-bottom-6 duration-200">
+        <div className="relative z-10 w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-in fade-in slide-in-from-bottom-6 duration-200">
           {/* Header */}
-          <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-start justify-between gap-3">
+          <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-900/80 flex items-start justify-between gap-3">
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -264,7 +264,7 @@ export default function SportMatchupDrawer({
                   return (
                     <div
                       key={outcome.name}
-                      className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
+                      className="p-3 bg-slate-900/60 border border-slate-800 rounded-xl flex flex-wrap sm:flex-nowrap items-center justify-between gap-3"
                     >
                       <div className="min-w-[140px]">
                         <div className="font-bold text-sm text-slate-100">
@@ -316,7 +316,7 @@ export default function SportMatchupDrawer({
                         className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
                           inSlip
                             ? "bg-slate-800 text-emerald-400 border border-slate-700"
-                            : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold shadow-sm"
+                            : "bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-sm"
                         }`}
                       >
                         {inSlip ? (
@@ -346,7 +346,7 @@ export default function SportMatchupDrawer({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Weather */}
                 {weatherDisplay && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-amber-500/10 text-amber-400">
                       <Sun size={18} />
                     </div>
@@ -363,7 +363,7 @@ export default function SportMatchupDrawer({
 
                 {/* Rest Days */}
                 {metadata?.restDays && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-blue-500/10 text-blue-400">
                       <Calendar size={18} />
                     </div>
@@ -384,7 +384,7 @@ export default function SportMatchupDrawer({
 
                 {/* Travel Distance */}
                 {metadata?.travelDistance !== undefined && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-purple-500/10 text-purple-400">
                       <Plane size={18} />
                     </div>
@@ -403,7 +403,7 @@ export default function SportMatchupDrawer({
 
                 {/* Win Streak / Form */}
                 {(metadata?.winStreak || metadata?.form) && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-red-500/10 text-red-400">
                       <Flame size={18} />
                     </div>
@@ -426,7 +426,7 @@ export default function SportMatchupDrawer({
 
                 {/* Squiggle Signal */}
                 {metadata?.squiggleTip && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
                       <Zap size={18} />
                     </div>
@@ -452,7 +452,7 @@ export default function SportMatchupDrawer({
 
                 {/* Head to Head */}
                 {metadata?.headToHead && (
-                  <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
+                  <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-indigo-500/10 text-indigo-400">
                       <Shield size={18} />
                     </div>
@@ -468,7 +468,7 @@ export default function SportMatchupDrawer({
                 )}
 
                 {/* Model Confidence & Urgency Badges */}
-                <div className="p-3 bg-slate-950/40 border border-slate-800/80 rounded-xl flex items-center justify-between gap-2 col-span-1 sm:col-span-2">
+                <div className="p-3 bg-slate-900/40 border border-slate-800/80 rounded-xl flex items-center justify-between gap-2 col-span-1 sm:col-span-2">
                   <span className="text-xs font-semibold text-slate-300">
                     Model Signals:
                   </span>
@@ -485,7 +485,7 @@ export default function SportMatchupDrawer({
             </div>
 
             {/* Bob Explainability Section */}
-            <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-xl space-y-3">
+            <div className="p-4 bg-slate-900/80 border border-slate-800 rounded-xl space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Brain size={18} className="text-emerald-400" />

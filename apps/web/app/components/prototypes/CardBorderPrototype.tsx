@@ -7,7 +7,7 @@ export default function CardBorderPrototype() {
   const [activeVariant, setActiveVariant] = useState<"old" | "white" | "halfway">("halfway");
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 mb-6 text-slate-100 shadow-2xl">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 mb-6 text-slate-100 shadow-2xl">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 mb-5 border-b border-slate-800">
         <div>
           <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
@@ -22,7 +22,7 @@ export default function CardBorderPrototype() {
         </div>
 
         {/* Variant Switcher */}
-        <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
+        <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
           <button
             type="button"
             onClick={() => setActiveVariant("old")}
@@ -65,10 +65,10 @@ export default function CardBorderPrototype() {
         <div
           className={`transition-all duration-300 backdrop-blur-md rounded-2xl ${
             activeVariant === "old"
-              ? "bg-slate-900 border border-slate-800 p-3"
+              ? "bg-slate-950 border border-slate-800 p-3"
               : activeVariant === "white"
-              ? "bg-slate-900 border-2 border-white p-6"
-              : "bg-slate-900/90 border border-slate-400/35 p-5 shadow-xl hover:border-slate-300/60"
+              ? "bg-slate-950 border-2 border-white p-6"
+              : "bg-slate-950/90 border border-slate-400/35 p-5 shadow-xl hover:border-slate-300/60"
           }`}
         >
           {/* Card Header */}
@@ -90,7 +90,7 @@ export default function CardBorderPrototype() {
 
           {/* Outcome Rows */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between gap-3 p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between gap-3 p-3.5 bg-slate-900/70 border border-slate-800/80 rounded-xl hover:border-slate-700 transition-colors">
               <div className="min-w-0 flex-1">
                 <span className="font-bold text-sm text-slate-100 block">Boston Celtics</span>
                 <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
@@ -108,7 +108,7 @@ export default function CardBorderPrototype() {
               </button>
             </div>
 
-            <div className="flex items-center justify-between gap-3 p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl hover:border-slate-700 transition-colors">
+            <div className="flex items-center justify-between gap-3 p-3.5 bg-slate-900/70 border border-slate-800/80 rounded-xl hover:border-slate-700 transition-colors">
               <div className="min-w-0 flex-1">
                 <span className="font-bold text-sm text-slate-100 block">Los Angeles Lakers</span>
                 <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">

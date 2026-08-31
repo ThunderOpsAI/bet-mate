@@ -155,7 +155,7 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
                   />
 
                   {/* Expandable "Sectionals & Speed" toggle button */}
-                  <div className="flex justify-end px-2 py-1 bg-slate-900/40 border-x border-b border-slate-800/80 rounded-b-md">
+                  <div className="flex justify-end px-2 py-1 bg-slate-950/40 border-x border-b border-slate-800/80 rounded-b-md">
                     <button
                       type="button"
                       onClick={() => toggleSectionalDrawer(pick.horse_id)}

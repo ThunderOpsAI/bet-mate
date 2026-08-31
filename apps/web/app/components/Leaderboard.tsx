@@ -52,7 +52,7 @@ export default function Leaderboard() {
   }, [timeframe, activeCategory]);
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-lg">
+    <div className="bg-slate-950/90 border border-slate-800 rounded-xl p-5 shadow-lg">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-5">
         <div className="flex items-center gap-2">
           <Trophy className="w-5 h-5 text-amber-400" />
@@ -69,7 +69,7 @@ export default function Leaderboard() {
         </div>
 
         {/* Timeframe Switcher */}
-        <div className="flex items-center bg-slate-950/80 p-1 rounded-lg border border-slate-800 self-start sm:self-auto">
+        <div className="flex items-center bg-slate-900/80 p-1 rounded-lg border border-slate-800 self-start sm:self-auto">
           <button
             onClick={() => setTimeframe("weekly")}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
@@ -104,7 +104,7 @@ export default function Leaderboard() {
             className={`flex flex-col items-center justify-center p-3 rounded-lg border text-xs font-semibold transition-all ${
               activeCategory === cat.key
                 ? "bg-slate-800 border-emerald-500/60 text-emerald-400 shadow-sm"
-                : "bg-slate-950/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                : "bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
             }`}
           >
             <div className="flex items-center gap-1.5 mb-1">
@@ -126,7 +126,7 @@ export default function Leaderboard() {
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm text-slate-300">
-            <thead className="bg-slate-950/80 text-slate-400 text-xs uppercase border-b border-slate-800">
+            <thead className="bg-slate-900/80 text-slate-400 text-xs uppercase border-b border-slate-800">
               <tr>
                 <th className="py-2.5 px-3">Rank</th>
                 <th className="py-2.5 px-3">User Handle</th>

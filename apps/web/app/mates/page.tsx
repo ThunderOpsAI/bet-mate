@@ -264,7 +264,7 @@ export default function BetWithMatesPage() {
     <AppShell>
       <div className="mates-page container mx-auto px-4 py-6 max-w-6xl">
         {/* Hero Section */}
-        <div className="hero-banner relative overflow-hidden rounded-2xl p-6 sm:p-8 mb-8 border border-slate-700/60 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950/80 shadow-2xl">
+        <div className="hero-banner relative overflow-hidden rounded-2xl p-6 sm:p-8 mb-8 border border-slate-700/60 bg-gradient-to-br from-slate-950 via-slate-800 to-indigo-950/80 shadow-2xl">
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="max-w-2xl">
               <div className="flex items-center gap-2 mb-3">
@@ -320,7 +320,7 @@ export default function BetWithMatesPage() {
             </div>
             <Link
               href="/login?returnUrl=/mates"
-              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg transition-colors shrink-0"
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-900 font-bold text-xs rounded-lg transition-colors shrink-0"
             >
               Sign In Now
             </Link>
@@ -351,7 +351,7 @@ export default function BetWithMatesPage() {
             </button>
           </div>
         ) : syndicates.length === 0 ? (
-          <div className="text-center py-16 px-6 rounded-2xl bg-slate-900/60 border border-slate-800/80 max-w-2xl mx-auto">
+          <div className="text-center py-16 px-6 rounded-2xl bg-slate-950/60 border border-slate-800/80 max-w-2xl mx-auto">
             <div className="w-16 h-16 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 flex items-center justify-center mx-auto mb-4">
               <Users size={32} />
             </div>
@@ -385,7 +385,7 @@ export default function BetWithMatesPage() {
               return (
                 <div
                   key={syn.id}
-                  className="syn-card rounded-2xl border border-slate-700/80 bg-slate-900/80 p-6 flex flex-col justify-between shadow-xl hover:border-indigo-500/40 transition-colors"
+                  className="syn-card rounded-2xl border border-slate-700/80 bg-slate-950/80 p-6 flex flex-col justify-between shadow-xl hover:border-indigo-500/40 transition-colors"
                 >
                   {/* Card Header */}
                   <div>
@@ -422,7 +422,7 @@ export default function BetWithMatesPage() {
                     </div>
 
                     {/* Stats Grid */}
-                    <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 mb-5">
+                    <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800/80 mb-5">
                       <div>
                         <span className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
                           Virtual Wallet
@@ -484,7 +484,7 @@ export default function BetWithMatesPage() {
                           {syn.ledgers.slice(0, 4).map((l) => (
                             <div
                               key={l.id}
-                              className="text-[11px] p-2 rounded-lg bg-slate-950/40 border border-slate-800/60 flex items-center justify-between text-slate-300"
+                              className="text-[11px] p-2 rounded-lg bg-slate-900/40 border border-slate-800/60 flex items-center justify-between text-slate-300"
                             >
                               <span className="truncate max-w-[200px]">{l.description}</span>
                               <span
@@ -536,8 +536,8 @@ export default function BetWithMatesPage() {
 
         {/* Modal: Create Syndicate */}
         {showCreateModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+          <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-950 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold text-white mb-1">Create Paper Syndicate</h3>
               <p className="text-xs text-slate-400 mb-5">
                 Set up a new virtual syndicate and generate a 6-digit invite code for your mates.
@@ -552,7 +552,7 @@ export default function BetWithMatesPage() {
                     value={createName}
                     onChange={(e) => setCreateName(e.target.value)}
                     placeholder="e.g. Punters Club 2026"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
@@ -569,7 +569,7 @@ export default function BetWithMatesPage() {
                         className={`py-2.5 rounded-xl border text-sm font-bold transition-all ${
                           createTier === tier
                             ? "bg-indigo-600/30 border-indigo-500 text-indigo-300"
-                            : "bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700"
+                            : "bg-slate-900 border-slate-800 text-slate-400 hover:border-slate-700"
                         }`}
                       >
                         ${tier} Paper
@@ -604,8 +604,8 @@ export default function BetWithMatesPage() {
 
         {/* Modal: Join Syndicate */}
         {showJoinModal && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+          <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-950 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold text-white mb-1">Join Syndicate</h3>
               <p className="text-xs text-slate-400 mb-5">
                 Enter the 6-digit invite code provided by your syndicate owner.
@@ -621,7 +621,7 @@ export default function BetWithMatesPage() {
                     value={joinCode}
                     onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
                     placeholder="e.g. MATE26"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-center text-lg font-mono font-bold tracking-widest text-indigo-300 uppercase focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-center text-lg font-mono font-bold tracking-widest text-indigo-300 uppercase focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
@@ -652,8 +652,8 @@ export default function BetWithMatesPage() {
 
         {/* Modal: Governance Settings */}
         {governanceSyn && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+          <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-950 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold text-white mb-1">Governance Controls</h3>
               <p className="text-xs text-slate-400 mb-5">
                 Update max stake policy per paper bet for <strong>{governanceSyn.name}</strong>.
@@ -670,7 +670,7 @@ export default function BetWithMatesPage() {
                     max={10000}
                     value={newMaxStake}
                     onChange={(e) => setNewMaxStake(Number(e.target.value))}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-white focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
@@ -697,8 +697,8 @@ export default function BetWithMatesPage() {
 
         {/* Modal: Dividend Distribution */}
         {dividendSyn && (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
+          <div className="fixed inset-0 z-50 bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-950 border border-slate-700 rounded-2xl p-6 max-w-md w-full shadow-2xl">
               <h3 className="text-xl font-bold text-white mb-1">Paper Dividend Distribution</h3>
               <p className="text-xs text-slate-400 mb-4">
                 Distribute virtual paper funds equally to all <strong>{dividendSyn.members.length}</strong> active members in <strong>{dividendSyn.name}</strong>.
@@ -717,7 +717,7 @@ export default function BetWithMatesPage() {
                     value={dividendAmount}
                     onChange={(e) => setDividendAmount(e.target.value)}
                     placeholder={`Max: $${dividendSyn.paperBalance.toFixed(2)}`}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-400 focus:outline-none focus:border-indigo-500"
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm font-bold text-emerald-400 focus:outline-none focus:border-indigo-500"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
                     Current Group Wallet: ${dividendSyn.paperBalance.toFixed(2)} paper currency.

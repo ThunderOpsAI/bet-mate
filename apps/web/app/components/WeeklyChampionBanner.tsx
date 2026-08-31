@@ -69,7 +69,7 @@ export default function WeeklyChampionBanner() {
   if (dismissed || !champion) return null;
 
   return (
-    <div className="w-full bg-gradient-to-r from-amber-500/20 via-slate-900 to-amber-500/20 border-b border-amber-500/40 px-4 py-2.5 relative shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200">
+    <div className="w-full bg-gradient-to-r from-amber-500/20 via-slate-950 to-amber-500/20 border-b border-amber-500/40 px-4 py-2.5 relative shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-7 h-7 rounded-full bg-amber-400/20 border border-amber-400/50 flex items-center justify-center text-amber-300 shrink-0 shadow-sm animate-pulse">

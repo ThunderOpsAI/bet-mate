@@ -48,7 +48,7 @@ function BetslipPrototypeContent() {
   const oddsColor = variant === "B" ? "text-rose-300" : variant === "C" ? "text-fuchsia-200" : "text-orange-200";
 
   const renderSingleBet = (bet: MockBet) => (
-    <div key={bet.id} className="p-3 mb-2 bg-slate-900 border border-slate-700 rounded-lg shadow-sm">
+    <div key={bet.id} className="p-3 mb-2 bg-slate-950 border border-slate-700 rounded-lg shadow-sm">
       <div className="flex justify-between items-start mb-3">
         <div className="flex-1 pr-2">
           <div className="text-[13px] text-slate-400 font-medium mb-1">{bet.eventName}</div>
@@ -83,7 +83,7 @@ function BetslipPrototypeContent() {
           })}
         </div>
         
-        <div className="flex items-center justify-between bg-slate-950 p-2 rounded border border-slate-800">
+        <div className="flex items-center justify-between bg-slate-900 p-2 rounded border border-slate-800">
            <div className={`text-[17.5px] font-black ${oddsColor} ml-2`}>{bet.odds.toFixed(2)}</div>
            <div className="flex items-center space-x-2">
               <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
@@ -93,7 +93,7 @@ function BetslipPrototypeContent() {
                   type="number" 
                   value={bet.stake || ""} 
                   onChange={(e) => updateBet(bet.id, { stake: Number(e.target.value) })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                  className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
                   placeholder="0"
                 />
               </div>
@@ -141,13 +141,13 @@ function BetslipPrototypeContent() {
       <div className="flex-1 p-8 border-r border-slate-800 overflow-y-auto">
         <h1 className="text-2xl font-bold mb-4">Betslip UI Prototype</h1>
         <p className="text-slate-400 mb-6">Exploring UI variations for betslip visibility and multi construction.</p>
-        <div className="bg-slate-900 p-4 rounded-lg font-mono text-xs text-slate-300">
+        <div className="bg-slate-950 p-4 rounded-lg font-mono text-xs text-slate-300">
           State Dump:
           <pre className="mt-2 text-emerald-300">{JSON.stringify(bets.map(b => ({ id: b.id, type: b.type, inMulti: b.inMulti, stake: b.stake })), null, 2)}</pre>
         </div>
       </div>
 
-      <div className="w-full md:w-[380px] bg-slate-950 flex flex-col h-screen border-l border-slate-800 shadow-2xl relative">
+      <div className="w-full md:w-[380px] bg-slate-900 flex flex-col h-screen border-l border-slate-800 shadow-2xl relative">
         <div className="bg-slate-800 border-b border-slate-700 p-3 flex justify-between items-center shrink-0">
           <div className="font-extrabold text-slate-100 flex items-center space-x-2">
             <span>Bet Slip</span>
@@ -156,7 +156,7 @@ function BetslipPrototypeContent() {
           <X className="text-slate-400 cursor-pointer" size={18} />
         </div>
 
-        <div className="flex bg-slate-900 border-b border-slate-800 shrink-0">
+        <div className="flex bg-slate-950 border-b border-slate-800 shrink-0">
           <button 
             onClick={() => setActiveTab("Singles")}
             className={`flex-1 py-3 text-sm font-bold text-center transition-colors border-b-2 ${activeTab === "Singles" ? "border-emerald-500 text-emerald-400" : "border-transparent text-slate-400 hover:bg-slate-800"}`}
@@ -175,13 +175,13 @@ function BetslipPrototypeContent() {
           {activeTab === "Singles" && <div className="space-y-1">{bets.map(renderSingleBet)}</div>}
           {activeTab === "Multi" && (
             <div className="p-2">
-              <div className="bg-slate-900 border border-slate-700 rounded-lg shadow-sm mb-4">
+              <div className="bg-slate-950 border border-slate-700 rounded-lg shadow-sm mb-4">
                 <div className="bg-slate-800 p-3 border-b border-slate-700 rounded-t-lg flex justify-between items-center">
                   <div className="font-bold text-slate-100">{multiLegs.length}-Leg Multi</div>
                   <div className={`text-lg font-black ${oddsColor}`}>{multiOdds.toFixed(2)}</div>
                 </div>
                 <div className="py-1">{bets.map(renderMultiLeg)}</div>
-                <div className="p-3 border-t border-slate-800 bg-slate-900 rounded-b-lg flex justify-end">
+                <div className="p-3 border-t border-slate-800 bg-slate-950 rounded-b-lg flex justify-end">
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold text-slate-400 uppercase">Stake</span>
                     <div className="relative w-24">
@@ -190,7 +190,7 @@ function BetslipPrototypeContent() {
                         type="number" 
                         value={multiStake} 
                         readOnly 
-                        className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right" 
+                        className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right" 
                         placeholder="0" 
                       />
                     </div>
@@ -205,7 +205,7 @@ function BetslipPrototypeContent() {
           )}
         </div>
 
-        <div className="bg-slate-900 border-t border-slate-800 p-4 shrink-0 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
+        <div className="bg-slate-950 border-t border-slate-800 p-4 shrink-0 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
           <div className="flex justify-between items-center mb-3">
             <span className="text-slate-400 text-sm">Total Stake</span>
             <span className="text-lg font-bold text-white">${activeTab === "Singles" ? totalStake.toFixed(2) : multiStake.toFixed(2)}</span>
@@ -216,11 +216,11 @@ function BetslipPrototypeContent() {
         </div>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-700 p-3 flex items-center justify-center gap-4 z-50">
+      <div className="fixed bottom-0 left-0 right-0 bg-slate-950 border-t border-slate-700 p-3 flex items-center justify-center gap-4 z-50">
         <span className="text-sm text-slate-400">PROTOTYPE VARIATIONS:</span>
-        <button onClick={() => router.push(pathname + "?variant=A")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "A" ? "bg-orange-200 text-slate-900" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>A: Pastel Peach</button>
-        <button onClick={() => router.push(pathname + "?variant=B")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "B" ? "bg-rose-300 text-slate-900" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>B: Soft Rose</button>
-        <button onClick={() => router.push(pathname + "?variant=C")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "C" ? "bg-fuchsia-200 text-slate-900" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>C: Light Lavender</button>
+        <button onClick={() => router.push(pathname + "?variant=A")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "A" ? "bg-orange-200 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>A: Pastel Peach</button>
+        <button onClick={() => router.push(pathname + "?variant=B")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "B" ? "bg-rose-300 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>B: Soft Rose</button>
+        <button onClick={() => router.push(pathname + "?variant=C")} className={`px-4 py-1.5 rounded text-sm font-semibold transition-colors ${variant === "C" ? "bg-fuchsia-200 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"}`}>C: Light Lavender</button>
       </div>
     </div>
   );
