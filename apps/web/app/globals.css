@@ -2,9 +2,9 @@
 
 :root {
   /* Core palette — soft, cohesive modern dark theme */
-  --bg-primary: #020617;
-  --bg-secondary: #0f172a;
-  --bg-card: rgba(15, 23, 42, 0.92);
+  --bg-primary: #0f172a;
+  --bg-secondary: #020617;
+  --bg-card: rgba(2, 6, 23, 0.92);
   --bg-card-hover: rgba(30, 41, 59, 0.95);
   --bg-glass: rgba(255, 255, 255, 0.05);
   --bg-input: rgba(255, 255, 255, 0.07);
