@@ -284,7 +284,7 @@ function RacingPageContent() {
   const initialRace = searchParams.get("race") || null;
   const [expandedRaceListing, setExpandedRaceListing] = useState<string | null>(initialRace);
   const [selectedVenue, setSelectedVenue] = useState<string>("all");
-  const [regionFilter, setRegionFilter] = useState<string>("aunz");
+  const [regionFilter, setRegionFilter] = useState<string>("all");
   const [selectedVenueName, setSelectedVenueName] = useState<string | null>(null);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
   const [watchPanel, setWatchPanel] = useState<string | null>(null);

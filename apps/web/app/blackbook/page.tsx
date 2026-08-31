@@ -178,7 +178,7 @@ function BlackbookPageContent() {
       const res = await fetch(`/api/blackbook/search?q=`, { headers });
       if (res.ok) {
         const data = await safeResponseJson(res);
-        setDailyRunners(data?.results || []);
+        setDailyRunners(Array.isArray(data) ? data : data?.results || []);
       }
     } catch (err) {
       console.error("Failed to fetch daily runners", err);
