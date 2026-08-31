@@ -175,7 +175,7 @@ function SettingsContent() {
           </div>
           <div className="form-group">
             <label className="form-label">Password</label>
-            <input className="form-input" type="password" value="••••••••" disabled readOnly style={{ opacity: 0.7, cursor: "not-allowed" }} />
+            <input className="form-input" type="password" value="••••••••" disabled readOnly autoComplete="current-password" style={{ opacity: 0.7, cursor: "not-allowed" }} />
           </div>
           <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "1.25rem", marginTop: "-0.25rem", lineHeight: 1.4 }}>
             To change your registered email address or security password, please contact BetMate Support at <a href="mailto:support@bet-mate.ai" style={{ color: "var(--accent)", textDecoration: "underline" }}>support@bet-mate.ai</a>.
