@@ -170,7 +170,7 @@ export default function HomePrimaryCard({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
       {/* Card 1: High EV Chances */}
-      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -207,12 +207,12 @@ export default function HomePrimaryCard({
               <div className="skeleton h-14 rounded-xl" />
             </div>
           ) : oppsError ? (
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center">
               <p className="text-xs font-semibold text-rose-400 mb-1">{oppsError}</p>
               <p className="text-[11px] text-slate-400">Please check back shortly for live market updates.</p>
             </div>
           ) : topOpportunities.length === 0 ? (
-            <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800/80 text-center flex-1 flex flex-col justify-center items-center">
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800/80 text-center flex-1 flex flex-col justify-center items-center">
               <Zap size={24} className="text-slate-600 mb-2" />
               <p className="text-xs font-bold text-slate-300">No High EV Opportunities Active</p>
               <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
@@ -229,7 +229,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={opp.id}
-                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-emerald-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-900/60 border border-slate-800 hover:border-emerald-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
@@ -292,7 +292,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 2: Next Blackbookers */}
-      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -322,7 +322,7 @@ export default function HomePrimaryCard({
               <div className="skeleton h-14 rounded-xl" />
             </div>
           ) : isGuest ? (
-            <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
               <BookOpen size={24} className="text-purple-400 mb-2" />
               <p className="text-xs font-bold text-slate-200">Blackbook Tracking Locked</p>
               <p className="text-[11px] text-slate-400 mt-1 max-w-xs">
@@ -338,7 +338,7 @@ export default function HomePrimaryCard({
               </div>
             </div>
           ) : topBlackbook.length === 0 ? (
-            <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
               <BookOpen size={24} className="text-slate-600 mb-2" />
               <p className="text-xs font-bold text-slate-300">No Active Blackbook Rules</p>
               <p className="text-[11px] text-slate-400 mt-1">No tracked runners in your watch list.</p>
@@ -352,7 +352,7 @@ export default function HomePrimaryCard({
               {topBlackbook.map((item, idx) => (
                 <div
                   key={idx}
-                  className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-purple-500/40 transition-all"
+                  className="card-inner-item rounded-xl bg-slate-900/60 border border-slate-800 hover:border-purple-500/40 transition-all"
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-bold text-slate-100 text-xs sm:text-sm truncate">{item.runner}</span>
@@ -373,7 +373,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 3: Next Racing */}
-      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -410,12 +410,12 @@ export default function HomePrimaryCard({
               <div className="skeleton h-14 rounded-xl" />
             </div>
           ) : racesError ? (
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center">
               <p className="text-xs font-semibold text-rose-400 mb-1">{racesError}</p>
               <p className="text-[11px] text-slate-400">Unable to load live racing data feed.</p>
             </div>
           ) : topRaces.length === 0 ? (
-            <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
               <Trophy size={24} className="text-slate-600 mb-2" />
               <p className="text-xs font-bold text-slate-300">Awaiting Race Feeds</p>
               <p className="text-[11px] text-slate-400 mt-1">No upcoming races returned currently.</p>
@@ -431,7 +431,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={race.race_id}
-                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-amber-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-0.5">
@@ -501,7 +501,7 @@ export default function HomePrimaryCard({
       </section>
 
       {/* Card 4: Next Sport */}
-      <section className="card-content-padded bg-slate-900/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -538,12 +538,12 @@ export default function HomePrimaryCard({
               <div className="skeleton h-14 rounded-xl" />
             </div>
           ) : sportsError ? (
-            <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 text-center">
+            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 text-center">
               <p className="text-xs font-semibold text-rose-400 mb-1">{sportsError}</p>
               <p className="text-[11px] text-slate-400">Unable to load sports prediction feed.</p>
             </div>
           ) : topSports.length === 0 ? (
-            <div className="p-6 rounded-xl bg-slate-950/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
+            <div className="p-6 rounded-xl bg-slate-900/60 border border-slate-800 text-center flex-1 flex flex-col justify-center items-center">
               <Shield size={24} className="text-slate-600 mb-2" />
               <p className="text-xs font-bold text-slate-300">No Sports Fixtures Live</p>
               <p className="text-[11px] text-slate-400 mt-1">No upcoming sports matches found.</p>
@@ -559,7 +559,7 @@ export default function HomePrimaryCard({
                 return (
                   <div
                     key={sportItem.id}
-                    className="card-inner-item rounded-xl bg-slate-950/60 border border-slate-800 hover:border-sky-500/40 transition-all flex items-center justify-between gap-2"
+                    className="card-inner-item rounded-xl bg-slate-900/60 border border-slate-800 hover:border-sky-500/40 transition-all flex items-center justify-between gap-2"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 mb-0.5">

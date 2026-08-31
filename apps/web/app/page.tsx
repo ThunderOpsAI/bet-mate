@@ -346,7 +346,7 @@ function HomePageContent() {
     <ErrorBoundary sectionName="Home Landing">
       <div className="space-y-6 max-w-7xl mx-auto px-2 sm:px-4">
         {/* Clean Dashboard Header */}
-        <section className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm shadow-xl">
+        <section className="bg-slate-950/80 border border-slate-800 rounded-2xl p-4 sm:p-5 backdrop-blur-sm shadow-xl">
           <div className="text-emerald-400 font-semibold text-xs sm:text-sm mb-1">
             <span>AI-Powered Betting Intelligence</span>
           </div>

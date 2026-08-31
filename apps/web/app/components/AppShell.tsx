@@ -44,7 +44,7 @@ function HeaderBetslipControlInner() {
   const pendingActiveCount = activeBets.filter((b) => b.status === "active" || b.status === "pending").length;
 
   return (
-    <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-950 h-10 shrink-0">
+    <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-900 h-10 shrink-0">
       {/* My Bets Block Button */}
       <button
         type="button"
@@ -71,7 +71,7 @@ function HeaderBetslipControlInner() {
       </button>
 
       {/* Divider Line */}
-      <div className="w-[1px] h-full bg-slate-950/40" />
+      <div className="w-[1px] h-full bg-slate-900/40" />
 
       {/* Bet Slip Block Button */}
       <button
@@ -176,7 +176,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   window.location.reload();
                 }
               }}
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-950/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
               title="Refresh Page & Data Feeds"
               aria-label="Refresh Page & Data Feeds"
             >
@@ -186,7 +186,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             {/* 2. Settings Button */}
             <Link
               href="/settings"
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0"
+              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-slate-950/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 hover:text-white transition-colors flex items-center justify-center shadow-sm shrink-0"
               title="Settings"
               aria-label="Settings"
             >
@@ -200,7 +200,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <button
                     type="button"
                     onClick={() => setProfileDropdownOpen((prev) => !prev)}
-                    className="user-badge flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 h-8 sm:h-9 rounded-full bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition-all text-xs font-bold shadow-sm cursor-pointer shrink-0"
+                    className="user-badge flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 h-8 sm:h-9 rounded-full bg-slate-950/90 hover:bg-slate-800 border border-slate-700/80 text-slate-200 transition-all text-xs font-bold shadow-sm cursor-pointer shrink-0"
                     aria-expanded={profileDropdownOpen}
                     aria-label="User Profile Menu"
                     title={`User: ${user.username} | Balance: $${currentBalance.toLocaleString()}`}
@@ -213,7 +213,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
                   {/* Profile Dropdown */}
                   {profileDropdownOpen && (
-                    <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-900 border border-slate-700/80 shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="absolute right-0 mt-2 w-72 rounded-xl bg-slate-950 border border-slate-700/80 shadow-2xl p-4 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
                       <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                         <div>
                           <p className="text-sm font-bold text-white">{user.username}</p>
@@ -227,7 +227,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       </div>
 
                       {/* Bankroll Summary Card */}
-                      <div className="my-3 p-3 rounded-lg bg-slate-950/70 border border-slate-800">
+                      <div className="my-3 p-3 rounded-lg bg-slate-900/70 border border-slate-800">
                         <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
                           <span>Starting Baseline</span>
                           <span className="font-semibold text-slate-300">
@@ -350,7 +350,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Global Footer & Responsible Gambling Compliance */}
         <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16 md:mb-0">
           <div className="max-w-4xl mx-auto space-y-3">
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 max-w-2xl mx-auto text-slate-300 font-semibold space-y-1">
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 max-w-2xl mx-auto text-slate-300 font-semibold space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-amber-400">
                 <ShieldAlert size={15} />
                 <span>Gamble Responsibly</span>
