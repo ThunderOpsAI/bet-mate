@@ -6,9 +6,12 @@ import { Search, X, AlertCircle } from "lucide-react";
 export type SearchResult = {
   id: string;
   name: string;
-  type: "horse" | "jockey" | "trainer";
+  type: "horse" | "jockey" | "trainer" | "combination";
   venue?: string;
   raceNumber?: number;
+  jockeyName?: string;
+  trainerName?: string;
+  horseName?: string;
 };
 
 interface Props {

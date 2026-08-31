@@ -25,7 +25,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { BlackbookSearchModal, SearchResult } from "../components/BlackbookSearchModal";
+import { type SearchResult } from "../components/BlackbookSearchModal";
+import BlackbookSearchBar from "../components/BlackbookSearchBar";
 import { BlackbookRuleBuilderSheet } from "../components/BlackbookRuleBuilderSheet";
 import { ExploreTab } from "../components/ExploreTab";
 import { ML_API } from "../lib/mlApi";
@@ -674,10 +675,27 @@ export default function BlackbookPage() {
           </div>
         )}
 
-        <BlackbookSearchModal 
+        <BlackbookSearchBar 
           isOpen={isSearchOpen} 
           onClose={() => setIsSearchOpen(false)} 
-          onSelect={(e) => { setSearchEntity(e); setIsRuleBuilderOpen(true); }}
+          onSelect={(item) => {
+            const typeMap: Record<string, "horse" | "jockey" | "trainer" | "combination"> = {
+              RUNNER: "horse",
+              JOCKEY: "jockey",
+              TRAINER: "trainer",
+              COMBINATION: "combination"
+            };
+            setSearchEntity({
+              id: item.id,
+              name: item.name,
+              type: typeMap[item.category] || "horse",
+              jockeyName: item.jockeyName,
+              trainerName: item.trainerName,
+              horseName: item.horseName,
+            });
+            setIsRuleBuilderOpen(true);
+            setIsSearchOpen(false);
+          }}
         />
         <BlackbookRuleBuilderSheet 
           isOpen={isRuleBuilderOpen} 

@@ -32,7 +32,6 @@ import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import GuestModal from "./GuestModal";
-import BlackbookSearchBar, { SearchResultItem } from "./BlackbookSearchBar";
 
 export type ActiveBetItem = {
   id: string;
@@ -148,24 +147,6 @@ function PaperBetslipContent() {
         .finally(() => setLoadingActiveBets(false));
     }
   }, [isBetslipOpen, user]);
-
-  const handleSelectSearchResult = (item: SearchResultItem) => {
-    addBet(
-      {
-        sport: item.sport || "Racing",
-        event_id: "blackbook-" + item.id,
-        event_name: item.details || "Blackbook Search",
-        selection_id: item.id,
-        bet_type: "win",
-        selection: item.name,
-        odds: 1.0,
-        stake: defaultStake || 10,
-        bet_family: "single",
-        notes: `Added from search. Category: ${item.category}`,
-      },
-      { openBetslip: true }
-    );
-  };
 
   const warnings = useMemo(() => {
     const counts = bets.reduce<Record<string, number>>((acc, bet) => {
@@ -622,9 +603,6 @@ function PaperBetslipContent() {
           </div>
         ) : (
           <div className="betslip-content flex flex-col h-full overflow-hidden">
-            <div className="p-3 bg-slate-900/50 border-b border-slate-800 shrink-0">
-              <BlackbookSearchBar inline onSelect={handleSelectSearchResult} />
-            </div>
             <div className="flex-1 overflow-y-auto">
         {result ? (
           <div className="betslip-result">

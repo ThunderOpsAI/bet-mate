@@ -252,15 +252,10 @@ export default function BlackbookSearchBar({
                           <Check className="w-3.5 h-3.5" />
                           <span>Added ✓</span>
                         </>
-                      ) : onSelect ? (
-                        <>
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>Add to Slip</span>
-                        </>
                       ) : (
                         <>
                           <Plus className="w-3.5 h-3.5" />
-                          <span>+ BlackBook</span>
+                          <span>Add to Blackbook</span>
                         </>
                       )}
                     </button>
@@ -441,15 +436,10 @@ function renderResultRow(
             <Check className="w-3.5 h-3.5" />
             <span>Added ✓</span>
           </>
-        ) : onSelect ? (
-          <>
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add to Slip</span>
-          </>
         ) : (
           <>
             <Plus className="w-3.5 h-3.5" />
-            <span>+ BlackBook</span>
+            <span>Add to Blackbook</span>
           </>
         )}
       </button>
