@@ -151,7 +151,6 @@ export default function BlackbookPage() {
   const [editingComboNotesId, setEditingComboNotesId] = useState<string | null>(null);
   const [draftComboNotes, setDraftComboNotes] = useState<string>("");
 
-  // New Combination draft form
   const [comboDraft, setComboDraft] = useState({
     combinationType: "JOCKEY_TRAINER",
     targetName: "",
@@ -164,6 +163,26 @@ export default function BlackbookPage() {
     smsAlerts: false,
     pushAlerts: true,
   });
+
+  // Daily Runners
+  const [dailyRunners, setDailyRunners] = useState<any[]>([]);
+  const [dailyRunnersLoading, setDailyRunnersLoading] = useState(false);
+
+  const fetchDailyRunners = async () => {
+    setDailyRunnersLoading(true);
+    try {
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      const res = await fetch(`/api/blackbook/search?q=`, { headers });
+      if (res.ok) {
+        const data = await safeResponseJson(res);
+        setDailyRunners(data?.results || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch daily runners", err);
+    } finally {
+      setDailyRunnersLoading(false);
+    }
+  };
 
   const fetchConfigs = async () => {
     if (!user || user.id === "guest" || !token) {
@@ -235,11 +254,30 @@ export default function BlackbookPage() {
   useEffect(() => {
     void fetchConfigs();
     void fetchCombinations();
+    void fetchDailyRunners();
   }, [token, user]);
 
   const sortedConfigs = useMemo(() => {
     return [...configs].sort((a, b) => a.runner.localeCompare(b.runner));
   }, [configs]);
+
+  const runningTodayConfigs = useMemo(() => {
+    return sortedConfigs.filter((cfg) =>
+      dailyRunners.some(
+        (r) =>
+          r.name?.toLowerCase() === cfg.runner.toLowerCase() ||
+          r.horseName?.toLowerCase() === cfg.runner.toLowerCase()
+      )
+    );
+  }, [sortedConfigs, dailyRunners]);
+
+  const activeAlertsConfigs = combinations;
+
+  const awaitingNextRaceConfigs = useMemo(() => {
+    return sortedConfigs.filter(
+      (cfg) => !runningTodayConfigs.some((rc) => rc.runner === cfg.runner)
+    );
+  }, [sortedConfigs, runningTodayConfigs]);
 
   const removeConfig = async (runner: string) => {
     if (!user || user.id === "guest" || !token) return;
@@ -566,9 +604,6 @@ export default function BlackbookPage() {
     );
   }
 
-  const runningTodayConfigs: typeof sortedConfigs = []; // Placeholder based on instructions
-  const activeAlertsConfigs = combinations;
-  const awaitingNextRaceConfigs = sortedConfigs;
 
   return (
     <ErrorBoundary sectionName="Blackbook content">
@@ -736,11 +771,31 @@ export default function BlackbookPage() {
                       No runners scheduled for today.
                     </div>
                   ) : (
-                    runningTodayConfigs.map((cfg) => (
-                      <div key={cfg.runner} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex justify-between items-center">
-                        <div className="font-bold">{cfg.runner}</div>
-                      </div>
-                    ))
+                    runningTodayConfigs.map((cfg) => {
+                      const match = dailyRunners.find(
+                        (r) =>
+                          r.name?.toLowerCase() === cfg.runner.toLowerCase() ||
+                          r.horseName?.toLowerCase() === cfg.runner.toLowerCase()
+                      );
+                      return (
+                        <div key={cfg.runner} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm flex justify-between items-center">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <h3 className="font-bold text-base m-0 text-slate-900">{cfg.runner}</h3>
+                              <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold px-2 py-0.5 rounded">
+                                Running Today
+                              </span>
+                            </div>
+                            {match?.details && (
+                              <p className="text-xs text-slate-500 m-0">{match.details}</p>
+                            )}
+                          </div>
+                          <button onClick={() => removeConfig(cfg.runner)} className="text-red-500 hover:text-red-700 p-1 rounded hover:bg-red-50" title="Remove">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      );
+                    })
                   )}
                 </div>
               </section>
@@ -814,6 +869,65 @@ export default function BlackbookPage() {
                           <span><strong>Paper stake:</strong> ${cfg.stake}</span>
                           <span><strong>Trigger:</strong> win chance at {cfg.probability_threshold}%</span>
                         </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              {/* Today's Runners Section */}
+              <section>
+                <div className="bg-slate-800 px-6 py-2.5 shadow-sm border-b border-slate-700 mt-6">
+                  <h2 className="text-sm font-black uppercase text-slate-300 tracking-wider flex items-center gap-1 m-0">
+                    <Calendar size={14}/> Today's Field
+                  </h2>
+                </div>
+                <div className="px-6 space-y-3 pt-4">
+                  {dailyRunnersLoading ? (
+                    <div className="text-sm text-slate-500 text-center py-4">Loading today's field...</div>
+                  ) : dailyRunners.length === 0 ? (
+                    <div className="text-sm text-slate-500 italic text-center py-4 bg-white border border-slate-200 rounded-lg">
+                      No runners found for today.
+                    </div>
+                  ) : (
+                    dailyRunners.map((item, idx) => (
+                      <div key={`${item.id}-${idx}`} className="bg-white border border-slate-200 rounded-xl p-3 shadow-sm flex justify-between items-center hover:border-cyan-200 transition-colors">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <h3 className="font-bold text-sm m-0 text-slate-900">{item.name}</h3>
+                            <span className="bg-slate-100 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded uppercase">
+                              {item.category || item.type}
+                            </span>
+                          </div>
+                          {item.details && (
+                            <p className="text-xs text-slate-500 m-0">{item.details}</p>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => {
+                            const typeMap: Record<string, "horse" | "jockey" | "trainer" | "combination"> = {
+                              RUNNER: "horse",
+                              JOCKEY: "jockey",
+                              TRAINER: "trainer",
+                              COMBINATION: "combination",
+                              horse: "horse",
+                              jockey: "jockey",
+                              trainer: "trainer"
+                            };
+                            setSearchEntity({
+                              id: item.id,
+                              name: item.name,
+                              type: typeMap[item.category || item.type] || "horse",
+                              jockeyName: item.jockeyName,
+                              trainerName: item.trainerName,
+                              horseName: item.horseName,
+                            });
+                            setIsRuleBuilderOpen(true);
+                          }}
+                          className="bg-cyan-50 hover:bg-cyan-100 text-cyan-700 border border-cyan-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                        >
+                          <Plus size={14} /> Blackbook
+                        </button>
                       </div>
                     ))
                   )}

@@ -734,13 +734,23 @@ def blackbook_search(q: str = ""):
             trainer_name = h_dict.get("trainer_name", "")
             
             if horse_name and (not nq or nq in norm(horse_name)):
+                detail_parts = [f"{venue} R{race_number}"]
+                if jockey_name:
+                    detail_parts.append(f"Jockey: {jockey_name}")
+                if trainer_name:
+                    detail_parts.append(f"Trainer: {trainer_name}")
                 results.append({
                     "id": f"horse_{horse_name}_{venue}_{race_number}",
                     "name": horse_name,
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "type": "horse"
+                    "type": "horse",
+                    "category": "RUNNER",
+                    "horseName": horse_name,
+                    "jockeyName": jockey_name,
+                    "trainerName": trainer_name,
+                    "details": " • ".join(detail_parts),
                 })
                 
             if jockey_name and (not nq or nq in norm(jockey_name)):
@@ -750,7 +760,10 @@ def blackbook_search(q: str = ""):
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "type": "jockey"
+                    "type": "jockey",
+                    "category": "JOCKEY",
+                    "jockeyName": jockey_name,
+                    "details": f"Riding today at {venue}",
                 })
                 
             if trainer_name and (not nq or nq in norm(trainer_name)):
@@ -760,7 +773,10 @@ def blackbook_search(q: str = ""):
                     "venue": venue,
                     "raceNumber": race_number,
                     "startTime": start_time,
-                    "type": "trainer"
+                    "type": "trainer",
+                    "category": "TRAINER",
+                    "trainerName": trainer_name,
+                    "details": f"Training runners at {venue}",
                 })
                 
     # Deduplicate results by type and name for jockeys and trainers

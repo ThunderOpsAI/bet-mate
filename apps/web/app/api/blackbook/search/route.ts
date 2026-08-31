@@ -5,11 +5,7 @@ const DEFAULT_PRODUCTION_ML_TARGET = "https://thunderops-ai--betmate-prediction-
 
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const q = url.searchParams.get("q");
-  
-  if (!q) {
-    return NextResponse.json({ results: [] });
-  }
+  const q = url.searchParams.get("q") || "";
 
   try {
     const mlApiUrl =
