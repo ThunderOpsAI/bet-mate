@@ -34,9 +34,9 @@ import { API_BASE, safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
 import { useSearchParams } from "next/navigation";
 import { PrototypeSwitcher } from "../components/PrototypeSwitcher";
-import { VariantA } from "./prototype/VariantA";
-import { VariantB } from "./prototype/VariantB";
-import { VariantC } from "./prototype/VariantC";
+import { VariantB1 } from "./prototype/VariantB1";
+import { VariantB2 } from "./prototype/VariantB2";
+import { VariantB3 } from "./prototype/VariantB3";
 import { BlackbookViewProps } from "./prototype/SharedProps";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
@@ -122,7 +122,7 @@ const DEFAULT_RULE: DraftRule = {
 
 function BlackbookPageContent() {
   const searchParams = useSearchParams();
-  const variant = searchParams?.get("variant") || "A";
+  const variant = searchParams?.get("variant") || "B1";
   const { isLoading, token, user } = useAuth();
 
   // Tab state: "explore" | "list"
@@ -626,9 +626,9 @@ function BlackbookPageContent() {
     comboDraft, setComboDraft, saveCombination, savingCombo
   };
 
-  if (variant === "A") return <><VariantA {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
-  if (variant === "B") return <><VariantB {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
-  if (variant === "C") return <><VariantC {...viewProps} /><PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} /></>;
+  if (variant === "B1") return <><VariantB1 {...viewProps} /><PrototypeSwitcher variants={["B1", "B2", "B3", "Original"]} current={variant} /></>;
+  if (variant === "B2") return <><VariantB2 {...viewProps} /><PrototypeSwitcher variants={["B1", "B2", "B3", "Original"]} current={variant} /></>;
+  if (variant === "B3") return <><VariantB3 {...viewProps} /><PrototypeSwitcher variants={["B1", "B2", "B3", "Original"]} current={variant} /></>;
 
   return (
     <>
@@ -972,7 +972,7 @@ function BlackbookPageContent() {
         </div>
       </div>
     </ErrorBoundary>
-      <PrototypeSwitcher variants={["A", "B", "C", "Original"]} current={variant} />
+      <PrototypeSwitcher variants={["B1", "B2", "B3", "Original"]} current={variant} />
     </>
   );
 }
