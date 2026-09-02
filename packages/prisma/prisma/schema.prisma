@@ -463,3 +463,29 @@ model SyndicateMessage {
   @@index([syndicateId, createdAt])
   @@schema("public")
 }
+
+model WeeklyChampion {
+  id               String   @id @default(cuid())
+  weekStartDate    DateTime @unique @db.Date
+  userId           String
+  username         String
+  roiPct           Float
+  balance          Float
+  totalBetsPlaced  Int
+  createdAt        DateTime @default(now()) @db.Timestamptz(6)
+
+  @@schema("public")
+}
+
+model TopEntity {
+  id         String   @id @default(cuid())
+  category   String
+  entityName String
+  rank       Int
+  sport      String?
+  metrics    Json?    @default("{}")
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([category])
+  @@schema("public")
+}

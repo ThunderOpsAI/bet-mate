@@ -28,33 +28,21 @@ export default function WeeklyChampionBanner() {
     // Fetch top weekly champion from API
     async function loadChampion() {
       try {
-        const res = await fetch(`${API_BASE}/leaderboards?category=highest_roi`, {
+        const res = await fetch(`${API_BASE}/leaderboards?category=highest_roi_weekly`, {
           headers: { "Content-Type": "application/json" },
         });
         const data = await safeResponseJson(res);
         if (data && data.success && Array.isArray(data.leaderboard) && data.leaderboard.length > 0) {
           const top = data.leaderboard[0];
           setChampion({
-            username: top.username || "sudonymname",
-            roiPct: top.roiPct ?? 68.4,
-            balance: top.balance ?? 2450.0,
-            totalBetsPlaced: top.totalBetsPlaced ?? 24,
-          });
-        } else {
-          setChampion({
-            username: "sudonymname",
-            roiPct: 68.4,
-            balance: 2450.0,
-            totalBetsPlaced: 24,
+            username: top.username,
+            roiPct: top.roiPct,
+            balance: top.balance,
+            totalBetsPlaced: top.totalBetsPlaced,
           });
         }
       } catch (err) {
-        setChampion({
-          username: "sudonymname",
-          roiPct: 68.4,
-          balance: 2450.0,
-          totalBetsPlaced: 24,
-        });
+        console.warn("Weekly champion data unavailable");
       }
     }
 
@@ -66,7 +54,20 @@ export default function WeeklyChampionBanner() {
     setDismissed(true);
   };
 
-  if (dismissed || !champion) return null;
+  if (dismissed) return null;
+  if (!champion) {
+    return (
+      <div className="w-full bg-slate-900 border-b border-slate-800 px-4 py-2.5 relative shadow-lg flex items-center justify-between text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto flex w-full justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Trophy size={15} className="text-slate-600" />
+            <span>Awaiting Weekly Champion Data...</span>
+          </div>
+          <button onClick={handleDismiss} className="p-1 hover:text-white"><X size={16} /></button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full bg-gradient-to-r from-amber-500/20 via-slate-950 to-amber-500/20 border-b border-amber-500/40 px-4 py-2.5 relative shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200">

@@ -23,6 +23,30 @@ router.get("/search", async (req, res) => {
   }
 });
 
+router.get("/runners/categorized", async (req, res) => {
+  try {
+    const categories = [
+      "Top 50 Jockeys",
+      "Top 20 Horse Trainers",
+      "Top 15 Harness Drivers",
+      "Top 10 Harness Trainers",
+      "Top 30 Dog Trainers"
+    ];
+
+    const data: Record<string, any[]> = {};
+    for (const cat of categories) {
+      data[cat] = await prisma.topEntity.findMany({
+        where: { category: cat },
+        orderBy: { entityName: "asc" },
+      });
+    }
+    return res.json({ success: true, data });
+  } catch (error: any) {
+    console.error("Failed to fetch categorized runners:", error);
+    return res.status(500).json({ success: false, data: {} });
+  }
+});
+
 router.use(requireAuth);
 
 const ENTITY_TYPES = ["RUNNER", "JOCKEY", "TRAINER", "COMBINATION"] as const;

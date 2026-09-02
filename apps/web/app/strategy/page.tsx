@@ -264,10 +264,10 @@ export default function StrategyPage() {
             <>
               {/* MASONRY LAYOUT */}
               
-                <div className="columns-1 lg:columns-2 xl:columns-3 gap-4 space-y-4">
+                <div className="columns-1 lg:columns-2 xl:columns-3 gap-4">
                   {cards.map((card) => (
-                    <div key={card.profile_key} className="break-inside-avoid racing-card-gradient rounded-xl p-4.5 shadow-lg flex flex-col mb-4">
-                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5 mb-3.5">
+                    <div key={card.profile_key} className="break-inside-avoid w-full inline-block racing-card-gradient rounded-xl p-4.5 shadow-lg flex flex-col mb-4">
+                      <div className="flex items-center justify-between border-b border-slate-800/80 py-2 px-3 mb-3">
                         <div>
                           <span className="text-base font-bold text-slate-100 tracking-tight">{card.display_name}</span>
                           <span className="text-xs text-slate-400 ml-2.5 font-medium">{card.card_date}</span>

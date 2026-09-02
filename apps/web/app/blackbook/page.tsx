@@ -131,6 +131,7 @@ function BlackbookPageContent() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchEntity, setSearchEntity] = useState<SearchResult | null>(null);
   const [isRuleBuilderOpen, setIsRuleBuilderOpen] = useState(false);
+  const [isExistingSelectorOpen, setIsExistingSelectorOpen] = useState(false);
 
   const [editingRunnerNotesId, setEditingRunnerNotesId] = useState<string | null>(null);
   const [draftRunnerNotes, setDraftRunnerNotes] = useState("");
@@ -170,6 +171,27 @@ function BlackbookPageContent() {
   // Daily Runners
   const [dailyRunners, setDailyRunners] = useState<any[]>([]);
   const [dailyRunnersLoading, setDailyRunnersLoading] = useState(false);
+
+  // Categorized Runners
+  const [categorizedRunners, setCategorizedRunners] = useState<Record<string, any[]>>({});
+  const [categorizedLoading, setCategorizedLoading] = useState(false);
+
+  const fetchCategorizedRunners = async () => {
+    setCategorizedLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/blackbook/runners/categorized`);
+      if (res.ok) {
+        const data = await safeResponseJson(res);
+        if (data && data.success) {
+          setCategorizedRunners(data.data || {});
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch categorized runners", err);
+    } finally {
+      setCategorizedLoading(false);
+    }
+  };
 
   const fetchDailyRunners = async () => {
     setDailyRunnersLoading(true);
@@ -256,6 +278,7 @@ function BlackbookPageContent() {
       }
     } catch (err) {
       console.error("Failed to fetch blackbook:", err);
+      setFetchError("Failed to fetch Blackbook configurations.");
       setConfigs(localItems);
     } finally {
       setLoading(false);
@@ -280,6 +303,7 @@ function BlackbookPageContent() {
       }
     } catch (err) {
       console.error("Failed to fetch combinations:", err);
+      setCombosError("Failed to connect to combinations service.");
     } finally {
       setCombosLoading(false);
     }
@@ -289,6 +313,7 @@ function BlackbookPageContent() {
     void fetchConfigs();
     void fetchCombinations();
     void fetchDailyRunners();
+    void fetchCategorizedRunners();
   }, [token, user]);
 
   const sortedConfigs = useMemo(() => {
@@ -578,6 +603,23 @@ function BlackbookPageContent() {
     );
   }
 
+  if (fetchError || combosError) {
+    return (
+      <div className="status-stack" style={{ padding: "2rem" }}>
+        <ErrorState
+          title="Blackbook unavailable"
+          message={fetchError || combosError || "Unknown error"}
+          tone="danger"
+          actionLabel="Try again"
+          onAction={() => {
+            if (fetchError) void fetchConfigs();
+            if (combosError) void fetchCombinations();
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <>
       <BlackbookSearchBar 
@@ -612,6 +654,27 @@ function BlackbookPageContent() {
         onSave={() => void fetchConfigs()} 
       />
 
+      {isExistingSelectorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+            <h3 className="text-xl font-bold text-white mb-4">Select Entity for Rules</h3>
+            <div className="max-h-60 overflow-y-auto space-y-2 mb-4 pr-2">
+               {configs.map(c => (
+                 <button key={c.runner} onClick={() => {
+                   setSearchEntity({ id: c.runner, name: c.runner, type: (c.entityType?.toLowerCase() || "horse") as any });
+                   setIsRuleBuilderOpen(true);
+                   setIsExistingSelectorOpen(false);
+                 }} className="w-full text-left px-4 py-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-colors border border-slate-700">
+                   {c.runner} <span className="text-xs text-slate-400 capitalize ml-2">({c.entityType?.toLowerCase() || 'runner'})</span>
+                 </button>
+               ))}
+               {configs.length === 0 && <div className="text-slate-400 text-sm italic">No saved entities. Use the search to add one first.</div>}
+            </div>
+            <button onClick={() => setIsExistingSelectorOpen(false)} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium rounded-lg transition-colors border border-slate-700">Cancel</button>
+          </div>
+        </div>
+      )}
+
       <ErrorBoundary sectionName="Blackbook content">
 
       <div className="flex flex-col min-h-screen bg-transparent text-slate-300 p-8">
@@ -640,18 +703,12 @@ function BlackbookPageContent() {
               <h1 className="text-3xl font-light text-white flex items-center gap-3"><BookOpen size={28} className="text-cyan-400"/> Blackbook Terminal</h1>
            </div>
            <div className="flex gap-3">
-              <button onClick={() => setIsSearchOpen(true)} className="px-3 py-1.5 bg-slate-950 hover:bg-slate-900 text-white rounded text-sm transition-colors border border-slate-800"><Search size={14} className="inline mr-2"/> Lookup</button>
-              <button onClick={() => setShowComboBuilder(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-sm transition-colors"><Plus size={14} className="inline mr-2"/> New Monitor</button>
+              <button title="Search and add to Blackbook" onClick={() => setIsSearchOpen(true)} className="p-2 bg-slate-950 hover:bg-slate-900 text-slate-300 hover:text-white rounded transition-colors border border-slate-800"><Search size={18} /></button>
+              <button title="Create Monitor Alert" onClick={() => setIsExistingSelectorOpen(true)} className="p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"><Plus size={18} /></button>
            </div>
         </div>
 
-        <div className="flex gap-6 mb-6">
-          <button onClick={() => setActiveTab("list")} className={`text-sm font-medium pb-2 border-b-2 transition-colors ${activeTab === "list" ? "border-cyan-400 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}>Monitors</button>
-          <button onClick={() => setActiveTab("explore")} className={`text-sm font-medium pb-2 border-b-2 transition-colors ${activeTab === "explore" ? "border-cyan-400 text-white" : "border-transparent text-slate-500 hover:text-slate-300"}`}>Market Scanner</button>
-        </div>
-
-        {activeTab === "list" ? (
-          <div className="space-y-8">
+        <div className="space-y-8">
             <div>
                <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">Running Today [{runningTodayConfigs.length}]</h2>
                <div className="bg-slate-950 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
@@ -712,12 +769,32 @@ function BlackbookPageContent() {
                   </table>
                </div>
             </div>
-          </div>
-        ) : (
-          <div className="bg-slate-950 p-6 rounded-2xl shadow-xl border border-slate-800/80">
-             <ExploreTab onAddToBlackbook={(e) => { setSearchEntity({ id: e.name, name: e.name, type: e.type as any }); setIsRuleBuilderOpen(true); }} />
-          </div>
-        )}
+            
+            {["Top 50 Jockeys", "Top 20 Horse Trainers", "Top 15 Harness Drivers", "Top 10 Harness Trainers", "Top 30 Dog Trainers"].map(cat => {
+              const runners = categorizedRunners[cat] || [];
+              if (runners.length === 0) return null;
+              return (
+                <div key={cat}>
+                   <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">{cat} [{runners.length}]</h2>
+                   <div className="bg-slate-950 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
+                      <table className="w-full text-sm text-left">
+                         <thead className="bg-slate-950/80 text-slate-500 font-mono text-xs uppercase border-b border-slate-800/60">
+                            <tr><th className="px-4 py-4">Entity</th><th className="px-4 py-4">Rank</th></tr>
+                         </thead>
+                         <tbody>
+                            {runners.map(r => (
+                               <tr key={r.id} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
+                                  <td className="px-4 py-4 font-medium text-white">{r.entityName}</td>
+                                  <td className="px-4 py-4 text-slate-400">#{r.rank}</td>
+                               </tr>
+                            ))}
+                         </tbody>
+                      </table>
+                   </div>
+                </div>
+              );
+            })}
+        </div>
       </div>
     </ErrorBoundary>
     </>

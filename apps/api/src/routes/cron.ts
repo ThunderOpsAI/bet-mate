@@ -36,6 +36,41 @@ router.post("/weekly-reset", async (req, res) => {
     const isForce = req.query.force === "true" || req.body?.force === true;
 
     if (isMonday || isForce) {
+      // 1. Calculate previous week champion before resetting
+      const allBankrolls = await prisma.bankroll.findMany();
+      const eligible = allBankrolls
+        .filter(b => b.weeklyBetsPlaced > 0 && b.weeklySpend > 0)
+        .map(b => ({
+          ...b,
+          roiPct: ((b.balance - b.startingBalance) / b.weeklySpend) * 100
+        }))
+        .sort((a, b) => b.roiPct - a.roiPct);
+
+      if (eligible.length > 0) {
+        const top = eligible[0];
+        const weekStart = getMelbourneWeekStart();
+        const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+        
+        await prisma.weeklyChampion.upsert({
+          where: { weekStartDate: lastWeekStart },
+          update: {
+            userId: top.userId,
+            username: top.username,
+            roiPct: top.roiPct,
+            balance: top.balance,
+            totalBetsPlaced: top.weeklyBetsPlaced,
+          },
+          create: {
+            weekStartDate: lastWeekStart,
+            userId: top.userId,
+            username: top.username,
+            roiPct: top.roiPct,
+            balance: top.balance,
+            totalBetsPlaced: top.weeklyBetsPlaced,
+          }
+        });
+      }
+
       await prisma.bankroll.updateMany({
         data: {
           balance: 10000.0,

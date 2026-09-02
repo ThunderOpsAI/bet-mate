@@ -10,6 +10,14 @@ router.get("/", async (req, res) => {
     const category = (req.query.category as string) || "highest_roi";
 
     if (timeframe === "weekly") {
+      if (category === "highest_roi_weekly") {
+        const leaderboard = await prisma.weeklyChampion.findMany({
+          orderBy: { weekStartDate: "desc" },
+          take: 1,
+        });
+        return res.json({ success: true, timeframe, category, leaderboard });
+      }
+
       if (category === "high_rollers") {
         const leaderboard = await prisma.bankroll.findMany({
           orderBy: { weeklySpend: "desc" },
