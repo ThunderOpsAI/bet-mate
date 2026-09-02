@@ -58,7 +58,7 @@ async function main() {
   });
 
   // Top 15 Harness Drivers
-  const topHarnessDrivers = harnessDrivers.length > 0 ? harnessDrivers.slice(0, 15) : jockeys.slice(50, 65); // Fallback logic
+  const topHarnessDrivers = harnessDrivers.slice(0, 15);
   topHarnessDrivers.forEach((d: any, i: number) => {
     entitiesToInsert.push({
       category: "Top 15 Harness Drivers",
@@ -70,7 +70,7 @@ async function main() {
   });
 
   // Top 10 Harness Trainers
-  const topHarnessTrainers = harnessTrainers.length > 0 ? harnessTrainers.slice(0, 10) : trainers.slice(20, 30); // Fallback logic
+  const topHarnessTrainers = harnessTrainers.slice(0, 10);
   topHarnessTrainers.forEach((t: any, i: number) => {
     entitiesToInsert.push({
       category: "Top 10 Harness Trainers",
@@ -82,7 +82,7 @@ async function main() {
   });
 
   // Top 30 Dog Trainers
-  const topDogTrainers = dogTrainers.length > 0 ? dogTrainers.slice(0, 30) : trainers.slice(30, 60); // Fallback logic
+  const topDogTrainers = dogTrainers.slice(0, 30);
   topDogTrainers.forEach((t: any, i: number) => {
     entitiesToInsert.push({
       category: "Top 30 Dog Trainers",

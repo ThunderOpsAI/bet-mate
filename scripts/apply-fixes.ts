@@ -25,14 +25,9 @@ if (fs.existsSync(cronPath)) {
       jockeys.slice(0, 50).forEach((j: any, i: number) => entitiesToInsert.push({ category: "Top 50 Jockeys", entityName: j.name || j.jockeyName || "Unknown", rank: i + 1, sport: "racing", metrics: j }));
       trainers.slice(0, 20).forEach((t: any, i: number) => entitiesToInsert.push({ category: "Top 20 Horse Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "racing", metrics: t }));
       
-      const hd = harnessDrivers.length > 0 ? harnessDrivers.slice(0, 15) : jockeys.slice(50, 65);
-      hd.forEach((d: any, i: number) => entitiesToInsert.push({ category: "Top 15 Harness Drivers", entityName: d.name || d.jockeyName || "Unknown", rank: i + 1, sport: "harness", metrics: d }));
-      
-      const ht = harnessTrainers.length > 0 ? harnessTrainers.slice(0, 10) : trainers.slice(20, 30);
-      ht.forEach((t: any, i: number) => entitiesToInsert.push({ category: "Top 10 Harness Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "harness", metrics: t }));
-      
-      const dt = dogTrainers.length > 0 ? dogTrainers.slice(0, 30) : trainers.slice(30, 60);
-      dt.forEach((t: any, i: number) => entitiesToInsert.push({ category: "Top 30 Dog Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "greyhound", metrics: t }));
+      harnessDrivers.slice(0, 15).forEach((d: any, i: number) => entitiesToInsert.push({ category: "Top 15 Harness Drivers", entityName: d.name || d.jockeyName || "Unknown", rank: i + 1, sport: "harness", metrics: d }));
+      harnessTrainers.slice(0, 10).forEach((t: any, i: number) => entitiesToInsert.push({ category: "Top 10 Harness Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "harness", metrics: t }));
+      dogTrainers.slice(0, 30).forEach((t: any, i: number) => entitiesToInsert.push({ category: "Top 30 Dog Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "greyhound", metrics: t }));
 
       if (entitiesToInsert.length > 0) {
         await prisma.topEntity.createMany({ data: entitiesToInsert });
