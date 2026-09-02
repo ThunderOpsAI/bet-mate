@@ -28,7 +28,6 @@ import {
 import { type SearchResult } from "../components/BlackbookSearchModal";
 import BlackbookSearchBar from "../components/BlackbookSearchBar";
 import { BlackbookRuleBuilderSheet } from "../components/BlackbookRuleBuilderSheet";
-import { ExploreTab } from "../components/ExploreTab";
 import { ML_API } from "../lib/mlApi";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
@@ -121,7 +120,6 @@ function BlackbookPageContent() {
   const { isLoading, token, user } = useAuth();
 
   // Tab state: "explore" | "list"
-  const [activeTab, setActiveTab] = useState<"explore" | "list">("list");
   
   // Sprint 1 UI Filters
   const [raceTypeFilter, setRaceTypeFilter] = useState("all");
