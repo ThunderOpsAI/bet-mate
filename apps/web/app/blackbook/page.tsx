@@ -770,7 +770,16 @@ function BlackbookPageContent() {
             
             {["Top 50 Jockeys", "Top 20 Horse Trainers", "Top 15 Harness Drivers", "Top 10 Harness Trainers", "Top 30 Dog Trainers"].map(cat => {
               const runners = categorizedRunners[cat] || [];
-              if (runners.length === 0) return null;
+              if (runners.length === 0) {
+                return (
+                  <div key={cat}>
+                     <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">{cat}</h2>
+                     <div className="bg-slate-950/50 border border-slate-800/40 rounded-2xl p-4 text-center">
+                        <span className="text-slate-500 text-sm italic">{cat} — Updating rankings...</span>
+                     </div>
+                  </div>
+                );
+              }
               return (
                 <div key={cat}>
                    <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">{cat} [{runners.length}]</h2>

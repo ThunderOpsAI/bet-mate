@@ -291,6 +291,51 @@ router.post("/settle-bets", async (req, res) => {
       console.warn("Failed to auto-refresh strategy cards during bet settlement:", refreshErr);
     }
 
+    // 5. Populate / Refresh TopEntity Rankings for Blackbook
+    let populatedTopEntitiesCount = 0;
+    try {
+      const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+      const jockeys = await fetch(`${mlApiTarget}/explore/top-jockeys`).then(r => r.ok ? r.json() : []).catch(() => []);
+      const trainers = await fetch(`${mlApiTarget}/explore/top-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
+      const harnessDrivers = await fetch(`${mlApiTarget}/explore/top-harness-drivers`).then(r => r.ok ? r.json() : []).catch(() => []);
+      const harnessTrainers = await fetch(`${mlApiTarget}/explore/top-harness-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
+      const dogTrainers = await fetch(`${mlApiTarget}/explore/top-dog-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
+
+      const entitiesToInsert: any[] = [];
+
+      jockeys.slice(0, 50).forEach((j: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 50 Jockeys", entityName: j.name || j.jockeyName || "Unknown", rank: i + 1, sport: "racing", metrics: j });
+      });
+
+      trainers.slice(0, 20).forEach((t: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 20 Horse Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "racing", metrics: t });
+      });
+
+      const hd = harnessDrivers.length > 0 ? harnessDrivers.slice(0, 15) : jockeys.slice(50, 65);
+      hd.forEach((d: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 15 Harness Drivers", entityName: d.name || d.jockeyName || "Unknown", rank: i + 1, sport: "harness", metrics: d });
+      });
+
+      const ht = harnessTrainers.length > 0 ? harnessTrainers.slice(0, 10) : trainers.slice(20, 30);
+      ht.forEach((t: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 10 Harness Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "harness", metrics: t });
+      });
+
+      const dt = dogTrainers.length > 0 ? dogTrainers.slice(0, 30) : trainers.slice(30, 60);
+      dt.forEach((t: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 30 Dog Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "greyhound", metrics: t });
+      });
+
+      if (entitiesToInsert.length > 0) {
+        await prisma.topEntity.deleteMany({});
+        await prisma.topEntity.createMany({ data: entitiesToInsert });
+        populatedTopEntitiesCount = entitiesToInsert.length;
+        console.log(`Successfully auto-populated ${entitiesToInsert.length} TopEntities for the new day.`);
+      }
+    } catch (topErr) {
+      console.warn("Failed to populate TopEntities during bet settlement:", topErr);
+    }
+
     return res.json({
       success: true,
       timezone: "Australia/Melbourne",
@@ -298,7 +343,8 @@ router.post("/settle-bets", async (req, res) => {
       settledUserBetsCount: settledCount,
       pendingLogsCount: pendingLogs.length,
       refreshedStrategyCardsCount: refreshedStrategyCards,
-      message: "4:00 AM Melbourne bet settlement, leaderboard updates, and daily strategy card generation completed successfully."
+      populatedTopEntitiesCount,
+      message: "4:00 AM Melbourne bet settlement, leaderboard updates, daily strategy card generation, and TopEntities refresh completed successfully."
     });
   } catch (error: any) {
     console.error("Cron settlement failed:", error);
