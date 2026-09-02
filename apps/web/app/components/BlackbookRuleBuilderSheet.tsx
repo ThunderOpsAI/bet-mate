@@ -1,7 +1,6 @@
-"use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Star, Link as LinkIcon, Save } from "lucide-react";
+import { X, Star, Link as LinkIcon, Save, Trash2 } from "lucide-react";
 import { TrackPicker } from "./TrackPicker";
 import { SearchResult } from "./BlackbookSearchModal";
 import { useAuth } from "../providers/AuthProvider";
@@ -10,46 +9,74 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   entity: SearchResult | null;
+  initialData?: {
+    id?: string;
+    notes?: string;
+    rating?: number;
+    conditions?: any;
+    alertPreferences?: any;
+    rules?: any[];
+  } | null;
   onSave: () => void;
+  onDelete?: (idOrName: string) => void;
 }
 
-export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: Props) {
-  const { token } = useAuth();
+const DEFAULT_CONDITIONS = {
+  favourite: false,
+  tracks: [] as string[],
+  minOdds: "",
+  raceType: "",
+  metroOnly: false,
+  maxWeight: "",
+  barrierMin: "",
+  barrierMax: "",
+  classLevel: "",
+  firstUp: "",
+  daysSinceLastRun: "",
+  distanceMin: "",
+  distanceMax: "",
+  trackCondition: "",
+  comboJockeyTrainer: false,
+  comboJockeyTrainer_jockey: "",
+  comboJockeyTrainer_trainer: "",
+  comboJockeyHorse: false,
+  comboJockeyHorse_jockey: "",
+  comboJockeyHorse_horse: "",
+  comboTrainerTrack: false,
+  comboTrainerTrack_trainer: "",
+  comboTrainerTrack_track: "",
+  comboJockeyTrack: false,
+  comboJockeyTrack_jockey: "",
+  comboJockeyTrack_track: "",
+  comboHorseFavourite: false,
+  comboDogBox: false,
+  comboDogBox_box: "",
+};
+
+export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, initialData, onSave, onDelete }: Props) {
+  const { token, user } = useAuth();
   const [notes, setNotes] = useState("");
   const [rating, setRating] = useState(0);
-  const [conditions, setConditions] = useState({
-    favourite: false,
-    tracks: [] as string[],
-    minOdds: "",
-    raceType: "",
-    metroOnly: false,
-    maxWeight: "",
-    barrierMin: "",
-    barrierMax: "",
-    classLevel: "",
-    firstUp: "",
-    daysSinceLastRun: "",
-    distanceMin: "",
-    distanceMax: "",
-    trackCondition: "",
-    comboJockeyTrainer: false,
-    comboJockeyTrainer_jockey: "",
-    comboJockeyTrainer_trainer: "",
-    comboJockeyHorse: false,
-    comboJockeyHorse_jockey: "",
-    comboJockeyHorse_horse: "",
-    comboTrainerTrack: false,
-    comboTrainerTrack_trainer: "",
-    comboTrainerTrack_track: "",
-    comboJockeyTrack: false,
-    comboJockeyTrack_jockey: "",
-    comboJockeyTrack_track: "",
-    comboHorseFavourite: false,
-    comboDogBox: false,
-    comboDogBox_box: "",
-  });
+  const [conditions, setConditions] = useState(DEFAULT_CONDITIONS);
   const [alerts, setAlerts] = useState({ push: true, email: true, pushover: false });
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setNotes(initialData?.notes || "");
+      setRating(initialData?.rating || 0);
+      setConditions({
+        ...DEFAULT_CONDITIONS,
+        ...(initialData?.conditions || {}),
+      });
+      setAlerts({
+        push: initialData?.alertPreferences?.push ?? true,
+        email: initialData?.alertPreferences?.email ?? true,
+        pushover: initialData?.alertPreferences?.pushover ?? false,
+      });
+    }
+  }, [isOpen, initialData, entity]);
 
   const [ruleRequestOpen, setRuleRequestOpen] = useState(false);
   const [ruleRequestText, setRuleRequestText] = useState("");
@@ -88,11 +115,26 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
     setSaving(true);
     try {
       const authToken = token || (typeof window !== "undefined" ? localStorage.getItem("betmate_token") : null);
+      if (!user || user.id === "guest" || !authToken) {
+        // Guest mode: save to local storage
+        try {
+          const stored = localStorage.getItem("betmate_quick_blackbook");
+          const list = stored ? JSON.parse(stored) : [];
+          if (!list.includes(entity.name)) {
+            list.push(entity.name);
+            localStorage.setItem("betmate_quick_blackbook", JSON.stringify(list));
+          }
+        } catch {}
+        onSave();
+        onClose();
+        return;
+      }
+
       const res = await fetch("/api/blackbook", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           targetType: entity.type === "combination" ? "COMBINATION" : (entity.type === "horse" ? "RUNNER" : entity.type.toUpperCase()),
@@ -100,6 +142,8 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
           targetName: entity.name,
           entityType: entity.type === "combination" ? "COMBINATION" : (entity.type === "horse" ? "RUNNER" : entity.type.toUpperCase()),
           notes: notes,
+          rating: rating,
+          conditions: conditions,
           alertPreferences: alerts,
           horseName: entity.horseName || (entity.type === "horse" ? entity.name : undefined),
           jockeyName: entity.jockeyName || (entity.type === "jockey" ? entity.name : undefined),
@@ -117,6 +161,21 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
       alert("Failed to save rule");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!entity) return;
+    setDeleting(true);
+    try {
+      if (onDelete) {
+        onDelete(initialData?.id || entity.name);
+      }
+      onClose();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -398,11 +457,22 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: P
               </div>
             </div>
 
-            <div className="px-6 py-4 pb-8 sm:pb-4 border-t border-gray-100 bg-white">
+            <div className="px-6 py-4 pb-8 sm:pb-4 border-t border-gray-100 bg-white flex gap-3">
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting || saving}
+                  className="flex items-center justify-center gap-1.5 px-4 py-3 bg-red-50 hover:bg-red-100 text-red-600 font-semibold rounded-xl transition-colors border border-red-200 text-sm disabled:opacity-50"
+                  title="Remove from Blackbook"
+                >
+                  <Trash2 size={16} /> {deleting ? "Removing..." : "Remove"}
+                </button>
+              )}
               <button 
                 onClick={handleSave} 
-                disabled={saving}
-                className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-4 rounded-xl transition-colors disabled:opacity-50"
+                disabled={saving || deleting}
+                className="flex-1 flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-4 rounded-xl transition-colors disabled:opacity-50"
               >
                 <Save size={18} /> {saving ? "Saving..." : "Save to BlackBook"}
               </button>

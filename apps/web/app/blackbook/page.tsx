@@ -38,6 +38,7 @@ import { TrackPicker } from "../components/TrackPicker";
 import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
 type BlackbookConfig = {
+  id?: string;
   runner: string;
   sport: string;
   bet_type: string;
@@ -128,6 +129,7 @@ function BlackbookPageContent() {
   // Search & Builder
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchEntity, setSearchEntity] = useState<SearchResult | null>(null);
+  const [ruleBuilderInitialData, setRuleBuilderInitialData] = useState<any>(null);
   const [isRuleBuilderOpen, setIsRuleBuilderOpen] = useState(false);
   const [isExistingSelectorOpen, setIsExistingSelectorOpen] = useState(false);
 
@@ -250,6 +252,7 @@ function BlackbookPageContent() {
         const data = await safeResponseJson(res);
         const items = data?.data || data?.blackbook || [];
         const mappedConfigs: BlackbookConfig[] = items.map((item: any) => ({
+          id: item.id,
           runner: item.targetName || item.horseName || item.runner,
           sport: "racing",
           bet_type: item.rules?.[0]?.stakeType || "win",
@@ -260,8 +263,9 @@ function BlackbookPageContent() {
           notify_email: item.alertPreferences?.email ? "yes" : null,
           notify_pushover_key: item.alertPreferences?.push ? "yes" : null,
           notes: item.notes,
+          rating: item.rating,
           entityType: item.entityType,
-          conditions: item.rules,
+          conditions: item.conditions || item.rules,
         }));
 
         const merged = [...mappedConfigs];
@@ -336,14 +340,14 @@ function BlackbookPageContent() {
     );
   }, [sortedConfigs, runningTodayConfigs]);
 
-  const removeConfig = async (runner: string) => {
-    setConfigs((current) => current.filter((item) => item.runner !== runner));
+  const removeConfig = async (runnerOrId: string) => {
+    setConfigs((current) => current.filter((item) => item.runner.toLowerCase() !== runnerOrId.toLowerCase() && item.id !== runnerOrId));
     try {
       const stored = localStorage.getItem("betmate_quick_blackbook");
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          const updated = parsed.filter((name: string) => name.toLowerCase() !== runner.toLowerCase());
+          const updated = parsed.filter((name: string) => name.toLowerCase() !== runnerOrId.toLowerCase());
           localStorage.setItem("betmate_quick_blackbook", JSON.stringify(updated));
         }
       }
@@ -352,12 +356,12 @@ function BlackbookPageContent() {
     }
 
     trackEvent(ANALYTICS_EVENTS.REMOVED_FROM_BLACKBOOK, {
-      runner,
+      runner: runnerOrId,
     });
 
     if (user && user.id !== "guest" && token) {
       try {
-        await fetch(`${ML_API}/blackbook/${encodeURIComponent(runner)}/auto-bet`, {
+        await fetch(`${API_BASE}/blackbook/${encodeURIComponent(runnerOrId)}`, {
           method: "DELETE",
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -365,6 +369,122 @@ function BlackbookPageContent() {
         console.error("Failed to remove config", err);
       }
     }
+  };
+
+  const quickAddOrToggle = async (entityName: string, category: string, sport: string = "racing") => {
+    const isAlreadyAdded = configs.some((c) => c.runner.toLowerCase() === entityName.toLowerCase());
+    if (isAlreadyAdded) {
+      await removeConfig(entityName);
+      return;
+    }
+    
+    const entityType = category.toLowerCase().includes("jockey") || category.toLowerCase().includes("driver") 
+      ? "JOCKEY" 
+      : (category.toLowerCase().includes("trainer") ? "TRAINER" : "RUNNER");
+    
+    const newConfig: BlackbookConfig = {
+      runner: entityName,
+      sport,
+      bet_type: "win",
+      stake: 10,
+      enabled: true,
+      probability_threshold: 50,
+      notify_phone: null,
+      notify_email: null,
+      notify_pushover_key: null,
+      entityType,
+    };
+    setConfigs((prev) => [...prev, newConfig]);
+
+    try {
+      const stored = localStorage.getItem("betmate_quick_blackbook");
+      const list = stored ? JSON.parse(stored) : [];
+      if (!list.includes(entityName)) {
+        list.push(entityName);
+        localStorage.setItem("betmate_quick_blackbook", JSON.stringify(list));
+      }
+    } catch {}
+
+    trackEvent(ANALYTICS_EVENTS.ADDED_TO_BLACKBOOK, {
+      runner: entityName,
+      entityType,
+    });
+
+    if (user && user.id !== "guest" && token) {
+      try {
+        await fetch(`${API_BASE}/blackbook`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            targetType: entityType,
+            targetId: entityName,
+            targetName: entityName,
+            entityType,
+            alertPreferences: { push: true, email: true },
+            rules: [],
+          }),
+        });
+        void fetchConfigs();
+      } catch (err) {
+        console.error("Failed to add to blackbook", err);
+      }
+    }
+  };
+
+  const openEditRuleSheet = (cfg: BlackbookConfig | { name: string; category?: string; sport?: string }) => {
+    const name = "runner" in cfg ? cfg.runner : cfg.name;
+    const rawType = ("entityType" in cfg ? cfg.entityType : ("category" in cfg ? cfg.category : "horse")) || "horse";
+    
+    const typeMap: Record<string, "horse" | "jockey" | "trainer" | "combination"> = {
+      RUNNER: "horse",
+      JOCKEY: "jockey",
+      TRAINER: "trainer",
+      COMBINATION: "combination",
+      runner: "horse",
+      horse: "horse",
+      jockey: "jockey",
+      trainer: "trainer"
+    };
+
+    let detectedType: "horse" | "jockey" | "trainer" | "combination" = "horse";
+    if (rawType.toUpperCase().includes("JOCKEY") || rawType.toUpperCase().includes("DRIVER")) {
+      detectedType = "jockey";
+    } else if (rawType.toUpperCase().includes("TRAINER")) {
+      detectedType = "trainer";
+    } else if (rawType.toUpperCase().includes("COMBINATION")) {
+      detectedType = "combination";
+    } else if (typeMap[rawType]) {
+      detectedType = typeMap[rawType];
+    }
+
+    const existingConfig = configs.find(c => c.runner.toLowerCase() === name.toLowerCase());
+
+    setSearchEntity({
+      id: existingConfig?.id || name,
+      name: name,
+      type: detectedType,
+      horseName: detectedType === "horse" ? name : undefined,
+      jockeyName: detectedType === "jockey" ? name : undefined,
+      trainerName: detectedType === "trainer" ? name : undefined,
+    });
+    
+    if (existingConfig) {
+      setRuleBuilderInitialData({
+        id: existingConfig.id || existingConfig.runner,
+        notes: existingConfig.notes,
+        rating: existingConfig.rating,
+        conditions: existingConfig.conditions,
+        alertPreferences: {
+          email: Boolean(existingConfig.notify_email),
+          sms: Boolean(existingConfig.notify_phone),
+          push: Boolean(existingConfig.notify_pushover_key),
+        },
+        rules: Array.isArray(existingConfig.conditions) ? existingConfig.conditions : [],
+      });
+    } else {
+      setRuleBuilderInitialData(null);
+    }
+    setIsRuleBuilderOpen(true);
   };
 
   const saveRunnerNotes = async (runner: string) => {
@@ -648,8 +768,10 @@ function BlackbookPageContent() {
       <BlackbookRuleBuilderSheet 
         isOpen={isRuleBuilderOpen} 
         onClose={() => setIsRuleBuilderOpen(false)} 
-        entity={searchEntity} 
-        onSave={() => void fetchConfigs()} 
+        entity={searchEntity}
+        initialData={ruleBuilderInitialData}
+        onSave={() => void fetchConfigs()}
+        onDelete={(idOrName) => void removeConfig(idOrName)}
       />
 
       {isExistingSelectorOpen && (
@@ -659,11 +781,14 @@ function BlackbookPageContent() {
             <div className="max-h-60 overflow-y-auto space-y-2 mb-4 pr-2">
                {configs.map(c => (
                  <button key={c.runner} onClick={() => {
-                   setSearchEntity({ id: c.runner, name: c.runner, type: (c.entityType?.toLowerCase() || "horse") as any });
-                   setIsRuleBuilderOpen(true);
+                   openEditRuleSheet(c);
                    setIsExistingSelectorOpen(false);
-                 }} className="w-full text-left px-4 py-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-colors border border-slate-700">
-                   {c.runner} <span className="text-xs text-slate-400 capitalize ml-2">({c.entityType?.toLowerCase() || 'runner'})</span>
+                 }} className="w-full text-left px-4 py-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium transition-colors border border-slate-700 flex items-center justify-between">
+                   <div>
+                     <span>{c.runner}</span>
+                     <span className="text-xs text-slate-400 capitalize ml-2">({c.entityType?.toLowerCase() || 'runner'})</span>
+                   </div>
+                   <Edit3 size={16} className="text-cyan-400" />
                  </button>
                ))}
                {configs.length === 0 && <div className="text-slate-400 text-sm italic">No saved entities. Use the search to add one first.</div>}
@@ -701,7 +826,10 @@ function BlackbookPageContent() {
               <h1 className="text-3xl font-light text-white flex items-center gap-3"><BookOpen size={28} className="text-cyan-400"/> Blackbook Terminal</h1>
            </div>
            <div className="flex gap-3">
-              <button title="Search and add to Blackbook" onClick={() => setIsSearchOpen(true)} className="p-2 bg-slate-950 hover:bg-slate-900 text-slate-300 hover:text-white rounded transition-colors border border-slate-800"><Search size={18} /></button>
+              <button title="Search and add to Blackbook" onClick={() => {
+                setRuleBuilderInitialData(null);
+                setIsSearchOpen(true);
+              }} className="p-2 bg-slate-950 hover:bg-slate-900 text-slate-300 hover:text-white rounded transition-colors border border-slate-800"><Search size={18} /></button>
               <button title="Create Monitor Alert" onClick={() => setIsExistingSelectorOpen(true)} className="p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded transition-colors"><Plus size={18} /></button>
            </div>
         </div>
@@ -720,7 +848,12 @@ function BlackbookPageContent() {
                            <tr key={c.runner} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
                               <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
                               <td className="px-4 py-4 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block mr-2 animate-pulse"></span>Live Today</td>
-                              <td className="px-4 py-4 text-right"><button onClick={() => removeConfig(c.runner)} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
+                              <td className="px-4 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button onClick={() => openEditRuleSheet(c)} title="Edit Rules" className="text-slate-400 hover:text-cyan-400 transition-colors p-1"><Edit3 size={16}/></button>
+                                  <button onClick={() => removeConfig(c.runner)} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
+                                </div>
+                              </td>
                            </tr>
                         ))}
                      </tbody>
@@ -740,7 +873,7 @@ function BlackbookPageContent() {
                            <tr key={c.id} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
                               <td className="px-4 py-4 font-medium text-white">{c.targetName}</td>
                               <td className="px-4 py-4 text-slate-400">{c.combinationType.replace("_", " + ")}</td>
-                              <td className="px-4 py-4 text-right"><button onClick={() => deleteCombination(c.id)} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
+                              <td className="px-4 py-4 text-right"><button onClick={() => deleteCombination(c.id)} title="Remove Alert" className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
                            </tr>
                         ))}
                      </tbody>
@@ -760,7 +893,12 @@ function BlackbookPageContent() {
                            <tr key={c.runner} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
                               <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
                               <td className="px-4 py-4 text-slate-400 font-mono text-xs">Monitoring</td>
-                              <td className="px-4 py-4 text-right"><button onClick={() => removeConfig(c.runner)} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
+                              <td className="px-4 py-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button onClick={() => openEditRuleSheet(c)} title="Edit Rules" className="text-slate-400 hover:text-cyan-400 transition-colors p-1"><Edit3 size={16}/></button>
+                                  <button onClick={() => removeConfig(c.runner)} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
+                                </div>
+                              </td>
                            </tr>
                         ))}
                      </tbody>
@@ -786,15 +924,52 @@ function BlackbookPageContent() {
                    <div className="bg-slate-950 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
                       <table className="w-full text-sm text-left">
                          <thead className="bg-slate-950/80 text-slate-500 font-mono text-xs uppercase border-b border-slate-800/60">
-                            <tr><th className="px-4 py-4">Entity</th><th className="px-4 py-4">Rank</th></tr>
+                            <tr>
+                              <th className="px-4 py-4 w-16">Rank</th>
+                              <th className="px-4 py-4">Entity</th>
+                              <th className="px-4 py-4">Venues / Rides</th>
+                              <th className="px-4 py-4 text-right w-28">Blackbook</th>
+                            </tr>
                          </thead>
                          <tbody>
-                            {runners.map(r => (
-                               <tr key={r.id} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
-                                  <td className="px-4 py-4 font-medium text-white">{r.entityName}</td>
-                                  <td className="px-4 py-4 text-slate-400">#{r.rank}</td>
-                               </tr>
-                            ))}
+                            {runners.map(r => {
+                               const isAdded = configs.some(c => c.runner.toLowerCase() === r.entityName.toLowerCase());
+                               const venues = r.metrics?.venues ? (Array.isArray(r.metrics.venues) ? r.metrics.venues.join(", ") : r.metrics.venues) : "";
+                               const raceCount = r.metrics?.raceCount ? `${r.metrics.raceCount} rides` : "";
+                               return (
+                                 <tr key={r.id} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
+                                    <td className="px-4 py-4 text-slate-400 font-mono text-xs">#{r.rank}</td>
+                                    <td className="px-4 py-4 font-medium text-white">{r.entityName}</td>
+                                    <td className="px-4 py-4 text-xs text-slate-400">
+                                      {venues && <span className="text-slate-300">{venues}</span>}
+                                      {venues && raceCount && <span className="mx-1 text-slate-600">•</span>}
+                                      {raceCount && <span className="text-cyan-400 font-mono">{raceCount}</span>}
+                                    </td>
+                                    <td className="px-4 py-4 text-right">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <button
+                                          onClick={() => openEditRuleSheet({ name: r.entityName, category: cat, sport: r.sport })}
+                                          title="Configure Rules"
+                                          className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-slate-800/60 rounded transition-colors"
+                                        >
+                                          <Edit3 size={15} />
+                                        </button>
+                                        <button
+                                          onClick={() => quickAddOrToggle(r.entityName, cat, r.sport || "racing")}
+                                          title={isAdded ? "In Blackbook (Click to remove)" : "Quick Add to Blackbook"}
+                                          className={`p-1.5 rounded transition-all flex items-center justify-center ${
+                                            isAdded 
+                                              ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/40" 
+                                              : "bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white border border-slate-700"
+                                          }`}
+                                        >
+                                          {isAdded ? <CheckCircle2 size={15} /> : <Plus size={15} />}
+                                        </button>
+                                      </div>
+                                    </td>
+                                 </tr>
+                               );
+                            })}
                          </tbody>
                       </table>
                    </div>

@@ -66,6 +66,8 @@ const createBlackbookItemSchema = z.object({
   targetName: z.string().min(1),
   entityType: z.enum(ENTITY_TYPES).default("RUNNER"),
   notes: z.string().nullable().optional(),
+  rating: z.number().int().min(0).max(5).nullable().optional(),
+  conditions: z.record(z.any()).optional().default({}),
   alertPreferences: z.record(z.any()).optional().default({}),
   jockeyName: z.string().nullable().optional(),
   trainerName: z.string().nullable().optional(),
@@ -80,6 +82,8 @@ const updateBlackbookItemSchema = z.object({
   targetName: z.string().min(1).optional(),
   entityType: z.enum(ENTITY_TYPES).optional(),
   notes: z.string().nullable().optional(),
+  rating: z.number().int().min(0).max(5).nullable().optional(),
+  conditions: z.record(z.any()).optional(),
   alertPreferences: z.record(z.any()).optional(),
   jockeyName: z.string().nullable().optional(),
   trainerName: z.string().nullable().optional(),
@@ -148,6 +152,8 @@ router.post("/", async (req: AuthRequest, res) => {
     targetName,
     entityType,
     notes,
+    rating,
+    conditions,
     alertPreferences,
     jockeyName,
     trainerName,
@@ -174,6 +180,8 @@ router.post("/", async (req: AuthRequest, res) => {
           targetName,
           entityType,
           notes,
+          rating,
+          conditions: conditions || existing.conditions,
           alertPreferences,
           jockeyName,
           trainerName,
@@ -202,6 +210,8 @@ router.post("/", async (req: AuthRequest, res) => {
         targetName,
         entityType,
         notes,
+        rating,
+        conditions: conditions || {},
         alertPreferences,
         jockeyName,
         trainerName,
@@ -287,7 +297,17 @@ router.delete("/:id", async (req: AuthRequest, res) => {
 
   try {
     const existing = await prisma.blackbookItem.findFirst({
-      where: { id, userId },
+      where: {
+        userId,
+        OR: [
+          { id },
+          { targetName: id },
+          { targetId: id },
+          { horseName: id },
+          { jockeyName: id },
+          { trainerName: id },
+        ],
+      },
     });
 
     if (!existing) {
