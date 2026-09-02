@@ -188,12 +188,39 @@ function BlackbookPageContent() {
   };
 
   const fetchConfigs = async () => {
+    setLoading(true);
+    setFetchError(null);
+
+    // Read local quick-added items
+    let localItems: BlackbookConfig[] = [];
+    try {
+      const stored = localStorage.getItem("betmate_quick_blackbook");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          localItems = parsed.map((name: string) => ({
+            runner: name,
+            sport: "racing",
+            bet_type: "win",
+            stake: 10,
+            enabled: true,
+            probability_threshold: 50,
+            notify_phone: null,
+            notify_email: null,
+            notify_pushover_key: null,
+          }));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     if (!user || user.id === "guest" || !token) {
+      setConfigs(localItems);
       setLoading(false);
       return;
     }
-    setLoading(true);
-    setFetchError(null);
+
     try {
       const res = await fetch(`${API_BASE}/blackbook`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -202,8 +229,8 @@ function BlackbookPageContent() {
       if (res.ok) {
         const data = await safeResponseJson(res);
         const items = data?.data || data?.blackbook || [];
-        const mappedConfigs = items.map((item: any) => ({
-          runner: item.targetName,
+        const mappedConfigs: BlackbookConfig[] = items.map((item: any) => ({
+          runner: item.targetName || item.horseName || item.runner,
           sport: "racing",
           bet_type: item.rules?.[0]?.stakeType || "win",
           stake: item.rules?.[0]?.stakeAmount || 10,
@@ -216,13 +243,20 @@ function BlackbookPageContent() {
           entityType: item.entityType,
           conditions: item.rules,
         }));
-        setConfigs(mappedConfigs);
+
+        const merged = [...mappedConfigs];
+        for (const loc of localItems) {
+          if (!merged.some((m) => m.runner.toLowerCase() === loc.runner.toLowerCase())) {
+            merged.push(loc);
+          }
+        }
+        setConfigs(merged);
       } else {
-        setFetchError("BetMate could not load your watch rules.");
+        setConfigs(localItems);
       }
     } catch (err) {
       console.error("Failed to fetch blackbook:", err);
-      setFetchError("BetMate could not connect to the blackbook service.");
+      setConfigs(localItems);
     } finally {
       setLoading(false);
     }
@@ -243,12 +277,9 @@ function BlackbookPageContent() {
       if (res.ok) {
         const data = await safeResponseJson(res);
         setCombinations(data?.combinations || data?.data || []);
-      } else {
-        setCombosError("Could not load saved combinations.");
       }
     } catch (err) {
       console.error("Failed to fetch combinations:", err);
-      setCombosError("Failed to connect to combinations service.");
     } finally {
       setCombosLoading(false);
     }
@@ -278,25 +309,38 @@ function BlackbookPageContent() {
 
   const awaitingNextRaceConfigs = useMemo(() => {
     return sortedConfigs.filter(
-      (cfg) => !runningTodayConfigs.some((rc) => rc.runner === cfg.runner)
+      (cfg) => !runningTodayConfigs.some((rc) => rc.runner.toLowerCase() === cfg.runner.toLowerCase())
     );
   }, [sortedConfigs, runningTodayConfigs]);
 
   const removeConfig = async (runner: string) => {
-    if (!user || user.id === "guest" || !token) return;
-
     setConfigs((current) => current.filter((item) => item.runner !== runner));
+    try {
+      const stored = localStorage.getItem("betmate_quick_blackbook");
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const updated = parsed.filter((name: string) => name.toLowerCase() !== runner.toLowerCase());
+          localStorage.setItem("betmate_quick_blackbook", JSON.stringify(updated));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     trackEvent(ANALYTICS_EVENTS.REMOVED_FROM_BLACKBOOK, {
       runner,
     });
 
-    try {
-      await fetch(`${ML_API}/blackbook/${encodeURIComponent(runner)}/auto-bet`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    } catch (err) {
-      console.error("Failed to remove config", err);
+    if (user && user.id !== "guest" && token) {
+      try {
+        await fetch(`${ML_API}/blackbook/${encodeURIComponent(runner)}/auto-bet`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        console.error("Failed to remove config", err);
+      }
     }
   };
 
@@ -523,7 +567,7 @@ function BlackbookPageContent() {
     }
   };
 
-  if (isLoading) {
+  if (isLoading || (loading && configs.length === 0)) {
     return (
       <div className="dashboard-loading">
         <div className="loading-pulse">
@@ -534,84 +578,7 @@ function BlackbookPageContent() {
     );
   }
 
-  if (!user || user.id === "guest") {
-    return (
-      <div
-        style={{ maxWidth: "600px", margin: "3rem auto", padding: "2rem", textAlign: "center" }}
-        className="card"
-      >
-        <div
-          style={{
-            width: "56px",
-            height: "56px",
-            borderRadius: "16px",
-            background: "rgba(6, 182, 212, 0.12)",
-            border: "1px solid rgba(6, 182, 212, 0.3)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 1.25rem",
-            color: "var(--accent)",
-          }}
-        >
-          <BookOpen size={28} />
-        </div>
-        <h2 style={{ fontSize: "1.5rem", fontWeight: 800, marginBottom: "0.5rem" }}>
-          Blackbook Restricted in Guest Mode
-        </h2>
-        <p
-          style={{
-            color: "var(--text-muted)",
-            lineHeight: 1.6,
-            marginBottom: "1.75rem",
-            fontSize: "0.92rem",
-          }}
-        >
-          Guest mode allows browsing all main racing and sports pages. Blackbook watch rules,
-          combinations tracking, and automated trigger alerts are reserved for registered accounts.
-        </p>
-        <div style={{ display: "flex", gap: "0.75rem", justifyContent: "center", flexWrap: "wrap" }}>
-          <Link href="/register" className="btn btn-primary" style={{ padding: "0.7rem 1.4rem" }}>
-            Create Account
-          </Link>
-          <Link href="/login" className="btn btn-secondary" style={{ padding: "0.7rem 1.4rem" }}>
-            Sign In
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (loading || combosLoading) {
-    return (
-      <div className="dashboard-loading">
-        <div className="loading-pulse">
-          <BookOpen size={48} />
-          <p>Loading Blackbook...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (fetchError) {
-    return (
-      <div className="status-stack" style={{ padding: "2rem" }}>
-        <ErrorState
-          title="Blackbook unavailable"
-          message={fetchError}
-          tone="danger"
-          actionLabel="Try again"
-          onAction={() => void fetchConfigs()}
-        />
-      </div>
-    );
-  }
-
-
-  
-  
-
-    return (
+  return (
     <>
       <BlackbookSearchBar 
         isOpen={isSearchOpen} 
@@ -648,6 +615,26 @@ function BlackbookPageContent() {
       <ErrorBoundary sectionName="Blackbook content">
 
       <div className="flex flex-col min-h-screen bg-transparent text-slate-300 p-8">
+        {(!user || user.id === "guest") && (
+          <div className="mb-6 p-4 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-sm shadow-lg">
+            <div className="flex items-center gap-3">
+              <Sparkles className="w-5 h-5 text-cyan-400 shrink-0" />
+              <div>
+                <span className="font-semibold text-white">Guest Mode Active: </span>
+                <span className="text-slate-400">Viewing local watchlist and market scanner. Sign in to sync watch rules across devices and enable real-time trigger notifications.</span>
+              </div>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Link href="/login" className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg transition-colors">
+                Sign In
+              </Link>
+              <Link href="/register" className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors border border-slate-700">
+                Create Account
+              </Link>
+            </div>
+          </div>
+        )}
+
         <div className="flex justify-between items-end mb-8 border-b border-slate-800/60 pb-4">
            <div>
               <h1 className="text-3xl font-light text-white flex items-center gap-3"><BookOpen size={28} className="text-cyan-400"/> Blackbook Terminal</h1>
@@ -699,6 +686,26 @@ function BlackbookPageContent() {
                               <td className="px-4 py-4 font-medium text-white">{c.targetName}</td>
                               <td className="px-4 py-4 text-slate-400">{c.combinationType.replace("_", " + ")}</td>
                               <td className="px-4 py-4 text-right"><button onClick={() => deleteCombination(c.id)} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
+                           </tr>
+                        ))}
+                     </tbody>
+                  </table>
+               </div>
+            </div>
+            <div>
+               <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">Awaiting Next Race [{awaitingNextRaceConfigs.length}]</h2>
+               <div className="bg-slate-950 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
+                  <table className="w-full text-sm text-left">
+                     <thead className="bg-slate-950/80 text-slate-500 font-mono text-xs uppercase border-b border-slate-800/60">
+                        <tr><th className="px-4 py-4">Runner / Watchlist</th><th className="px-4 py-4">Status</th><th className="px-4 py-4 text-right">Actions</th></tr>
+                     </thead>
+                     <tbody>
+                        {awaitingNextRaceConfigs.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center italic text-slate-600">No runners awaiting next race</td></tr>}
+                        {awaitingNextRaceConfigs.map(c => (
+                           <tr key={c.runner} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
+                              <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
+                              <td className="px-4 py-4 text-slate-400 font-mono text-xs">Monitoring</td>
+                              <td className="px-4 py-4 text-right"><button onClick={() => removeConfig(c.runner)} className="text-slate-500 hover:text-red-400 transition-colors"><Trash2 size={16}/></button></td>
                            </tr>
                         ))}
                      </tbody>
