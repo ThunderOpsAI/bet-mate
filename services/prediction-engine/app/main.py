@@ -848,7 +848,7 @@ def explore_top_jockeys():
     for r in result:
         r["venues"] = list(r["venues"])
     result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:20]
+    return result_sorted[:50]
 
 @app.get("/explore/top-trainers")
 def explore_top_trainers():

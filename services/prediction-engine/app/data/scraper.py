@@ -420,12 +420,12 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
     
     all_markets = []
     from_record = 0
-    page_size = 50
+    page_size = 200
 
     market_filter = {
         "filter": {
             "eventTypeIds": event_type_ids,
-            "marketCountries": ["AU", "NZ", "GB", "IE", "FR", "ZA", "KR", "JP", "HK", "CN", "US", "SG"],
+            "marketCountries": ["AU", "NZ", "HK"],
             "marketTypeCodes": ["WIN"],
             "marketStartTime": market_start_time,
         },
