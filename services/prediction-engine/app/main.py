@@ -1693,3 +1693,75 @@ def predict_mma(game: TeamGame):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/explore/top-harness-drivers")
+def explore_top_harness_drivers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="HARNESS")
+    except Exception:
+        return []
+    
+    driver_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for horse in race.get("horses", []):
+            d_name = horse.get("jockey_name") # Drivers are usually in the jockey field
+            if d_name:
+                if d_name not in driver_counts:
+                    driver_counts[d_name] = {"id": d_name, "name": d_name, "raceCount": 0, "venues": set(), "roi": None}
+                driver_counts[d_name]["raceCount"] += 1
+                driver_counts[d_name]["venues"].add(venue)
+                
+    result = list(driver_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:15]
+
+@app.get("/explore/top-harness-trainers")
+def explore_top_harness_trainers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="HARNESS")
+    except Exception:
+        return []
+    
+    trainer_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for horse in race.get("horses", []):
+            t_name = horse.get("trainer_name")
+            if t_name:
+                if t_name not in trainer_counts:
+                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
+                trainer_counts[t_name]["raceCount"] += 1
+                trainer_counts[t_name]["venues"].add(venue)
+                
+    result = list(trainer_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:10]
+
+@app.get("/explore/top-dog-trainers")
+def explore_top_dog_trainers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="GREYHOUND")
+    except Exception:
+        return []
+    
+    trainer_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for dog in race.get("horses", []): # Scraper probably keeps it as "horses"
+            t_name = dog.get("trainer_name")
+            if t_name:
+                if t_name not in trainer_counts:
+                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
+                trainer_counts[t_name]["raceCount"] += 1
+                trainer_counts[t_name]["venues"].add(venue)
+                
+    result = list(trainer_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:30]
