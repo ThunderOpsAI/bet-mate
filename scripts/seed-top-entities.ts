@@ -19,10 +19,11 @@ async function main() {
   console.log("Seeding TopEntity table from ML API...");
 
   // Fetch data
+  const horses = await fetchFromML("/explore/top-horses");
   const jockeys = await fetchFromML("/explore/top-jockeys");
   const trainers = await fetchFromML("/explore/top-trainers");
   
-  // Try to fetch harness/dog specific if available, otherwise fallback/filter
+  // Try to fetch harness/dog specific if available
   const harnessDrivers = await fetchFromML("/explore/top-harness-drivers").catch(() => []);
   const harnessTrainers = await fetchFromML("/explore/top-harness-trainers").catch(() => []);
   const dogTrainers = await fetchFromML("/explore/top-dog-trainers").catch(() => []);
@@ -33,11 +34,23 @@ async function main() {
 
   const entitiesToInsert: any[] = [];
 
-  // Top 50 Jockeys
-  const topJockeys = jockeys.slice(0, 50);
+  // Top 50 Horses
+  const topHorses = horses.slice(0, 50);
+  topHorses.forEach((h: any, i: number) => {
+    entitiesToInsert.push({
+      category: "Top 50 Horses",
+      entityName: h.name || h.entityName || "Unknown",
+      rank: i + 1,
+      sport: "racing",
+      metrics: h,
+    });
+  });
+
+  // Top 30 Jockeys
+  const topJockeys = jockeys.slice(0, 30);
   topJockeys.forEach((j: any, i: number) => {
     entitiesToInsert.push({
-      category: "Top 50 Jockeys",
+      category: "Top 30 Jockeys",
       entityName: j.name || j.jockeyName || "Unknown",
       rank: i + 1,
       sport: "racing",

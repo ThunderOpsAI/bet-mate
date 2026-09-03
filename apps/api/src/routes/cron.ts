@@ -295,6 +295,7 @@ router.post("/settle-bets", async (req, res) => {
     let populatedTopEntitiesCount = 0;
     try {
       const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+      const horses = await fetch(`${mlApiTarget}/explore/top-horses`).then(r => r.ok ? r.json() : []).catch(() => []);
       const jockeys = await fetch(`${mlApiTarget}/explore/top-jockeys`).then(r => r.ok ? r.json() : []).catch(() => []);
       const trainers = await fetch(`${mlApiTarget}/explore/top-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
       const harnessDrivers = await fetch(`${mlApiTarget}/explore/top-harness-drivers`).then(r => r.ok ? r.json() : []).catch(() => []);
@@ -303,8 +304,12 @@ router.post("/settle-bets", async (req, res) => {
 
       const entitiesToInsert: any[] = [];
 
-      jockeys.slice(0, 50).forEach((j: any, i: number) => {
-        entitiesToInsert.push({ category: "Top 50 Jockeys", entityName: j.name || j.jockeyName || "Unknown", rank: i + 1, sport: "racing", metrics: j });
+      horses.slice(0, 50).forEach((h: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 50 Horses", entityName: h.name || h.entityName || "Unknown", rank: i + 1, sport: "racing", metrics: h });
+      });
+
+      jockeys.slice(0, 30).forEach((j: any, i: number) => {
+        entitiesToInsert.push({ category: "Top 30 Jockeys", entityName: j.name || j.jockeyName || "Unknown", rank: i + 1, sport: "racing", metrics: j });
       });
 
       trainers.slice(0, 20).forEach((t: any, i: number) => {

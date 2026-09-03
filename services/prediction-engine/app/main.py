@@ -826,6 +826,30 @@ def explore_value_plays():
     value_runners_sorted = sorted(value_runners, key=edge, reverse=True)
     return value_runners_sorted[:50]
 
+@app.get("/explore/top-horses")
+def explore_top_horses():
+    try:
+        races = racing_scraper.fetch_today_races()
+    except Exception:
+        return []
+    
+    horse_counts = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for horse in race.get("horses", []):
+            h_name = horse.get("name")
+            if h_name:
+                if h_name not in horse_counts:
+                    horse_counts[h_name] = {"id": h_name, "name": h_name, "raceCount": 0, "venues": set(), "roi": None}
+                horse_counts[h_name]["raceCount"] += 1
+                horse_counts[h_name]["venues"].add(venue)
+                
+    result = list(horse_counts.values())
+    for r in result:
+        r["venues"] = list(r["venues"])
+    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
+    return result_sorted[:50]
+
 @app.get("/explore/top-jockeys")
 def explore_top_jockeys():
     try:

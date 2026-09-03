@@ -850,7 +850,6 @@ function BlackbookPageContent() {
                               <td className="px-4 py-4 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block mr-2 animate-pulse"></span>Live Today</td>
                               <td className="px-4 py-4 text-right">
                                 <div className="flex items-center justify-end gap-2">
-                                  <button onClick={() => openEditRuleSheet(c)} title="Edit Rules" className="text-slate-400 hover:text-cyan-400 transition-colors p-1"><Edit3 size={16}/></button>
                                   <button onClick={() => removeConfig(c.runner)} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
                                 </div>
                               </td>
@@ -895,7 +894,6 @@ function BlackbookPageContent() {
                               <td className="px-4 py-4 text-slate-400 font-mono text-xs">Monitoring</td>
                               <td className="px-4 py-4 text-right">
                                 <div className="flex items-center justify-end gap-2">
-                                  <button onClick={() => openEditRuleSheet(c)} title="Edit Rules" className="text-slate-400 hover:text-cyan-400 transition-colors p-1"><Edit3 size={16}/></button>
                                   <button onClick={() => removeConfig(c.runner)} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
                                 </div>
                               </td>
@@ -906,12 +904,12 @@ function BlackbookPageContent() {
                </div>
             </div>
             
-            {["Top 50 Jockeys", "Top 20 Horse Trainers", "Top 15 Harness Drivers", "Top 10 Harness Trainers", "Top 30 Dog Trainers"].map(cat => {
+            {["Top 50 Horses", "Top 30 Jockeys", "Top 20 Horse Trainers", "Top 15 Harness Drivers", "Top 10 Harness Trainers", "Top 30 Dog Trainers"].map(cat => {
               const runners = categorizedRunners[cat] || [];
               if (runners.length === 0) {
                 return (
                   <div key={cat}>
-                     <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">{cat}</h2>
+                     <h2 className="text-sm font-semibold text-cyan-300 mb-3 uppercase tracking-wider border-l-4 border-cyan-500 pl-3 bg-slate-800/40 py-1.5 rounded-r-md inline-block pr-4">{cat}</h2>
                      <div className="bg-slate-950/50 border border-slate-800/40 rounded-2xl p-4 text-center">
                         <span className="text-slate-500 text-sm italic">{cat} — Updating rankings...</span>
                      </div>
@@ -920,7 +918,7 @@ function BlackbookPageContent() {
               }
               return (
                 <div key={cat}>
-                   <h2 className="text-xs font-mono text-cyan-400 mb-3 uppercase tracking-widest">{cat} [{runners.length}]</h2>
+                   <h2 className="text-sm font-semibold text-cyan-300 mb-3 uppercase tracking-wider border-l-4 border-cyan-500 pl-3 bg-slate-800/40 py-1.5 rounded-r-md inline-block pr-4">{cat} [{runners.length}]</h2>
                    <div className="bg-slate-950 border border-slate-800/80 rounded-2xl shadow-xl overflow-hidden">
                       <table className="w-full text-sm text-left">
                          <thead className="bg-slate-950/80 text-slate-500 font-mono text-xs uppercase border-b border-slate-800/60">
@@ -948,22 +946,16 @@ function BlackbookPageContent() {
                                     <td className="px-4 py-4 text-right">
                                       <div className="flex items-center justify-end gap-2">
                                         <button
-                                          onClick={() => openEditRuleSheet({ name: r.entityName, category: cat, sport: r.sport })}
-                                          title="Configure Rules"
-                                          className="p-1.5 text-slate-400 hover:text-cyan-400 hover:bg-slate-800/60 rounded transition-colors"
-                                        >
-                                          <Edit3 size={15} />
-                                        </button>
-                                        <button
-                                          onClick={() => quickAddOrToggle(r.entityName, cat, r.sport || "racing")}
-                                          title={isAdded ? "In Blackbook (Click to remove)" : "Quick Add to Blackbook"}
-                                          className={`p-1.5 rounded transition-all flex items-center justify-center ${
+                                          onClick={!isAdded ? () => quickAddOrToggle(r.entityName, cat, r.sport || "racing") : undefined}
+                                          disabled={isAdded}
+                                          title={isAdded ? "In Blackbook" : "Quick Add to Blackbook"}
+                                          className={`p-2 rounded transition-all flex items-center justify-center ${
                                             isAdded 
-                                              ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/40" 
-                                              : "bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white border border-slate-700"
+                                              ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 cursor-default" 
+                                              : "bg-slate-800 hover:bg-cyan-600 text-slate-300 hover:text-white border border-slate-700 cursor-pointer"
                                           }`}
                                         >
-                                          {isAdded ? <CheckCircle2 size={15} /> : <Plus size={15} />}
+                                          {isAdded ? <CheckCircle2 size={18} /> : <Plus size={18} />}
                                         </button>
                                       </div>
                                     </td>

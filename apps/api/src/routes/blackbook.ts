@@ -26,7 +26,8 @@ router.get("/search", async (req, res) => {
 router.get("/runners/categorized", async (req, res) => {
   try {
     const categories = [
-      "Top 50 Jockeys",
+      "Top 50 Horses",
+      "Top 30 Jockeys",
       "Top 20 Horse Trainers",
       "Top 15 Harness Drivers",
       "Top 10 Harness Trainers",
