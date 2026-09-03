@@ -346,7 +346,7 @@ router.post("/settle-bets", async (req, res) => {
       pendingLogsCount: pendingLogs.length,
       refreshedStrategyCardsCount: refreshedStrategyCards,
       populatedTopEntitiesCount,
-      message: "Midnight Melbourne bet settlement, leaderboard updates, daily strategy card generation, and TopEntities refresh completed successfully."
+      message: "1:00 AM Melbourne bet settlement, leaderboard updates, daily strategy card generation, and TopEntities refresh completed successfully."
     });
   } catch (error: any) {
     console.error("Cron settlement failed:", error);
