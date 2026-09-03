@@ -934,7 +934,9 @@ function PaperBetslipContent() {
                           )}
                           
                           <div className="flex items-center justify-between bg-slate-900 p-2 rounded border border-slate-800">
-                             <div className="text-[17.5px] font-black text-fuchsia-200 ml-2">{winOdds.toFixed(2)}</div>
+                             <div className="text-[17.5px] font-black text-fuchsia-200 ml-2">
+                                {bet.bet_type === 'place' ? placeOdds.toFixed(2) : winOdds.toFixed(2)}
+                             </div>
                              <div className="flex items-center space-x-2">
                                 <span className="text-[13px] font-bold text-slate-400 uppercase">
                                   {isEachWay ? "Unit Stake" : "Stake"}

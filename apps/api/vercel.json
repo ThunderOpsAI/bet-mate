@@ -10,7 +10,7 @@
   "crons": [
     {
       "path": "/api/cron/settle-bets",
-      "schedule": "0 18 * * *"
+      "schedule": "0 14 * * *"
     }
   ],
   "rewrites": [
