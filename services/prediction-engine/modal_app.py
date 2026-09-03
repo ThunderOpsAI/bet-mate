@@ -530,20 +530,20 @@ def master_scheduler():
     if now.minute % 15 == 0:
         evaluate_blackbook_rules.spawn()
         
-    # 4:00 AM jobs
-    if now.hour == 4 and now.minute == 0:
+    # 12:00 AM jobs
+    if now.hour == 0 and now.minute == 0:
         race_data_refresh.spawn()
         
-    # 4:15 AM jobs
-    if now.hour == 4 and now.minute == 15:
+    # 12:15 AM jobs
+    if now.hour == 0 and now.minute == 15:
         afl_model_refresh.spawn()
         
-    # 4:30 AM jobs
-    if now.hour == 4 and now.minute == 30:
+    # 12:30 AM jobs
+    if now.hour == 0 and now.minute == 30:
         nba_model_refresh.spawn()
         
-    # 5:00 AM jobs
-    if now.hour == 5 and now.minute == 0:
+    # 12:45 AM jobs
+    if now.hour == 0 and now.minute == 45:
         nightly_strategy_refresh.spawn()
         
     # Sunday 6:00 AM jobs
