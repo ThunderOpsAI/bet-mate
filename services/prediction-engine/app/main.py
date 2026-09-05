@@ -750,6 +750,8 @@ def blackbook_search(q: str = ""):
                     "horseName": horse_name,
                     "jockeyName": jockey_name,
                     "trainerName": trainer_name,
+                    "formString": h_dict.get("form_string", ""),
+                    "eventId": race_dict.get("race_id", f"{venue}_R{race_number}"),
                     "details": " • ".join(detail_parts),
                 })
                 

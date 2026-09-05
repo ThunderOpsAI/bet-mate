@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState, Suspense } from "react";
+import React, { FormEvent, useEffect, useMemo, useState, Suspense } from "react";
 import {
   Activity,
   Award,
@@ -31,6 +31,7 @@ import { BlackbookRuleBuilderSheet } from "../components/BlackbookRuleBuilderShe
 import { ML_API } from "../lib/mlApi";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
+import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useSearchParams } from "next/navigation";
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
@@ -119,12 +120,14 @@ function BlackbookPageContent() {
   const searchParams = useSearchParams();
   
   const { isLoading, token, user } = useAuth();
+  const { addBet, setIsBetslipOpen } = usePaperBetslip();
 
   // Tab state: "explore" | "list"
   
   // Sprint 1 UI Filters
   const [raceTypeFilter, setRaceTypeFilter] = useState("all");
   const [timeFilter, setTimeFilter] = useState("all");
+  const [expandedRunner, setExpandedRunner] = useState<string | null>(null);
 
   // Search & Builder
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -844,17 +847,70 @@ function BlackbookPageContent() {
                      </thead>
                      <tbody>
                         {runningTodayConfigs.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center italic text-slate-600">No data</td></tr>}
-                        {runningTodayConfigs.map(c => (
-                           <tr key={c.runner} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
-                              <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
-                              <td className="px-4 py-4 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block mr-2 animate-pulse"></span>Live Today</td>
-                              <td className="px-4 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <button onClick={() => removeConfig(c.runner)} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
-                                </div>
-                              </td>
-                           </tr>
-                        ))}
+                        {runningTodayConfigs.map(c => {
+                           const isExpanded = expandedRunner === c.runner;
+                           const runnerRaces = dailyRunners.filter(
+                              (r) => r.name?.toLowerCase() === c.runner.toLowerCase() || r.horseName?.toLowerCase() === c.runner.toLowerCase()
+                           );
+                           return (
+                             <React.Fragment key={c.runner}>
+                               <tr onClick={() => setExpandedRunner(isExpanded ? null : c.runner)} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors cursor-pointer">
+                                  <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
+                                  <td className="px-4 py-4 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block mr-2 animate-pulse"></span>Live Today</td>
+                                  <td className="px-4 py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <button onClick={(e) => { e.stopPropagation(); removeConfig(c.runner); }} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
+                                    </div>
+                                  </td>
+                               </tr>
+                               {isExpanded && (
+                                 <tr className="bg-slate-900/60 border-b border-slate-800/40">
+                                   <td colSpan={3} className="px-4 py-4">
+                                      <div className="flex flex-col gap-3">
+                                        <h4 className="text-sm font-semibold text-cyan-400">Today's Races</h4>
+                                        {runnerRaces.length > 0 ? runnerRaces.map((race, idx) => (
+                                          <div key={idx} className="bg-slate-950 p-3 rounded-lg border border-slate-800/60 flex items-center justify-between">
+                                            <div>
+                                              <p className="text-white text-sm font-medium">{race.venue} Race {race.raceNumber}</p>
+                                              <p className="text-slate-400 text-xs mt-1">
+                                                {race.jockeyName && `Jockey: ${race.jockeyName}`}
+                                                {race.jockeyName && race.trainerName && ' • '}
+                                                {race.trainerName && `Trainer: ${race.trainerName}`}
+                                              </p>
+                                              {race.formString && (
+                                                <p className="text-slate-300 text-xs mt-1">
+                                                  Recent Starts (Last 5): <span className="font-mono text-cyan-300">{race.formString}</span>
+                                                </p>
+                                              )}
+                                            </div>
+                                            <button 
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                addBet({
+                                                  sport: "racing",
+                                                  event_id: race.eventId || `${race.venue}_R${race.raceNumber}`,
+                                                  event_name: `${race.venue} Race ${race.raceNumber}`,
+                                                  selection: c.runner,
+                                                  bet_type: "win",
+                                                  stake: 10,
+                                                });
+                                                setIsBetslipOpen(true);
+                                              }}
+                                              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
+                                            >
+                                              <Plus size={14} /> Add to Slip
+                                            </button>
+                                          </div>
+                                        )) : (
+                                          <p className="text-xs text-slate-500 italic">No race details available.</p>
+                                        )}
+                                      </div>
+                                   </td>
+                                 </tr>
+                               )}
+                             </React.Fragment>
+                           );
+                        })}
                      </tbody>
                   </table>
                </div>
