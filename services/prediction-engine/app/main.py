@@ -709,7 +709,7 @@ def blackbook_running_today(
 
 
 @app.get("/blackbook/search")
-def blackbook_search(q: str = ""):
+def blackbook_search(q: str = "", include_futures: bool = True):
     import re
     def norm(s: str) -> str:
         return re.sub(r'[^a-z0-9]', '', s.lower())
@@ -717,16 +717,27 @@ def blackbook_search(q: str = ""):
     nq = norm(q)
         
     try:
-        races = racing_scraper.fetch_today_races()
+        races = racing_scraper.fetch_today_races(include_futures=include_futures)
     except Exception:
         return {"horses": [], "jockeys": [], "trainers": []}
         
     results = []
+    today_mel = today_melbourne()
     
     for race_dict in races:
         venue = race_dict.get("venue", "Unknown")
         race_number = race_dict.get("race_number", 1)
         start_time = race_dict.get("start_time", "")
+        market_name = race_dict.get("market_name", "")
+        is_future = race_dict.get("is_future", False)
+
+        if start_time and not is_future:
+            try:
+                race_dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                if race_dt.astimezone(MELBOURNE_TZ).date() > today_mel:
+                    is_future = True
+            except Exception:
+                pass
         
         for h_dict in race_dict.get("horses", []):
             horse_name = h_dict.get("name", "")
@@ -734,16 +745,21 @@ def blackbook_search(q: str = ""):
             trainer_name = h_dict.get("trainer_name", "")
             
             if horse_name and (not nq or nq in norm(horse_name)):
-                detail_parts = [f"{venue} R{race_number}"]
+                if is_future:
+                    detail_label = f"{venue} • {market_name or 'Future Feature'}"
+                else:
+                    detail_label = f"{venue} R{race_number}" if race_number else f"{venue}"
+                detail_parts = [detail_label]
                 if jockey_name:
                     detail_parts.append(f"Jockey: {jockey_name}")
                 if trainer_name:
                     detail_parts.append(f"Trainer: {trainer_name}")
                 results.append({
-                    "id": f"horse_{horse_name}_{venue}_{race_number}",
+                    "id": f"horse_{horse_name}_{venue}_{race_number}_{start_time}",
                     "name": horse_name,
                     "venue": venue,
                     "raceNumber": race_number,
+                    "marketName": market_name,
                     "startTime": start_time,
                     "type": "horse",
                     "category": "RUNNER",
@@ -753,11 +769,12 @@ def blackbook_search(q: str = ""):
                     "formString": h_dict.get("form_string", ""),
                     "eventId": race_dict.get("race_id", f"{venue}_R{race_number}"),
                     "details": " • ".join(detail_parts),
+                    "isFuture": is_future,
                 })
                 
             if jockey_name and (not nq or nq in norm(jockey_name)):
                 results.append({
-                    "id": f"jockey_{jockey_name}_{venue}_{race_number}",
+                    "id": f"jockey_{jockey_name}_{venue}_{race_number}_{start_time}",
                     "name": jockey_name,
                     "venue": venue,
                     "raceNumber": race_number,
@@ -765,12 +782,13 @@ def blackbook_search(q: str = ""):
                     "type": "jockey",
                     "category": "JOCKEY",
                     "jockeyName": jockey_name,
-                    "details": f"Riding today at {venue}",
+                    "details": f"Riding at {venue}",
+                    "isFuture": is_future,
                 })
                 
             if trainer_name and (not nq or nq in norm(trainer_name)):
                 results.append({
-                    "id": f"trainer_{trainer_name}_{venue}_{race_number}",
+                    "id": f"trainer_{trainer_name}_{venue}_{race_number}_{start_time}",
                     "name": trainer_name,
                     "venue": venue,
                     "raceNumber": race_number,
@@ -779,13 +797,14 @@ def blackbook_search(q: str = ""):
                     "category": "TRAINER",
                     "trainerName": trainer_name,
                     "details": f"Training runners at {venue}",
+                    "isFuture": is_future,
                 })
                 
     # Deduplicate results by type and name for jockeys and trainers
     seen = set()
     deduped_results = []
     for r in results:
-        key = f"{r['type']}_{r['name']}"
+        key = f"{r['type']}_{r['name']}_{r.get('isFuture', False)}"
         if r['type'] in ('jockey', 'trainer'):
             if key not in seen:
                 seen.add(key)

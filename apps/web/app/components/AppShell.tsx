@@ -44,7 +44,7 @@ function HeaderBetslipControlInner() {
   const pendingActiveCount = activeBets.filter((b) => b.status === "active" || b.status === "pending").length;
 
   return (
-    <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-900 h-10 shrink-0">
+    <div className="flex items-center overflow-hidden rounded-full shadow-sm border border-slate-700/80 bg-slate-900 h-9 scale-[0.95] origin-right shrink-0">
       {/* My Bets Block Button */}
       <button
         type="button"
@@ -55,7 +55,7 @@ function HeaderBetslipControlInner() {
             openBetslipTab("active");
           }
         }}
-        className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
+        className={`px-2.5 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[56px] cursor-pointer ${
           isMyBetsActive
             ? "bg-emerald-700 text-white font-black"
             : "bg-emerald-600 text-white hover:bg-emerald-700"
@@ -83,7 +83,7 @@ function HeaderBetslipControlInner() {
             openBetslipTab("slip");
           }
         }}
-        className={`px-3 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[62px] cursor-pointer ${
+        className={`px-2.5 py-0.5 flex flex-col items-center justify-center h-full transition-all min-w-[56px] cursor-pointer ${
           isSlipActive
             ? "bg-slate-700 text-slate-100 font-black shadow-inner"
             : "bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -166,7 +166,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Right Header Control Group */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end ml-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 justify-end ml-auto pr-1 sm:pr-2">
             {/* 1. Refresh Button */}
             <button
               type="button"

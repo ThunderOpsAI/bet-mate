@@ -852,11 +852,31 @@ function BlackbookPageContent() {
                            const runnerRaces = dailyRunners.filter(
                               (r) => r.name?.toLowerCase() === c.runner.toLowerCase() || r.horseName?.toLowerCase() === c.runner.toLowerCase()
                            );
+                           const todayRaces = runnerRaces.filter((r) => !r.isFuture);
+                           const futureRaces = runnerRaces.filter((r) => r.isFuture);
+
                            return (
                              <React.Fragment key={c.runner}>
                                <tr onClick={() => setExpandedRunner(isExpanded ? null : c.runner)} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors cursor-pointer">
                                   <td className="px-4 py-4 font-medium text-white">{c.runner}</td>
-                                  <td className="px-4 py-4 text-emerald-400"><span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block mr-2 animate-pulse"></span>Live Today</td>
+                                  <td className="px-4 py-4">
+                                    {todayRaces.length > 0 && futureRaces.length > 0 ? (
+                                      <span className="text-emerald-400 flex items-center gap-1 text-xs">
+                                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block animate-pulse"></span>
+                                        Live Today & Futures ({todayRaces.length + futureRaces.length})
+                                      </span>
+                                    ) : todayRaces.length > 0 ? (
+                                      <span className="text-emerald-400 flex items-center gap-1 text-xs">
+                                        <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full inline-block animate-pulse"></span>
+                                        Live Today ({todayRaces.length})
+                                      </span>
+                                    ) : (
+                                      <span className="text-purple-400 flex items-center gap-1 text-xs">
+                                        <span className="w-1.5 h-1.5 bg-purple-400 rounded-full inline-block"></span>
+                                        Future Feature ({futureRaces.length})
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="px-4 py-4 text-right">
                                     <div className="flex items-center justify-end gap-2">
                                       <button onClick={(e) => { e.stopPropagation(); removeConfig(c.runner); }} title="Remove from Blackbook" className="text-slate-500 hover:text-red-400 transition-colors p-1"><Trash2 size={16}/></button>
@@ -866,43 +886,99 @@ function BlackbookPageContent() {
                                {isExpanded && (
                                  <tr className="bg-slate-900/60 border-b border-slate-800/40">
                                    <td colSpan={3} className="px-4 py-4">
-                                      <div className="flex flex-col gap-3">
-                                        <h4 className="text-sm font-semibold text-cyan-400">Today's Races</h4>
-                                        {runnerRaces.length > 0 ? runnerRaces.map((race, idx) => (
-                                          <div key={idx} className="bg-slate-950 p-3 rounded-lg border border-slate-800/60 flex items-center justify-between">
-                                            <div>
-                                              <p className="text-white text-sm font-medium">{race.venue} Race {race.raceNumber}</p>
-                                              <p className="text-slate-400 text-xs mt-1">
-                                                {race.jockeyName && `Jockey: ${race.jockeyName}`}
-                                                {race.jockeyName && race.trainerName && ' • '}
-                                                {race.trainerName && `Trainer: ${race.trainerName}`}
-                                              </p>
-                                              {race.formString && (
-                                                <p className="text-slate-300 text-xs mt-1">
-                                                  Recent Starts (Last 5): <span className="font-mono text-cyan-300">{race.formString}</span>
-                                                </p>
-                                              )}
+                                      <div className="flex flex-col gap-4">
+                                        {/* Today's Races */}
+                                        {todayRaces.length > 0 && (
+                                          <div className="space-y-2">
+                                            <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                              <Calendar size={14} /> Today's Races ({todayRaces.length})
+                                            </h4>
+                                            <div className="space-y-2">
+                                              {todayRaces.map((race, idx) => (
+                                                <div key={idx} className="bg-slate-950 p-3 rounded-lg border border-slate-800/60 flex items-center justify-between gap-3">
+                                                  <div>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-white text-sm font-medium">{race.venue} Race {race.raceNumber}</span>
+                                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">TODAY</span>
+                                                    </div>
+                                                    <p className="text-slate-400 text-xs mt-1">
+                                                      {race.jockeyName && `Jockey: ${race.jockeyName}`}
+                                                      {race.jockeyName && race.trainerName && ' • '}
+                                                      {race.trainerName && `Trainer: ${race.trainerName}`}
+                                                    </p>
+                                                    {race.formString && (
+                                                      <p className="text-slate-300 text-xs mt-0.5">
+                                                        Recent Starts (Last 5): <span className="font-mono text-cyan-300">{race.formString}</span>
+                                                      </p>
+                                                    )}
+                                                  </div>
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      addBet({
+                                                        sport: "racing",
+                                                        event_id: race.eventId || `${race.venue}_R${race.raceNumber}`,
+                                                        event_name: `${race.venue} Race ${race.raceNumber}`,
+                                                        selection: c.runner,
+                                                        bet_type: "win",
+                                                        stake: 10,
+                                                      });
+                                                      setIsBetslipOpen(true);
+                                                    }}
+                                                    className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                                                  >
+                                                    <Plus size={14} /> Add to Slip
+                                                  </button>
+                                                </div>
+                                              ))}
                                             </div>
-                                            <button 
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                addBet({
-                                                  sport: "racing",
-                                                  event_id: race.eventId || `${race.venue}_R${race.raceNumber}`,
-                                                  event_name: `${race.venue} Race ${race.raceNumber}`,
-                                                  selection: c.runner,
-                                                  bet_type: "win",
-                                                  stake: 10,
-                                                });
-                                                setIsBetslipOpen(true);
-                                              }}
-                                              className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1"
-                                            >
-                                              <Plus size={14} /> Add to Slip
-                                            </button>
                                           </div>
-                                        )) : (
-                                          <p className="text-xs text-slate-500 italic">No race details available.</p>
+                                        )}
+
+                                        {/* Future & Feature Races */}
+                                        {futureRaces.length > 0 && (
+                                          <div className="space-y-2">
+                                            <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                                              <Sparkles size={14} /> Future & Feature Races ({futureRaces.length})
+                                            </h4>
+                                            <div className="space-y-2">
+                                              {futureRaces.map((race, idx) => (
+                                                <div key={idx} className="bg-slate-950 p-3 rounded-lg border border-purple-900/40 flex items-center justify-between gap-3">
+                                                  <div>
+                                                    <div className="flex items-center gap-2">
+                                                      <span className="text-white text-sm font-medium">{race.venue} • {race.marketName || `Race ${race.raceNumber}`}</span>
+                                                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">FEATURE / FUTURE</span>
+                                                    </div>
+                                                    <p className="text-slate-400 text-xs mt-1">
+                                                      {race.startTime && `Target Date: ${new Date(race.startTime).toLocaleDateString("en-AU", { month: "short", day: "numeric", year: "numeric" })}`}
+                                                      {race.trainerName && ` • Trainer: ${race.trainerName}`}
+                                                    </p>
+                                                  </div>
+                                                  <button 
+                                                    onClick={(e) => {
+                                                      e.stopPropagation();
+                                                      addBet({
+                                                        sport: "racing",
+                                                        event_id: race.eventId || `${race.venue}_future_${idx}`,
+                                                        event_name: `${race.venue} ${race.marketName || 'Feature'}`,
+                                                        selection: c.runner,
+                                                        bet_type: "win",
+                                                        stake: 10,
+                                                      });
+                                                      setIsBetslipOpen(true);
+                                                    }}
+                                                    className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                                                  >
+                                                    <Plus size={14} /> Add to Slip
+                                                  </button>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {todayRaces.length === 0 && futureRaces.length === 0 && (
+                                          <p className="text-xs text-slate-500 italic">No scheduled race details available for this runner.</p>
                                         )}
                                       </div>
                                    </td>

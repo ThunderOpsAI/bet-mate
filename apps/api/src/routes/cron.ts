@@ -202,18 +202,18 @@ router.post("/settle-bets", async (req, res) => {
     for (const user of allUsers) {
       const settledUserBets = user.bets.filter((b) => b.status !== "PENDING");
       
-      const weeklyBets = settledUserBets.filter((b) => new Date(b.createdAt) >= weekStart);
-      const weeklySpend = weeklyBets.reduce((sum, b) => sum + b.stake, 0);
+      const weeklyBets = user.bets.filter((b) => new Date(b.createdAt) >= weekStart);
+      const weeklySpend = weeklyBets.reduce((sum, b) => sum + (Number(b.stake) || 0), 0);
       
-      const monthlyBets = settledUserBets.filter((b) => new Date(b.createdAt) >= monthStart);
-      const monthlySpend = monthlyBets.reduce((sum, b) => sum + b.stake, 0);
+      const monthlyBets = user.bets.filter((b) => new Date(b.createdAt) >= monthStart);
+      const monthlySpend = monthlyBets.reduce((sum, b) => sum + (Number(b.stake) || 0), 0);
 
       await prisma.bankroll.upsert({
         where: { userId: user.id },
         update: {
           balance: user.currentBankroll,
           weeklySpend,
-          weeklyBetsPlaced: user.bets.filter((b) => new Date(b.createdAt) >= weekStart).length,
+          weeklyBetsPlaced: weeklyBets.length,
           monthlySpend,
           totalBetsPlaced: user.bets.length,
           username: user.username,
@@ -224,7 +224,7 @@ router.post("/settle-bets", async (req, res) => {
           balance: user.currentBankroll,
           startingBalance: user.startingBankroll,
           weeklySpend,
-          weeklyBetsPlaced: user.bets.filter((b) => new Date(b.createdAt) >= weekStart).length,
+          weeklyBetsPlaced: weeklyBets.length,
           monthlySpend,
           totalBetsPlaced: user.bets.length,
         },
@@ -239,15 +239,13 @@ router.post("/settle-bets", async (req, res) => {
       const bets = strategyBets.filter((b: any) => b.profile_key === strategy.profile_key);
       const settledBets = bets.filter((b: any) => b.status !== "pending");
       
-      const weeklySettled = settledBets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart);
-      const weeklySpend = weeklySettled.reduce((sum: number, b: any) => sum + b.stake, 0);
-      const weeklyNetProfit = weeklySettled.reduce((sum: number, b: any) => sum + (b.profit || 0), 0);
+      const weeklyBets = bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart);
+      const weeklySpend = weeklyBets.reduce((sum: number, b: any) => sum + (Number(b.stake) || 0), 0);
       
-      const monthlySettled = settledBets.filter((b: any) => b.created_at && new Date(b.created_at) >= monthStart);
-      const monthlySpend = monthlySettled.reduce((sum: number, b: any) => sum + b.stake, 0);
+      const monthlyBets = bets.filter((b: any) => b.created_at && new Date(b.created_at) >= monthStart);
+      const monthlySpend = monthlyBets.reduce((sum: number, b: any) => sum + (Number(b.stake) || 0), 0);
 
-      const totalStaked = settledBets.reduce((sum: number, b: any) => sum + b.stake, 0);
-      const netProfit = settledBets.reduce((sum: number, b: any) => sum + (b.profit || 0), 0);
+      const netProfit = settledBets.reduce((sum: number, b: any) => sum + (Number(b.profit) || 0), 0);
       
       const startingBankroll = 10000.0;
       const currentBankroll = startingBankroll + netProfit;
@@ -257,7 +255,7 @@ router.post("/settle-bets", async (req, res) => {
         update: {
           balance: currentBankroll,
           weeklySpend,
-          weeklyBetsPlaced: bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart).length,
+          weeklyBetsPlaced: weeklyBets.length,
           monthlySpend,
           totalBetsPlaced: bets.length,
           username: `🤖 ${strategy.display_name}`,
@@ -268,7 +266,7 @@ router.post("/settle-bets", async (req, res) => {
           balance: currentBankroll,
           startingBalance: startingBankroll,
           weeklySpend,
-          weeklyBetsPlaced: bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart).length,
+          weeklyBetsPlaced: weeklyBets.length,
           monthlySpend,
           totalBetsPlaced: bets.length,
         },
