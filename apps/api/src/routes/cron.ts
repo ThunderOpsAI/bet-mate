@@ -38,13 +38,23 @@ router.post("/weekly-reset", async (req, res) => {
     if (isMonday || isForce) {
       // 1. Calculate previous week champion before resetting
       const allBankrolls = await prisma.bankroll.findMany();
-      const eligible = allBankrolls
+      const rawEligible = allBankrolls
         .filter(b => b.weeklyBetsPlaced > 0 && b.weeklySpend > 0)
-        .map(b => ({
-          ...b,
-          roiPct: ((b.balance - b.startingBalance) / b.weeklySpend) * 100
+        .map(b => {
+          const roiPct = ((b.balance - b.startingBalance) / b.weeklySpend) * 100;
+          const netProfit = b.balance - b.startingBalance;
+          return { ...b, roiPct, netProfit };
+        });
+
+      const maxRoi = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.roiPct)) || 1) : 1;
+      const maxProfit = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.netProfit)) || 1) : 1;
+
+      const eligible = rawEligible
+        .map(e => ({
+          ...e,
+          compositeScore: 0.6 * (e.roiPct / maxRoi) + 0.4 * (e.netProfit / maxProfit),
         }))
-        .sort((a, b) => b.roiPct - a.roiPct);
+        .sort((a, b) => b.compositeScore - a.compositeScore);
 
       if (eligible.length > 0) {
         const top = eligible[0];

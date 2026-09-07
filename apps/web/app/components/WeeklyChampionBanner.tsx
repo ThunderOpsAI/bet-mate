@@ -11,13 +11,27 @@ type ChampionData = {
   totalBetsPlaced: number;
 };
 
+// Helper to get ISO week identifier in Australia/Melbourne timezone (e.g. "2026-W36")
+function getWeekKey(): string {
+  const melbourneDateStr = new Date().toLocaleDateString("en-CA", {
+    timeZone: "Australia/Melbourne",
+  });
+  const [year, month, day] = melbourneDateStr.split("-").map(Number);
+  const d = new Date(Date.UTC(year, month - 1, day));
+  const dayOfWeek = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayOfWeek);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+}
+
 export default function WeeklyChampionBanner() {
   const [dismissed, setDismissed] = useState(true);
   const [champion, setChampion] = useState<ChampionData | null>(null);
 
   useEffect(() => {
     // Check localStorage dismissal
-    const isDismissed = localStorage.getItem("betmate_weekly_champion_dismissed_v1");
+    const isDismissed = localStorage.getItem("betmate_weekly_champion_dismissed_" + getWeekKey());
     if (isDismissed === "true") {
       setDismissed(true);
       return;
@@ -50,7 +64,7 @@ export default function WeeklyChampionBanner() {
   }, []);
 
   const handleDismiss = () => {
-    localStorage.setItem("betmate_weekly_champion_dismissed_v1", "true");
+    localStorage.setItem("betmate_weekly_champion_dismissed_" + getWeekKey(), "true");
     setDismissed(true);
   };
 
