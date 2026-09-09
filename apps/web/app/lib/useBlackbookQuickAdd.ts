@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ML_API } from "./mlApi";
+import { API_BASE } from "./api";
 import { useAuth } from "../providers/AuthProvider";
 import { ANALYTICS_EVENTS, trackEvent } from "./analytics";
 
@@ -9,8 +10,11 @@ const LOCAL_STORAGE_KEY = "betmate_quick_blackbook";
 
 export type BlackbookQuickAddParams = {
   runner: string;
-  type?: "runner" | "jockey" | "trainer" | "selection";
+  type?: "RUNNER" | "JOCKEY" | "TRAINER" | "COMBINATION" | "runner" | "jockey" | "trainer" | "selection";
   sport?: string;
+  jockeyName?: string;
+  trainerName?: string;
+  horseName?: string;
 };
 
 export function useBlackbookQuickAdd() {
@@ -61,12 +65,20 @@ export function useBlackbookQuickAdd() {
 
       trackEvent(ANALYTICS_EVENTS.ADDED_TO_BLACKBOOK, {
         runner: rawName,
-        type: params.type || "runner",
+        type: params.type || "RUNNER",
         sport: params.sport || "racing",
       });
 
-      // If user is authenticated, sync with ML_API backend
+      // Normalize entity type for Express API schema (RUNNER | JOCKEY | TRAINER | COMBINATION)
+      const rawType = (params.type || "RUNNER").toUpperCase();
+      const entityType: "RUNNER" | "JOCKEY" | "TRAINER" | "COMBINATION" =
+        rawType === "JOCKEY" || rawType === "TRAINER" || rawType === "COMBINATION"
+          ? rawType
+          : "RUNNER";
+
+      // If user is authenticated, sync with backend
       if (user && user.id !== "guest" && token) {
+        // 1. Existing ML API call (keep this for backwards compatibility/auto-bets)
         try {
           await fetch(`${ML_API}/blackbook/${encodeURIComponent(rawName)}/auto-bet`, {
             method: "PUT",
@@ -84,7 +96,29 @@ export function useBlackbookQuickAdd() {
             }),
           });
         } catch (err) {
-          console.error("Failed to sync quick-add blackbook with backend", err);
+          console.error("Failed to sync quick-add blackbook with ML backend", err);
+        }
+
+        // 2. NEW Express API call to save structured entity
+        try {
+          await fetch(`${API_BASE}/blackbook`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              targetType: params.sport || "racing",
+              targetId: rawName,
+              targetName: rawName,
+              entityType,
+              horseName: params.horseName || (entityType === "RUNNER" ? rawName : undefined),
+              jockeyName: params.jockeyName || (entityType === "JOCKEY" ? rawName : undefined),
+              trainerName: params.trainerName || (entityType === "TRAINER" ? rawName : undefined),
+            }),
+          });
+        } catch (err) {
+          console.error("Failed to sync quick-add blackbook with Express backend", err);
         }
       }
 

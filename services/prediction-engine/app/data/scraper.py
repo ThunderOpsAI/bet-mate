@@ -22,6 +22,16 @@ from app.time_utils import MELBOURNE_TZ, melbourne_date_string, melbourne_weekda
 from app.alerts import calculate_minutes_until_jump
 load_dotenv()
 
+
+def _safe_int(val) -> int | None:
+    try: return int(val) if val is not None else None
+    except (ValueError, TypeError): return None
+
+
+def _safe_float(val) -> float | None:
+    try: return float(val) if val is not None else None
+    except (ValueError, TypeError): return None
+
 BETFAIR_APP_KEY = os.getenv("BETFAIR_APP_KEY", "")
 BETFAIR_USERNAME = os.getenv("BETFAIR_USERNAME", "")
 BETFAIR_PASSWORD = os.getenv("BETFAIR_PASSWORD", "")
@@ -600,6 +610,10 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
             jockey_name = metadata.get("JOCKEY_NAME")
             trainer_name = metadata.get("TRAINER_NAME")
             form_string = metadata.get("FORM", "")
+            career_wins = _safe_int(metadata.get("WINNER_COUNT"))
+            career_starts = _safe_int(metadata.get("RUNS_COUNT"))
+            prize_money = _safe_float(metadata.get("PRIZE_AMOUNT"))   # AUD, career total
+            adjusted_rating = _safe_float(metadata.get("ADJUSTED_RATING"))
 
             horses.append({
                 "horse_id": selection_id or f"bf_{market_id}_{idx}",
@@ -615,6 +629,10 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
                 "jockey_name": jockey_name,
                 "trainer_name": trainer_name,
                 "form_string": form_string,
+                "career_wins": career_wins,
+                "career_starts": career_starts,
+                "career_prize_money": prize_money,
+                "adjusted_rating": adjusted_rating,
                 "event_type_id": market.get("eventType", {}).get("id", "7"),
                 "meeting_type": "unknown",
                 "meeting_region": "",

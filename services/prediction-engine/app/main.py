@@ -847,29 +847,142 @@ def explore_value_plays():
     value_runners_sorted = sorted(value_runners, key=edge, reverse=True)
     return value_runners_sorted[:50]
 
+def _norm(values: list[float | None]) -> list[float]:
+    """Min-max normalise a list; unknowns (None) become 0 after normalisation."""
+    clean = [v if v is not None else 0.0 for v in values]
+    lo, hi = min(clean), max(clean)
+    if hi == lo:
+        return [0.0] * len(clean)
+    return [(v - lo) / (hi - lo) for v in clean]
+
+
+def _rank_runners(races: list[dict], limit: int) -> list[dict]:
+    entities: dict[str, dict] = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for runner in race.get("horses", []):
+            name = runner.get("name")
+            if not name:
+                continue
+            if name not in entities:
+                entities[name] = {
+                    "id": name,
+                    "name": name,
+                    "rides_today": 0,
+                    "career_wins": runner.get("career_wins") or 0,
+                    "career_starts": runner.get("career_starts") or 0,
+                    "career_prize_money": runner.get("career_prize_money") or 0.0,
+                    "venues": set(),
+                }
+            entities[name]["rides_today"] += 1
+            if venue:
+                entities[name]["venues"].add(venue)
+
+    res = []
+    for e in entities.values():
+        starts = max(e["career_starts"] or 0, 1)
+        prize = e["career_prize_money"] or 0.0
+        prize_per_start = prize / starts
+        e["score"] = round(prize_per_start, 2)
+        e["venues"] = sorted(list(e["venues"]))
+        res.append(e)
+
+    res.sort(key=lambda x: x["score"], reverse=True)
+    return res[:limit]
+
+
+def _rank_jockeys(races: list[dict], limit: int) -> list[dict]:
+    entities: dict[str, dict] = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for runner in race.get("horses", []):
+            j_name = runner.get("jockey_name")
+            if not j_name:
+                continue
+            if j_name not in entities:
+                entities[j_name] = {
+                    "id": j_name,
+                    "name": j_name,
+                    "rides_today": 0,
+                    "career_wins": 0,
+                    "career_starts": 0,
+                    "career_prize_money": 0.0,
+                    "venues": set(),
+                }
+            entities[j_name]["rides_today"] += 1
+            entities[j_name]["career_wins"] += runner.get("career_wins") or 0
+            entities[j_name]["career_starts"] += runner.get("career_starts") or 0
+            entities[j_name]["career_prize_money"] += runner.get("career_prize_money") or 0.0
+            if venue:
+                entities[j_name]["venues"].add(venue)
+
+    records = list(entities.values())
+    if not records:
+        return []
+
+    norm_rides = _norm([r["rides_today"] for r in records])
+    norm_prize = _norm([
+        (r["career_prize_money"] or 0.0) / max(r["career_starts"] or 0, 1)
+        for r in records
+    ])
+    norm_wins = _norm([r["career_wins"] for r in records])
+
+    for i, r in enumerate(records):
+        r["score"] = round(norm_rides[i] + norm_prize[i] + norm_wins[i], 2)
+        r["venues"] = sorted(list(r["venues"]))
+
+    records.sort(key=lambda x: x["score"], reverse=True)
+    return records[:limit]
+
+
+def _rank_trainers_or_drivers(races: list[dict], entity_key: str, limit: int) -> list[dict]:
+    entities: dict[str, dict] = {}
+    for race in races:
+        venue = race.get("venue", "Unknown")
+        for runner in race.get("horses", []):
+            name = runner.get(entity_key)
+            if not name:
+                continue
+            if name not in entities:
+                entities[name] = {
+                    "id": name,
+                    "name": name,
+                    "rides_today": 0,
+                    "career_wins": 0,
+                    "career_starts": 0,
+                    "career_prize_money": 0.0,
+                    "venues": set(),
+                }
+            entities[name]["rides_today"] += 1
+            entities[name]["career_wins"] += runner.get("career_wins") or 0
+            entities[name]["career_starts"] += runner.get("career_starts") or 0
+            entities[name]["career_prize_money"] += runner.get("career_prize_money") or 0.0
+            if venue:
+                entities[name]["venues"].add(venue)
+
+    records = list(entities.values())
+    if not records:
+        return []
+
+    norm_rides = _norm([r["rides_today"] for r in records])
+    norm_prize = _norm([r["career_prize_money"] for r in records])
+
+    for i, r in enumerate(records):
+        r["score"] = round(norm_rides[i] + norm_prize[i], 2)
+        r["venues"] = sorted(list(r["venues"]))
+
+    records.sort(key=lambda x: x["score"], reverse=True)
+    return records[:limit]
+
+
 @app.get("/explore/top-horses")
 def explore_top_horses():
     try:
         races = racing_scraper.fetch_today_races()
     except Exception:
         return []
-    
-    horse_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for horse in race.get("horses", []):
-            h_name = horse.get("name")
-            if h_name:
-                if h_name not in horse_counts:
-                    horse_counts[h_name] = {"id": h_name, "name": h_name, "raceCount": 0, "venues": set(), "roi": None}
-                horse_counts[h_name]["raceCount"] += 1
-                horse_counts[h_name]["venues"].add(venue)
-                
-    result = list(horse_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:50]
+    return _rank_runners(races, limit=30)
+
 
 @app.get("/explore/top-jockeys")
 def explore_top_jockeys():
@@ -877,23 +990,8 @@ def explore_top_jockeys():
         races = racing_scraper.fetch_today_races()
     except Exception:
         return []
-    
-    jockey_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for horse in race.get("horses", []):
-            j_name = horse.get("jockey_name")
-            if j_name:
-                if j_name not in jockey_counts:
-                    jockey_counts[j_name] = {"id": j_name, "name": j_name, "raceCount": 0, "venues": set(), "roi": None}
-                jockey_counts[j_name]["raceCount"] += 1
-                jockey_counts[j_name]["venues"].add(venue)
-                
-    result = list(jockey_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:50]
+    return _rank_jockeys(races, limit=15)
+
 
 @app.get("/explore/top-trainers")
 def explore_top_trainers():
@@ -901,23 +999,44 @@ def explore_top_trainers():
         races = racing_scraper.fetch_today_races()
     except Exception:
         return []
-    
-    trainer_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for horse in race.get("horses", []):
-            t_name = horse.get("trainer_name")
-            if t_name:
-                if t_name not in trainer_counts:
-                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
-                trainer_counts[t_name]["raceCount"] += 1
-                trainer_counts[t_name]["venues"].add(venue)
-                
-    result = list(trainer_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:50]
+    return _rank_trainers_or_drivers(races, entity_key="trainer_name", limit=15)
+
+
+@app.get("/explore/top-harness-drivers")
+def explore_top_harness_drivers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="HARNESS")
+    except Exception:
+        return []
+    return _rank_trainers_or_drivers(races, entity_key="jockey_name", limit=10)
+
+
+@app.get("/explore/top-harness-trainers")
+def explore_top_harness_trainers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="HARNESS")
+    except Exception:
+        return []
+    return _rank_trainers_or_drivers(races, entity_key="trainer_name", limit=10)
+
+
+@app.get("/explore/top-dog-trainers")
+def explore_top_dog_trainers():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="GREYHOUND")
+    except Exception:
+        return []
+    return _rank_trainers_or_drivers(races, entity_key="trainer_name", limit=10)
+
+
+@app.get("/explore/top-dogs")
+def explore_top_dogs():
+    try:
+        races = racing_scraper.fetch_today_races(race_type="GREYHOUND")
+    except Exception:
+        return []
+    return _rank_runners(races, limit=10)
+
 
 
 @app.get("/api/strategy-profiles")
@@ -1713,76 +1832,3 @@ def predict_mma(game: TeamGame):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/explore/top-harness-drivers")
-def explore_top_harness_drivers():
-    try:
-        races = racing_scraper.fetch_today_races(race_type="HARNESS")
-    except Exception:
-        return []
-    
-    driver_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for horse in race.get("horses", []):
-            d_name = horse.get("jockey_name") # Drivers are usually in the jockey field
-            if d_name:
-                if d_name not in driver_counts:
-                    driver_counts[d_name] = {"id": d_name, "name": d_name, "raceCount": 0, "venues": set(), "roi": None}
-                driver_counts[d_name]["raceCount"] += 1
-                driver_counts[d_name]["venues"].add(venue)
-                
-    result = list(driver_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:15]
-
-@app.get("/explore/top-harness-trainers")
-def explore_top_harness_trainers():
-    try:
-        races = racing_scraper.fetch_today_races(race_type="HARNESS")
-    except Exception:
-        return []
-    
-    trainer_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for horse in race.get("horses", []):
-            t_name = horse.get("trainer_name")
-            if t_name:
-                if t_name not in trainer_counts:
-                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
-                trainer_counts[t_name]["raceCount"] += 1
-                trainer_counts[t_name]["venues"].add(venue)
-                
-    result = list(trainer_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:10]
-
-@app.get("/explore/top-dog-trainers")
-def explore_top_dog_trainers():
-    try:
-        races = racing_scraper.fetch_today_races(race_type="GREYHOUND")
-    except Exception:
-        return []
-    
-    trainer_counts = {}
-    for race in races:
-        venue = race.get("venue", "Unknown")
-        for dog in race.get("horses", []): # Scraper probably keeps it as "horses"
-            t_name = dog.get("trainer_name")
-            if t_name:
-                if t_name not in trainer_counts:
-                    trainer_counts[t_name] = {"id": t_name, "name": t_name, "raceCount": 0, "venues": set(), "roi": None}
-                trainer_counts[t_name]["raceCount"] += 1
-                trainer_counts[t_name]["venues"].add(venue)
-                
-    result = list(trainer_counts.values())
-    for r in result:
-        r["venues"] = list(r["venues"])
-    result_sorted = sorted(result, key=lambda x: x["raceCount"], reverse=True)
-    return result_sorted[:30]

@@ -26,12 +26,13 @@ router.get("/search", async (req, res) => {
 router.get("/runners/categorized", async (req, res) => {
   try {
     const categories = [
-      "Top 50 Horses",
-      "Top 30 Jockeys",
-      "Top 20 Horse Trainers",
-      "Top 15 Harness Drivers",
+      "Top 30 Horses",
+      "Top 15 Jockeys",
+      "Top 15 Horse Trainers",
+      "Top 10 Harness Drivers",
       "Top 10 Harness Trainers",
-      "Top 30 Dog Trainers"
+      "Top 10 Dog Trainers",
+      "Top 10 Dogs",
     ];
 
     const data: Record<string, any[]> = {};

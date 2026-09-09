@@ -55,6 +55,7 @@ export default function RaceDetailPage() {
 
   const [race, setRace] = useState<RaceDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [openDropdownFor, setOpenDropdownFor] = useState<string | null>(null);
   const { isSaved, addToBlackbook } = useBlackbookQuickAdd();
 
   useEffect(() => {
@@ -130,7 +131,7 @@ export default function RaceDetailPage() {
           <h2 className="text-base font-bold text-slate-200 flex items-center gap-2">
             <Star className="text-amber-400" size={18} /> Race Results Matrix & Cards
           </h2>
-          <span className="text-xs text-slate-400">Single-tap star to bookmark runner to Blackbook</span>
+          <span className="text-xs text-slate-400">Quick-add runner, jockey, trainer, or combination to Blackbook</span>
         </div>
 
         {/* Results Matrix / Runner Cards */}
@@ -153,25 +154,98 @@ export default function RaceDetailPage() {
                       {pred.finishPosition || i + 1}
                     </span>
 
-                    {/* Direct single-tap star/bookmark icon adjacent to runner name */}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        addToBlackbook({
-                          runner: pred.horseName,
-                          type: "runner",
-                          sport: "racing",
-                        })
-                      }
-                      className={`p-1 rounded-full transition-colors ${
-                        saved
-                          ? "text-amber-400 bg-amber-950/40 border border-amber-500/30"
-                          : "text-slate-400 hover:text-amber-300 hover:bg-slate-800"
-                      }`}
-                      title={saved ? "Saved in Blackbook" : "Single-tap to bookmark runner"}
-                    >
-                      <Star size={16} className={saved ? "fill-amber-400 text-amber-400" : ""} />
-                    </button>
+                    {/* Quick Add Dropdown Container */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOpenDropdownFor(openDropdownFor === pred.horseName ? null : pred.horseName)}
+                        className={`p-1.5 rounded-full transition-colors ${
+                          saved
+                            ? "text-amber-400 bg-amber-950/40 border border-amber-500/30"
+                            : "text-slate-400 hover:text-cyan-400 hover:bg-slate-800"
+                        }`}
+                        title="Add to Blackbook"
+                      >
+                        {saved ? <Check size={16} /> : <Plus size={16} />}
+                      </button>
+
+                      {openDropdownFor === pred.horseName && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setOpenDropdownFor(null)}
+                          />
+                          <div className="absolute left-0 top-full mt-1 w-48 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden text-left">
+                            <div className="px-3 py-2 border-b border-slate-800 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                              Add to Blackbook
+                            </div>
+
+                            {/* Horse Option */}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                addToBlackbook({ runner: pred.horseName, type: "RUNNER", horseName: pred.horseName });
+                                setOpenDropdownFor(null);
+                              }}
+                              className="w-full text-left px-3 py-2.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex flex-col"
+                            >
+                              <span className="font-semibold">Horse</span>
+                              <span className="text-[10px] text-slate-500 truncate">{pred.horseName}</span>
+                            </button>
+
+                            {/* Jockey Option */}
+                            {pred.jockeyName && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  addToBlackbook({ runner: pred.jockeyName!, type: "JOCKEY", jockeyName: pred.jockeyName });
+                                  setOpenDropdownFor(null);
+                                }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex flex-col border-t border-slate-800"
+                              >
+                                <span className="font-semibold">Jockey</span>
+                                <span className="text-[10px] text-slate-500 truncate">{pred.jockeyName}</span>
+                              </button>
+                            )}
+
+                            {/* Trainer Option */}
+                            {pred.trainerName && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  addToBlackbook({ runner: pred.trainerName!, type: "TRAINER", trainerName: pred.trainerName });
+                                  setOpenDropdownFor(null);
+                                }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex flex-col border-t border-slate-800"
+                              >
+                                <span className="font-semibold">Trainer</span>
+                                <span className="text-[10px] text-slate-500 truncate">{pred.trainerName}</span>
+                              </button>
+                            )}
+
+                            {/* Combination Option */}
+                            {pred.jockeyName && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  addToBlackbook({
+                                    runner: `${pred.horseName} + ${pred.jockeyName}`,
+                                    type: "COMBINATION",
+                                    horseName: pred.horseName,
+                                    jockeyName: pred.jockeyName,
+                                  });
+                                  setOpenDropdownFor(null);
+                                }}
+                                className="w-full text-left px-3 py-2.5 text-xs text-slate-300 hover:bg-slate-800 hover:text-white transition-colors flex flex-col border-t border-slate-800"
+                              >
+                                <span className="font-semibold">Combination</span>
+                                <span className="text-[10px] text-slate-500 truncate">Horse + Jockey</span>
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
 
                     {/* Runner Name */}
                     <h3 className="text-base font-bold text-slate-100">{pred.horseName}</h3>

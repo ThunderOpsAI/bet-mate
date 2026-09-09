@@ -1036,7 +1036,7 @@ function BlackbookPageContent() {
                </div>
             </div>
             
-            {["Top 50 Horses", "Top 30 Jockeys", "Top 20 Horse Trainers", "Top 15 Harness Drivers", "Top 10 Harness Trainers", "Top 30 Dog Trainers"].map(cat => {
+            {["Top 30 Horses", "Top 15 Jockeys", "Top 15 Horse Trainers", "Top 10 Harness Drivers", "Top 10 Harness Trainers", "Top 10 Dog Trainers", "Top 10 Dogs"].map(cat => {
               const runners = categorizedRunners[cat] || [];
               if (runners.length === 0) {
                 return (
@@ -1057,23 +1057,29 @@ function BlackbookPageContent() {
                             <tr>
                               <th className="px-4 py-4 w-16">Rank</th>
                               <th className="px-4 py-4">Entity</th>
-                              <th className="px-4 py-4">Venues / Rides</th>
+                              <th className="px-4 py-4">Rides Today</th>
+                              <th className="px-4 py-4">Career Wins</th>
+                              <th className="px-4 py-4">Prize/Start</th>
+                              <th className="px-4 py-4">Score</th>
                               <th className="px-4 py-4 text-right w-28">Blackbook</th>
                             </tr>
                          </thead>
                          <tbody>
                             {runners.map(r => {
                                const isAdded = configs.some(c => c.runner.toLowerCase() === r.entityName.toLowerCase());
-                               const venues = r.metrics?.venues ? (Array.isArray(r.metrics.venues) ? r.metrics.venues.join(", ") : r.metrics.venues) : "";
-                               const raceCount = r.metrics?.raceCount ? `${r.metrics.raceCount} rides` : "";
                                return (
                                  <tr key={r.id} className="border-t border-slate-800/40 hover:bg-slate-900/40 transition-colors">
                                     <td className="px-4 py-4 text-slate-400 font-mono text-xs">#{r.rank}</td>
                                     <td className="px-4 py-4 font-medium text-white">{r.entityName}</td>
-                                    <td className="px-4 py-4 text-xs text-slate-400">
-                                      {venues && <span className="text-slate-300">{venues}</span>}
-                                      {venues && raceCount && <span className="mx-1 text-slate-600">•</span>}
-                                      {raceCount && <span className="text-cyan-400 font-mono">{raceCount}</span>}
+                                    <td className="px-4 py-4 text-xs text-slate-300 font-mono">{r.metrics?.rides_today ?? "—"}</td>
+                                    <td className="px-4 py-4 text-xs text-slate-300 font-mono">{r.metrics?.career_wins ?? "—"}</td>
+                                    <td className="px-4 py-4 text-xs text-slate-300 font-mono">
+                                      {r.metrics?.career_prize_money && r.metrics?.career_starts
+                                        ? "$" + Math.round(r.metrics.career_prize_money / Math.max(r.metrics.career_starts, 1)).toLocaleString()
+                                        : "—"}
+                                    </td>
+                                    <td className="px-4 py-4 text-xs text-cyan-400 font-mono">
+                                      {r.metrics?.score !== undefined ? Number(r.metrics.score).toFixed(2) : "—"}
                                     </td>
                                     <td className="px-4 py-4 text-right">
                                       <div className="flex items-center justify-end gap-2">
