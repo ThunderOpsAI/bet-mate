@@ -2,6 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { Zap, BookOpen, Trophy, Activity, ArrowRight, Plus, Check, Clock, ExternalLink, Shield, RotateCw } from "lucide-react";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { RankedOpportunity } from "../lib/opportunityScore";
@@ -168,9 +169,9 @@ export default function HomePrimaryCard({
   const topSports = upcomingSports.slice(0, 3);
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
-      {/* Card 1: High EV Chances */}
-      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+    <div className="space-y-6">
+      {/* 1. High EV Feed — full-width */}
+      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all w-full">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -291,8 +292,59 @@ export default function HomePrimaryCard({
         </div>
       </section>
 
-      {/* Card 2: Next Blackbookers */}
-      <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
+      {/* 2. Two large hero CTA buttons — SPORT (left) and RACING (right), side by side */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+        <Link
+          href="/afl"
+          className="relative group rounded-2xl overflow-hidden border border-slate-800 hover:border-emerald-500/50 transition-all duration-300 shadow-xl min-h-[160px] md:min-h-[200px] flex items-center justify-center cursor-pointer"
+        >
+          <Image
+            src="/banners/banner_2.png"
+            alt="Sport Predictions"
+            fill
+            sizes="(max-width: 640px) 100vw, 50vw"
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+          <div className="absolute inset-0 bg-slate-950/75 group-hover:bg-slate-950/60 transition-colors backdrop-blur-[2px]" />
+          <div className="relative z-10 flex flex-col items-center justify-center text-center p-4">
+            <span className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-wider uppercase drop-shadow-md">
+              SPORT
+            </span>
+            <span className="text-xs sm:text-sm font-semibold text-emerald-400 mt-1 uppercase tracking-widest flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+              <span>Explore Predictions</span>
+              <ArrowRight size={14} />
+            </span>
+          </div>
+        </Link>
+
+        <Link
+          href="/racing"
+          className="relative group rounded-2xl overflow-hidden border border-slate-800 hover:border-emerald-500/50 transition-all duration-300 shadow-xl min-h-[160px] md:min-h-[200px] flex items-center justify-center cursor-pointer"
+        >
+          <Image
+            src="/banners/banner_1.png"
+            alt="Racing Predictions"
+            fill
+            sizes="(max-width: 640px) 100vw, 50vw"
+            className="object-cover transition-transform duration-500 group-hover:scale-105"
+          />
+          <div className="absolute inset-0 bg-slate-950/75 group-hover:bg-slate-950/60 transition-colors backdrop-blur-[2px]" />
+          <div className="relative z-10 flex flex-col items-center justify-center text-center p-4">
+            <span className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-wider uppercase drop-shadow-md">
+              RACING
+            </span>
+            <span className="text-xs sm:text-sm font-semibold text-emerald-400 mt-1 uppercase tracking-widest flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
+              <span>Explore Predictions</span>
+              <ArrowRight size={14} />
+            </span>
+          </div>
+        </Link>
+      </div>
+
+      {/* 3. Existing cards below — Next Blackbookers, Next Racing, Next Sport cards in 2-col grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 sm:gap-6">
+        {/* Card 2: Next Blackbookers */}
+        <section className="card-content-padded bg-slate-950/90 border border-slate-400/35 hover:border-slate-300/50 rounded-2xl shadow-xl backdrop-blur-md overflow-hidden flex flex-col justify-between transition-all">
         <div>
           <div className="flex items-center justify-between pb-3 mb-3.5 border-b border-slate-800/80">
             <div>
@@ -622,7 +674,8 @@ export default function HomePrimaryCard({
             </div>
           )}
         </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

@@ -489,3 +489,88 @@ model TopEntity {
   @@index([category])
   @@schema("public")
 }
+
+model PredictionSnapshot {
+  id             String   @id @default(cuid())
+  eventId        String   @map("event_id")
+  selectionId    String   @map("selection_id")
+  selectionName  String?  @map("selection_name")
+  sport          String
+  winProbability Float    @map("win_probability")
+  fairOdds       Float    @map("fair_odds")
+  marketOdds     Float?   @map("market_odds")
+  capturedAt     DateTime @default(now()) @map("captured_at") @db.Timestamptz(6)
+
+  @@index([eventId, selectionId, capturedAt])
+  @@index([sport, capturedAt])
+  @@map("prediction_snapshots")
+  @@schema("public")
+}
+
+model RunnerPrimedScore {
+  id             String   @id @default(cuid())
+  raceId         String   @map("race_id")
+  runnerId       String   @map("runner_id")
+  runnerName     String   @map("runner_name")
+  venue          String
+  compositeScore Float    @map("composite_score")
+  jockeyScore    Float    @map("jockey_score")
+  trainerScore   Float    @map("trainer_score")
+  barrierScore   Float    @map("barrier_score")
+  fitnessScore   Float    @map("fitness_score")
+  conditionScore Float    @map("condition_score")
+  weightScore    Float    @map("weight_score")
+  calculatedAt   DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
+
+  @@unique([raceId, runnerId])
+  @@index([raceId])
+  @@map("runner_primed_scores")
+  @@schema("public")
+}
+
+model RaceResult {
+  id             String   @id @default(cuid())
+  raceId         String   @map("race_id")
+  venue          String
+  raceDate       DateTime @map("race_date") @db.Date
+  trackCondition String   @map("track_condition")
+  weather        String?
+  distance       Int
+  runnerId       String   @map("runner_id")
+  runnerName     String   @map("runner_name")
+  jockeyName     String?  @map("jockey_name")
+  trainerName    String?  @map("trainer_name")
+  barrier        Int?
+  weight         Float?
+  finishPosition Int      @map("finish_position")
+  margin         Float?
+  startingPrice  Float?   @map("starting_price")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([runnerId, venue])
+  @@index([runnerName, trackCondition])
+  @@map("race_results")
+  @@schema("public")
+}
+
+model MatchResult {
+  id             String   @id @default(cuid())
+  matchId        String   @map("match_id")
+  sport          String
+  matchDate      DateTime @map("match_date") @db.Date
+  homeTeam       String   @map("home_team")
+  awayTeam       String   @map("away_team")
+  venue          String?
+  weather        String?
+  homeScore      Int?     @map("home_score")
+  awayScore      Int?     @map("away_score")
+  winner         String?
+  spread         Float?
+  totalPoints    Int?     @map("total_points")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([sport, matchDate])
+  @@index([homeTeam, awayTeam])
+  @@map("match_results")
+  @@schema("public")
+}

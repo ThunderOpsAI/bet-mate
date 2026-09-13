@@ -4,12 +4,13 @@ import ErrorBoundary from "../components/ErrorBoundary";
 
 export default function SportPage() {
   const sports = [
+    { name: "NBA", path: "/nba" },
+    { name: "NFL", path: "/nfl" },
     { name: "AFL", path: "/afl" },
     { name: "NRL", path: "/nrl" },
-    { name: "NBA", path: "/nba" },
     { name: "Soccer", path: "/soccer" },
-    { name: "Golf", path: "/golf" },
     { name: "MMA", path: "/mma" },
+    { name: "Golf", path: "/golf" },
   ];
 
   return (

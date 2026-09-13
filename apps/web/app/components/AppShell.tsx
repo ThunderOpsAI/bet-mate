@@ -17,6 +17,7 @@ import {
   Zap,
   FlaskConical,
   Bot,
+  BookOpen,
   Settings,
   RotateCw,
   TrendingUp,
@@ -411,14 +412,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <FlaskConical size={20} />
             <span>Lab</span>
           </Link>
-          <button
-            type="button"
-            className="bottom-nav-item"
-            onClick={() => window.dispatchEvent(new CustomEvent("open-ask-bob"))}
+          <Link
+            href="/blackbook"
+            className={`bottom-nav-item ${pathname === "/blackbook" ? "active" : ""}`}
           >
-            <Bot size={20} />
-            <span>Ask Bob</span>
-          </button>
+            <BookOpen size={20} />
+            <span>Blackbook</span>
+          </Link>
         </nav>
       </div>
     </div>

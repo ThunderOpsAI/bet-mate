@@ -1,21 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { CircleDot, Shield, Zap, Globe, Flag, Swords } from "lucide-react";
+import { CircleDot, Shield, Zap, Globe, Flag, Swords, Flame } from "lucide-react";
 
-export type SportCode = "afl" | "nrl" | "nba" | "soccer" | "golf" | "mma";
+export type SportCode = "nba" | "nfl" | "afl" | "nrl" | "soccer" | "mma" | "golf";
 
 interface SportCodeFilterProps {
   activeSport: SportCode;
 }
 
 const sports = [
+  { id: "nba", label: "NBA", icon: Zap, href: "/nba" },
+  { id: "nfl", label: "NFL", icon: Flame, href: "/nfl" },
   { id: "afl", label: "AFL", icon: CircleDot, href: "/afl" },
   { id: "nrl", label: "NRL", icon: Shield, href: "/nrl" },
-  { id: "nba", label: "NBA", icon: Zap, href: "/nba" },
   { id: "soccer", label: "Soccer", icon: Globe, href: "/soccer" },
-  { id: "golf", label: "Golf", icon: Flag, href: "/golf" },
   { id: "mma", label: "MMA", icon: Swords, href: "/mma" },
+  { id: "golf", label: "Golf", icon: Flag, href: "/golf" },
 ] as const;
 
 export default function SportCodeFilter({ activeSport }: SportCodeFilterProps) {

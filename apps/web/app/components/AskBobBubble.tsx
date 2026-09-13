@@ -2,11 +2,25 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import { usePathname } from "next/navigation";
 import { Send, X, Loader2, Brain } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
 
+const ALLOWED_ROUTES = [
+  "/racing",
+  "/afl",
+  "/nba",
+  "/nrl",
+  "/soccer",
+  "/golf",
+  "/mma",
+  "/nfl",
+  "/strategy",
+];
+
 export default function AskBobBubble() {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<
     Array<{ role: "user" | "assistant"; content: string }>
@@ -97,7 +111,29 @@ export default function AskBobBubble() {
     }
   };
 
-  if (!isOpen) return null;
+  if (!pathname || !ALLOWED_ROUTES.includes(pathname)) return null;
+
+  if (!isOpen) {
+    return (
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        className="fixed bottom-[5rem] md:bottom-[1.5rem] right-4 md:right-6 z-40 w-[56px] h-[56px] rounded-full bg-slate-900 border border-slate-700 shadow-xl flex items-center justify-center p-1 cursor-pointer transition-transform hover:scale-105"
+        aria-label="Open Ask Bob strategy assistant"
+      >
+        <span className="absolute -inset-1 rounded-full border-2 border-emerald-400/60 animate-pulse pointer-events-none" />
+        <div className="relative w-10 h-10 rounded-full overflow-hidden">
+          <Image
+            src="/brand/betmate-bob-original.png"
+            alt="Ask Bob"
+            width={40}
+            height={40}
+            className="object-cover"
+          />
+        </div>
+      </button>
+    );
+  }
 
   return (
     <div

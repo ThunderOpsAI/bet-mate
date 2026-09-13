@@ -146,4 +146,128 @@ router.get("/:raceId", async (req, res) => {
   }
 });
 
+// GET /api/races/:raceId/runners/:runnerId/primed-score
+router.get("/:raceId/runners/:runnerId/primed-score", async (req, res) => {
+  try {
+    const { raceId, runnerId } = req.params;
+
+    const existing = await (prisma as any).runnerPrimedScore.findUnique({
+      where: {
+        raceId_runnerId: {
+          raceId,
+          runnerId,
+        },
+      },
+    });
+
+    if (existing) {
+      return res.json({
+        raceId,
+        runnerId,
+        runnerName: existing.runnerName,
+        venue: existing.venue,
+        compositeScore: existing.compositeScore,
+        breakdown: {
+          jockey: existing.jockeyScore,
+          trainer: existing.trainerScore,
+          barrier: existing.barrierScore,
+          fitness: existing.fitnessScore,
+          condition: existing.conditionScore,
+          weight: existing.weightScore,
+        },
+        calculatedAt: existing.calculatedAt,
+      });
+    }
+
+    // Dynamic calculation & persistence
+    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const raceRes = await fetch(`${mlApi}/api/races/today`).catch(() => null);
+    let horseData: any = null;
+    let venue = "Meeting";
+
+    if (raceRes && raceRes.ok) {
+      const data = await raceRes.json();
+      const races = data.races || [];
+      const currentRace = races.find((r: any) => r.race_id === raceId);
+      if (currentRace) {
+        venue = currentRace.venue || "Meeting";
+        horseData = (currentRace.horses || []).find(
+          (h: any) => h.horse_id === runnerId || h.name?.toLowerCase() === runnerId.toLowerCase()
+        );
+      }
+    }
+
+    const jockeyWinRate = horseData?.jockey_win_rate ?? 0.16;
+    const pastWinRate = horseData?.past_win_rate ?? 0.22;
+    const barrier = horseData?.barrier ?? 4;
+    const daysSince = horseData?.days_since_last_race ?? 14;
+    const weight = horseData?.weight ?? 56.0;
+    const runnerName = horseData?.name || runnerId;
+
+    const jockeyScore = Math.min(25, Math.round(jockeyWinRate * 100 * 1.25));
+    const trainerScore = Math.min(20, Math.round(pastWinRate * 100 * 0.9));
+    const barrierScore = barrier <= 4 ? 15 : barrier <= 8 ? 12 : 8;
+    const fitnessScore = daysSince >= 10 && daysSince <= 21 ? 15 : daysSince < 10 ? 12 : daysSince <= 35 ? 10 : 7;
+    const conditionScore = 13;
+    const weightScore = weight <= 54 ? 10 : weight <= 57 ? 8 : 6;
+
+    const compositeScore = Math.min(
+      100,
+      Math.max(0, jockeyScore + trainerScore + barrierScore + fitnessScore + conditionScore + weightScore)
+    );
+
+    const saved = await (prisma as any).runnerPrimedScore.upsert({
+      where: {
+        raceId_runnerId: {
+          raceId,
+          runnerId,
+        },
+      },
+      update: {
+        compositeScore,
+        jockeyScore,
+        trainerScore,
+        barrierScore,
+        fitnessScore,
+        conditionScore,
+        weightScore,
+        calculatedAt: new Date(),
+      },
+      create: {
+        raceId,
+        runnerId,
+        runnerName,
+        venue,
+        compositeScore,
+        jockeyScore,
+        trainerScore,
+        barrierScore,
+        fitnessScore,
+        conditionScore,
+        weightScore,
+      },
+    });
+
+    return res.json({
+      raceId,
+      runnerId,
+      runnerName: saved.runnerName,
+      venue: saved.venue,
+      compositeScore: saved.compositeScore,
+      breakdown: {
+        jockey: saved.jockeyScore,
+        trainer: saved.trainerScore,
+        barrier: saved.barrierScore,
+        fitness: saved.fitnessScore,
+        condition: saved.conditionScore,
+        weight: saved.weightScore,
+      },
+      calculatedAt: saved.calculatedAt,
+    });
+  } catch (error: any) {
+    console.error("Failed to calculate primed score:", error);
+    return res.status(500).json({ error: "Failed to calculate primed score" });
+  }
+});
+
 export default router;

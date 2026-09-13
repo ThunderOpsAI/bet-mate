@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
-import { Activity, ChevronDown, Compass } from "lucide-react";
-import RunnerRow from "./RunnerRow";
+import { Activity, ChevronDown, Compass, BarChart3 } from "lucide-react";
+import RunnerRow, { type RunnerPrediction } from "./RunnerRow";
 import PaperBetAction from "../PaperBetAction";
 import SectionalMetricsDrawer from "./SectionalMetricsDrawer";
 import SpeedMapVisualization from "./SpeedMapVisualization";
+import RacingRunnerDrawer from "./RacingRunnerDrawer";
 import { ConfidenceBadge, UrgencyBadge } from "../PredictionSignalBadges";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
@@ -71,6 +72,7 @@ const trackConditions: Record<number, string> = { 1: "Fast", 2: "Good", 3: "Soft
 export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitchRace }: SingleRaceCardProps) {
   const [activeTab, setActiveTab] = useState<"win" | "multi" | "exotics" | "speed_map">("win");
   const [openSectionalRunnerIds, setOpenSectionalRunnerIds] = useState<Record<string, boolean>>({});
+  const [drawerRunner, setDrawerRunner] = useState<{ horse: HorseData; prediction: RunnerPrediction | null } | null>(null);
 
   const sorted = [...siblingRaces].sort((a, b) => a.race_number - b.race_number);
   const trackCond = race.horses[0]?.track_condition;
@@ -154,12 +156,21 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
                     race={race}
                   />
 
-                  {/* Expandable "Sectionals & Speed" toggle button */}
-                  <div className="flex justify-end px-2 py-1 bg-slate-950/40 border-x border-b border-slate-800/80 rounded-b-md">
+                  {/* Expandable "Sectionals & Speed" and "Deep Stats" buttons */}
+                  <div className="flex justify-end items-center gap-2 px-2 py-1 bg-slate-950/40 border-x border-b border-slate-800/80 rounded-b-md">
+                    <button
+                      type="button"
+                      onClick={() => horse && setDrawerRunner({ horse, prediction: pick.fair_odds > 0 ? pick : null })}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800/60 transition-colors cursor-pointer"
+                      title="Open Deep Stats & Quant Analysis"
+                    >
+                      <BarChart3 size={13} className="text-emerald-400" />
+                      <span>Deep Stats</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => toggleSectionalDrawer(pick.horse_id)}
-                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded transition-colors ${
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded transition-colors cursor-pointer ${
                         isDrawerOpen
                           ? "bg-purple-950/80 text-purple-300 border border-purple-500/40"
                           : "text-slate-400 hover:text-purple-300 hover:bg-slate-800/60"
@@ -187,6 +198,14 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
           <p className="muted-copy">Same Race Multi and Exotics are coming soon.</p>
         </div>
       )}
+
+      <RacingRunnerDrawer
+        isOpen={drawerRunner !== null}
+        onClose={() => setDrawerRunner(null)}
+        horse={drawerRunner?.horse ?? null}
+        prediction={drawerRunner?.prediction ?? null}
+        race={race}
+      />
     </div>
   );
 }

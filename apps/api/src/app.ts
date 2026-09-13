@@ -46,4 +46,10 @@ import adminRoutes from "./routes/admin";
 app.use("/api/explore", exploreRoutes);
 app.use("/api/admin", adminRoutes);
 
+import eventsRoutes from "./routes/events";
+import situationalRoutes from "./routes/situational";
+
+app.use("/api/events", eventsRoutes);
+app.use("/api/situational", situationalRoutes);
+
 export default app;

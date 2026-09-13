@@ -355,7 +355,7 @@ function HomePageContent() {
           </h1>
         </section>
 
-        {/* 4-Card Grid Component */}
+        {/* Primary Dashboard Sections: EV Feed, Hero CTA, and Data Cards */}
         <HomePrimaryCard
           opportunities={opportunities}
           oppsLoading={oppsLoading}
