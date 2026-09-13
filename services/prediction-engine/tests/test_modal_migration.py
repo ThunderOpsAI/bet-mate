@@ -103,11 +103,7 @@ class ModalMigrationTests(unittest.TestCase):
         self.assertEqual(
             schedules,
             {
-                "nightly_strategy_refresh": ("0 5 * * *", "Australia/Melbourne"),
-                "race_data_refresh": ("0 4 * * *", "Australia/Melbourne"),
-                "afl_model_refresh": ("15 4 * * *", "Australia/Melbourne"),
-                "nba_model_refresh": ("30 4 * * *", "Australia/Melbourne"),
-                "sunday_betfair_import": ("0 6 * * 0", "Australia/Melbourne"),
+                "master_scheduler": ("0 0,6,12,18 * * *", "Australia/Melbourne"),
             },
         )
 

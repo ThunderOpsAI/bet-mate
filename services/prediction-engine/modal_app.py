@@ -513,7 +513,7 @@ def evaluate_blackbook_rules():
     image=image,
     region="ap-southeast-2",
     timeout=60,
-    schedule=modal.Cron("*/5 * * * *", timezone="Australia/Melbourne"),
+    schedule=modal.Cron("0 0,6,12,18 * * *", timezone="Australia/Melbourne"),
 )
 def master_scheduler():
     from datetime import datetime
@@ -522,30 +522,17 @@ def master_scheduler():
     
     print(f"Master scheduler tick at {now}")
     
-    # 10 min jobs
-    if now.minute % 10 == 0:
-        prewarm_upcoming_races.spawn()
+    # 6-hour interval jobs (run on every tick: 00:00, 06:00, 12:00, 18:00)
+    prewarm_upcoming_races.spawn()
+    evaluate_blackbook_rules.spawn()
         
-    # 15 min jobs
-    if now.minute % 15 == 0:
-        evaluate_blackbook_rules.spawn()
-        
-    # 12:00 AM jobs
-    if now.hour == 0 and now.minute == 0:
+    # Midnight (12:00 AM) daily jobs
+    if now.hour == 0:
         race_data_refresh.spawn()
-        
-    # 12:15 AM jobs
-    if now.hour == 0 and now.minute == 15:
         afl_model_refresh.spawn()
-        
-    # 12:30 AM jobs
-    if now.hour == 0 and now.minute == 30:
         nba_model_refresh.spawn()
-        
-    # 12:45 AM jobs
-    if now.hour == 0 and now.minute == 45:
         nightly_strategy_refresh.spawn()
         
     # Sunday 6:00 AM jobs
-    if now.weekday() == 6 and now.hour == 6 and now.minute == 0:
+    if now.weekday() == 6 and now.hour == 6:
         sunday_betfair_import.spawn()
