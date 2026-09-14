@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Trophy } from "lucide-react";
+import { Activity, ArrowRight, BarChart3, Brain, TrendingUp, Trophy } from "lucide-react";
 import ErrorBoundary from "../components/ErrorBoundary";
 
 export default function SportPage() {
@@ -43,6 +43,45 @@ export default function SportPage() {
             </Link>
           ))}
         </div>
+
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { icon: Activity, value: "7", label: "sports covered", detail: "AFL, NBA, NFL, NRL, Soccer, MMA and Golf" },
+            { icon: TrendingUp, value: "Live", label: "model vs market", detail: "Compare fair odds, market prices and value gaps" },
+            { icon: Brain, value: "Deep", label: "matchup analysis", detail: "Open any event for form, confidence and feature impact" },
+          ].map(({ icon: Icon, value, label, detail }) => (
+            <div key={label} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <Icon size={18} className="text-emerald-400" />
+                <span className="text-xs uppercase tracking-widest text-slate-500 font-bold">{label}</span>
+              </div>
+              <p className="text-2xl font-black text-slate-100">{value}</p>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">{detail}</p>
+            </div>
+          ))}
+        </section>
+
+        <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 sm:p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <BarChart3 size={18} className="text-sky-400" />
+            <h2 className="text-base font-bold text-slate-100">How to use the sport dashboard</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            {[
+              ["1", "Choose a sport", "Start with the sport whose fixtures and markets you want to inspect."],
+              ["2", "Scan the board", "Use the summary cards to find confidence, timing and model-led edges."],
+              ["3", "Open deep stats", "Select a matchup for feature impact, fair odds and matchup context."],
+            ].map(([step, title, detail]) => (
+              <div key={step} className="flex gap-3">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-xs font-black text-emerald-300">{step}</span>
+                <div><p className="font-bold text-slate-200">{title}</p><p className="mt-1 text-xs leading-relaxed text-slate-400">{detail}</p></div>
+              </div>
+            ))}
+          </div>
+          <Link href="/nba" className="mt-5 inline-flex items-center gap-2 text-sm font-bold text-emerald-400 hover:text-emerald-300">
+            Open a sample dashboard <ArrowRight size={15} />
+          </Link>
+        </section>
       </div>
     </ErrorBoundary>
   );

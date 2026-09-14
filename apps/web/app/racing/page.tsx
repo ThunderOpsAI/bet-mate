@@ -537,6 +537,15 @@ function RacingPageContent() {
   ).slice(0, 5);
   const hasRacingData = races.length > 0 || Object.keys(predictions).length > 0;
 
+  const racingStats = {
+    meetings: venues.length,
+    races: filteredRaces.length,
+    runners: filteredRaces.reduce((total, race) => total + race.horses.length, 0),
+    modelCoverage: filteredRaces.filter((race) => Boolean(predictions[race.race_id])).length,
+    valuePicks: racingOpportunities.filter((pick) => pick.edgePercent !== null).length,
+    topPick: racingOpportunities[0],
+  };
+
 
   // Group races by venue
   const venueGroups = filteredRaces.reduce<Record<string, Race[]>>((acc, race) => {
@@ -593,6 +602,34 @@ function RacingPageContent() {
           setSelectedRaceId(null);
         }}
       />
+
+      {hasRacingData ? (
+        <section className="grid grid-cols-2 lg:grid-cols-5 gap-3" aria-label="Racing dashboard summary">
+          {[
+            ["Meetings", racingStats.meetings, "venues on the board"],
+            ["Races", racingStats.races, "in the selected view"],
+            ["Runners", racingStats.runners, "entries assessed"],
+            ["Model coverage", `${racingStats.modelCoverage}/${racingStats.races}`, "races with predictions"],
+            ["Value picks", racingStats.valuePicks, "with a live price gap"],
+          ].map(([label, value, detail]) => (
+            <div key={label} className="rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">{label}</p>
+              <p className="mt-1 text-xl font-black text-slate-100">{value}</p>
+              <p className="mt-0.5 text-[11px] text-slate-400">{detail}</p>
+            </div>
+          ))}
+        </section>
+      ) : null}
+
+      {hasRacingData && racingStats.topPick ? (
+        <section className="rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] px-4 py-3 sm:px-5" aria-label="Racing analysis summary">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <span className="font-bold text-emerald-300">Analysis highlight</span>
+            <span className="text-slate-200"><strong>{racingStats.topPick.selectionName}</strong> leads {racingStats.topPick.eventLabel} at {(racingStats.topPick.probability * 100).toFixed(1)}% model probability.</span>
+            <span className="text-slate-400">{racingStats.topPick.edgePercent !== null ? `${racingStats.topPick.edgePercent.toFixed(1)}% model-to-market gap` : "Model-led read; live market edge unavailable"}</span>
+          </div>
+        </section>
+      ) : null}
 
       {!hasRacingData && !refreshing ? (
         <ErrorState

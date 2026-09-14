@@ -388,12 +388,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span>Racing</span>
           </Link>
           <Link
-            href="/afl"
+            href="/sport"
             className={`bottom-nav-item ${
+              pathname === "/sport" ||
               pathname === "/afl" ||
               pathname === "/nrl" ||
               pathname === "/nba" ||
-              pathname === "/soccer"
+              pathname === "/soccer" ||
+              pathname === "/golf" ||
+              pathname === "/mma"
                 ? "active"
                 : ""
             }`}
@@ -428,6 +431,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 function getPageTitle(path: string) {
   if (path === "/") return "Home";
   if (path === "/racing") return "Racing Predictions";
+  if (path === "/sport") return "Sports Dashboard";
   if (path === "/afl") return "AFL Predictions";
   if (path === "/nba") return "NBA Predictions";
   if (path === "/nrl") return "NRL Predictions";
@@ -442,4 +446,3 @@ function getPageTitle(path: string) {
   if (path === "/how-it-works") return "How It Works";
   return "BetMate";
 }
-
