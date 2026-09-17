@@ -431,7 +431,9 @@ export default function NRLPage() {
 
           <ErrorBoundary sectionName="NRL predictions">
             <div className="game-cards-list">
-              {games.map((game) => {
+              {games
+                .filter(game => game.home_team !== "Team None" && game.away_team !== "Team None")
+                .map((game) => {
                 const prediction = predictions[game.game_id];
                 const liveScore = liveScores[game.game_id];
                 const homeScore = liveScore?.hscore ?? game.hscore ?? null;

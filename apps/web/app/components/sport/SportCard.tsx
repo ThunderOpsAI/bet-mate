@@ -154,60 +154,49 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
                 </span>
               </div>
 
-              {/* Middle: Odds & Edge */}
-              <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-300 shrink-0">
-                <div className="hidden sm:flex items-center gap-1 text-[11px]">
-                  <span className="text-[10px] text-slate-500 uppercase font-bold">
+              {/* Middle & Right: Unified Odds Button */}
+              <div className="flex items-center gap-3 shrink-0">
+                {/* Fair Odds (Hidden on mobile for space, visible on sm+) */}
+                <div className="hidden sm:flex flex-col items-end mr-2">
+                  <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
                     Fair
                   </span>
-                  <span className="font-medium text-slate-400">
+                  <span className="font-medium text-slate-400 text-xs">
                     {fairOddsText}
                   </span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-slate-500 uppercase font-bold">
-                    Mkt
-                  </span>
-                  <span className="font-semibold text-slate-200">
-                    {marketOddsText}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-slate-500 uppercase font-bold">
-                    Edge
-                  </span>
-                  <span
-                    className={`font-bold ${
-                      edge && edge > 0 ? "text-emerald-400" : "text-slate-400"
-                    }`}
-                  >
-                    {edge && edge > 0 ? `+${edge.toFixed(1)}%` : "--"}
-                  </span>
-                </div>
-              </div>
 
-              {/* Right: Inline Compact Action Button */}
-              <button
-                type="button"
-                onClick={(e) => handleBetslipToggle(e, outcome)}
-                className={`px-1.5 py-1 rounded-lg text-xs font-semibold flex items-center justify-center gap-1 shrink-0 transition-all ${
-                  inSlip
-                    ? "bg-slate-800 text-emerald-400 border border-slate-700 hover:bg-slate-750"
-                    : "bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold shadow-sm"
-                }`}
-              >
-                {inSlip ? (
-                  <>
-                    <Check size={13} className="text-emerald-400" />
-                    <span className="hidden sm:inline">In Betslip</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus size={13} />
-                    <span>Add</span>
-                  </>
-                )}
-              </button>
+                {/* Clickable Odds Box (The "Add" Button) */}
+                <button
+                  type="button"
+                  onClick={(e) => handleBetslipToggle(e, outcome)}
+                  className={`group relative flex flex-col items-center justify-center min-w-[72px] sm:min-w-[80px] h-[42px] px-2 rounded-lg transition-all overflow-hidden ${
+                    inSlip
+                      ? "bg-slate-800 border border-emerald-500/50 shadow-[0_0_10px_rgba(16,185,129,0.15)]"
+                      : edge && edge > 0
+                        ? "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-400"
+                        : "bg-slate-800/80 hover:bg-slate-700 border border-slate-700 hover:border-slate-500"
+                  }`}
+                >
+                  {inSlip ? (
+                    <div className="flex items-center gap-1.5">
+                      <Check size={14} className="text-emerald-400" />
+                      <span className="text-emerald-400 font-bold text-xs sm:text-sm">Added</span>
+                    </div>
+                  ) : (
+                    <>
+                      <span className={`font-black text-sm sm:text-base ${edge && edge > 0 ? "text-emerald-400" : "text-slate-200"}`}>
+                        {marketOddsText}
+                      </span>
+                      {edge && edge > 0 && (
+                        <div className="absolute top-0 right-0 w-0 h-0 border-t-[16px] border-l-[16px] border-t-emerald-500 border-l-transparent">
+                          <Plus size={8} className="absolute -top-[15px] -left-[9px] text-slate-900 font-black" />
+                        </div>
+                      )}
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           );
         })}
