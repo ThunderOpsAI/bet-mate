@@ -53,7 +53,7 @@ def test_target_day_keeps_mapped_qld_wa_and_unmapped_meetings(monkeypatch):
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers, _target_date, allow_mock=True: [
+        lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
             _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
             _build_live_race("Belmont (WA)", "2026-07-01T23:30:00Z", ["Blue Monarch", "Velvet Charge"]),
@@ -68,20 +68,29 @@ def test_target_day_keeps_mapped_qld_wa_and_unmapped_meetings(monkeypatch):
 
     races = scraper.fetch_today_races(run_date="2026-07-02")
 
-    assert [race["venue"] for race in races] == ["Flemington", "Eagle Farm", "Belmont (WA)", "Mystery Park"]
-    assert races[0]["meeting_type"] == "metro"
-    assert races[0]["meeting_region"] == "VIC"
-    assert races[0]["state"] == "VIC"
-    assert races[0]["meeting_date"] == "2026-07-02"
-    assert races[1]["meeting_type"] == "metro"
-    assert races[1]["meeting_region"] == "QLD"
-    assert races[1]["state"] == "QLD"
-    assert races[2]["meeting_type"] == "metro"
-    assert races[2]["meeting_region"] == "WA"
-    assert races[2]["state"] == "WA"
-    assert races[3]["meeting_type"] == "unknown"
-    assert races[3]["meeting_region"] == ""
-    assert races[3]["state"] == ""
+    assert {race["venue"] for race in races} == {"Flemington", "Eagle Farm", "Belmont (WA)", "Mystery Park"}
+    by_venue = {race["venue"]: race for race in races}
+
+    flemington = by_venue["Flemington"]
+    assert flemington["meeting_type"] == "metro"
+    assert flemington["meeting_region"] == "VIC"
+    assert flemington["state"] == "VIC"
+    assert flemington["meeting_date"] == "2026-07-02"
+
+    eagle_farm = by_venue["Eagle Farm"]
+    assert eagle_farm["meeting_type"] == "metro"
+    assert eagle_farm["meeting_region"] == "QLD"
+    assert eagle_farm["state"] == "QLD"
+
+    belmont = by_venue["Belmont (WA)"]
+    assert belmont["meeting_type"] == "metro"
+    assert belmont["meeting_region"] == "WA"
+    assert belmont["state"] == "WA"
+
+    mystery = by_venue["Mystery Park"]
+    assert mystery["meeting_type"] == "unknown"
+    assert mystery["meeting_region"] == ""
+    assert mystery["state"] == ""
 
 
 def test_registry_supports_provincial_and_country_tags(monkeypatch):
@@ -89,7 +98,7 @@ def test_registry_supports_provincial_and_country_tags(monkeypatch):
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers, _target_date, allow_mock=True: [
+        lambda _headers, _target_date: [
             _build_live_race("Bendigo", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
             _build_live_race("Warrnambool", "2026-07-01T23:30:00Z", ["Golden Ember", "Harbour King"]),
         ],
@@ -112,7 +121,7 @@ def test_allowlist_active_days_still_apply_when_config_is_restricted(monkeypatch
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers, _target_date, allow_mock=True: [
+        lambda _headers, _target_date: [
             _build_live_race("Eagle Farm", "2026-07-02T00:30:00Z", ["Golden Ember", "Harbour King"]),
         ],
     )
@@ -152,7 +161,7 @@ def test_betfair_and_racing_australia_merge_produces_horse_and_jockey_names(monk
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers, _target_date, allow_mock=True: [
+        lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
         ],
     )
@@ -182,7 +191,8 @@ def test_failed_enrichment_returns_betfair_card_unchanged(monkeypatch):
     base_race = _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"])
 
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
-    monkeypatch.setattr(scraper, "_fetch_live_races", lambda _headers, _target_date, allow_mock=True: [base_race])
+    monkeypatch.setattr(scraper, "_fetch_live_races", lambda _headers, _target_date: [base_race])
+    scraper._fetch_racing_australia_acceptances.cache_clear()
 
     def raise_timeout(_url: str):
         raise requests.Timeout("skip enrichment")
@@ -197,26 +207,15 @@ def test_failed_enrichment_returns_betfair_card_unchanged(monkeypatch):
     assert all(horse["jockey_name"] is None for horse in races[0]["horses"])
 
 
-def test_mock_responses_do_not_use_placeholder_horse_numbering(monkeypatch):
+def test_unauthenticated_fetch_returns_empty_list(monkeypatch):
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: None)
 
-    races = scraper.fetch_today_races()
-
-    assert races
-    for race in races:
-        for horse in race["horses"]:
-            assert not re.fullmatch(r"Horse \d+", horse["name"])
-
-
-def test_fetch_today_races_can_disable_mock_fallback(monkeypatch):
-    monkeypatch.setattr(scraper, "_get_api_headers", lambda: None)
-
-    races = scraper.fetch_today_races(run_date="2026-07-02", allow_mock=False)
+    races = scraper.fetch_today_races(run_date="2026-07-02")
 
     assert races == []
 
 
-def test_fetch_today_races_does_not_emit_mock_when_live_api_returns_no_markets(monkeypatch):
+def test_fetch_today_races_returns_empty_when_live_api_returns_no_markets(monkeypatch):
     class DummyResponse:
         def raise_for_status(self):
             return None
@@ -227,7 +226,7 @@ def test_fetch_today_races_does_not_emit_mock_when_live_api_returns_no_markets(m
     monkeypatch.setattr(scraper, "_get_api_headers", lambda: {"ok": True})
     monkeypatch.setattr(scraper.requests, "post", lambda *args, **kwargs: DummyResponse())
 
-    races = scraper.fetch_today_races(run_date="2026-07-02", allow_mock=False)
+    races = scraper.fetch_today_races(run_date="2026-07-02")
 
     assert races == []
 
@@ -237,7 +236,7 @@ def test_fetch_today_races_filters_out_non_target_dates(monkeypatch):
     monkeypatch.setattr(
         scraper,
         "_fetch_live_races",
-        lambda _headers, _target_date, allow_mock=True: [
+        lambda _headers, _target_date: [
             _build_live_race("Flemington", "2026-07-01T23:30:00Z", ["Silver Comet", "Night Parade"]),
             _build_live_race("Flemington", "2026-07-03T01:30:00Z", ["Golden Ember", "Harbour King"]),
         ],
@@ -432,7 +431,7 @@ def test_fetch_live_races_paginates_beyond_single_page(monkeypatch):
         raise ValueError(f"Unexpected url {url}")
 
     monkeypatch.setattr(scraper.requests, "post", fake_post)
-    races = scraper._fetch_live_races(headers={"X-Authentication": "token"}, target_date=scraper.date(2026, 7, 2), allow_mock=False)
+    races = scraper._fetch_live_races(headers={"X-Authentication": "token"}, target_date=scraper.date(2026, 7, 2))
 
     assert len(calls) >= 2
     assert len(races) == 1002

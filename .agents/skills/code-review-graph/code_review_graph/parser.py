@@ -1,0 +1,16080 @@
+"""Tree-sitter based multi-language code parser.
+
+Extracts structural nodes (classes, functions, imports, types) and edges
+(calls, inheritance, contains) from source files.
+"""
+
+from __future__ import annotations
+
+import ast
+import hashlib
+import html
+import importlib
+import json
+import logging
+import math
+import os
+import re
+import subprocess
+import sys
+import threading
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path, PurePath
+from typing import Any, NamedTuple, Optional
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10
+    import tomli as tomllib  # type: ignore[import-not-found,no-redef]
+
+from .config_keys import is_spring_config_path, normalize_spring_config_key
+from .custom_languages import CustomLanguage, load_custom_languages
+
+try:
+    import yaml as _yaml  # type: ignore[import-untyped]
+    from yaml import MappingNode as _YamlMapping
+    from yaml import ScalarNode as _YamlScalar
+    from yaml import SequenceNode as _YamlSequence
+except ImportError:
+    _yaml = None  # type: ignore[assignment]
+    _YamlMapping = _YamlSequence = _YamlScalar = None  # type: ignore[assignment,misc]
+
+from .tsconfig_resolver import TsconfigResolver
+
+
+class CellInfo(NamedTuple):
+    """Represents a single cell in a notebook with its language."""
+    cell_index: int
+    language: str
+    source: str
+
+
+_SQL_TABLE_RE = re.compile(
+    r"(?:FROM|JOIN|INTO|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)|INSERT\s+OVERWRITE)"
+    r"\s+((?:`[^`]+`|\w+)(?:\.(?:`[^`]+`|\w+))*)",
+    re.IGNORECASE,
+)
+
+# dbt model dependencies: {{ ref('model') }}, {{ ref('package', 'model') }}
+# and {{ source('source_name', 'table') }}. String-literal arguments only —
+# dynamic ref() calls cannot be resolved statically.
+_DBT_REF_RE = re.compile(
+    r"\{\{-?\s*(ref|source)\s*\(\s*"
+    r"['\"]([^'\"]+)['\"]"
+    r"(?:\s*,\s*['\"]([^'\"]+)['\"])?"
+    r"\s*\)",
+)
+
+_PYTHON_STAR_CACHE_MAX = 15_000
+_PYTHON_STAR_EXPORT_CACHE: dict[tuple[str, int, int], dict[str, str]] = {}
+_PYTHON_STAR_EXPORT_CACHE_LOCK = threading.RLock()
+
+
+@lru_cache(maxsize=512)
+def _read_cargo_manifest(
+    manifest_path: str, _mtime_ns: int, _size: int,
+) -> dict[str, Any]:
+    """Read one Cargo manifest, keyed by immutable file identity metadata."""
+    try:
+        parsed = tomllib.loads(
+            Path(manifest_path).read_text(encoding="utf-8", errors="replace"),
+        )
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _load_cargo_manifest(path: Path) -> dict[str, Any]:
+    try:
+        stat = path.stat()
+        resolved = path.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return {}
+    return _read_cargo_manifest(str(resolved), stat.st_mtime_ns, stat.st_size)
+
+
+class _PythonScopeBindingVisitor(ast.NodeVisitor):
+    """Collect names bound in one Python lexical scope."""
+
+    def __init__(self) -> None:
+        self.names: set[str] = set()
+
+    def visit_Name(self, node: ast.Name) -> None:  # noqa: N802
+        if isinstance(node.ctx, (ast.Store, ast.Del)):
+            self.names.add(node.id)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self.names.add(node.name)
+
+    def visit_AsyncFunctionDef(  # noqa: N802
+        self,
+        node: ast.AsyncFunctionDef,
+    ) -> None:
+        self.names.add(node.name)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        self.names.add(node.name)
+
+    def visit_Lambda(self, node: ast.Lambda) -> None:  # noqa: N802
+        return
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            self.names.add(alias.asname or alias.name.split(".", 1)[0])
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        for alias in node.names:
+            if alias.name != "*":
+                self.names.add(alias.asname or alias.name)
+
+
+def _python_type_checking_aliases(
+    tree: ast.Module,
+) -> tuple[frozenset[str], frozenset[str]]:
+    """Return unshadowed aliases for ``typing.TYPE_CHECKING``."""
+    names: set[str] = set()
+    modules: set[str] = set()
+    shadowed: set[str] = set()
+    for statement in tree.body:
+        if isinstance(statement, ast.Import):
+            for alias in statement.names:
+                if alias.name == "typing":
+                    modules.add(alias.asname or "typing")
+                else:
+                    shadowed.add(
+                        alias.asname or alias.name.split(".", 1)[0],
+                    )
+        elif isinstance(statement, ast.ImportFrom) and statement.module == "typing":
+            for alias in statement.names:
+                if alias.name == "TYPE_CHECKING":
+                    names.add(alias.asname or alias.name)
+                elif alias.name != "*":
+                    shadowed.add(alias.asname or alias.name)
+        else:
+            bindings = _PythonScopeBindingVisitor()
+            bindings.visit(statement)
+            shadowed.update(bindings.names)
+    return frozenset(names - shadowed), frozenset(modules - shadowed)
+
+
+def _python_static_truth(
+    node: ast.expr,
+    type_checking_names: frozenset[str] = frozenset(),
+    typing_modules: frozenset[str] = frozenset(),
+) -> Optional[bool]:
+    """Return a truth value for the small constant subset we can prove."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, (bool, int)):
+        return bool(node.value)
+    if isinstance(node, ast.Name) and node.id in type_checking_names:
+        return False
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "TYPE_CHECKING"
+        and isinstance(node.value, ast.Name)
+        and node.value.id in typing_modules
+    ):
+        return False
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        value = _python_static_truth(
+            node.operand,
+            type_checking_names,
+            typing_modules,
+        )
+        return None if value is None else not value
+    if isinstance(node, ast.BoolOp):
+        values = [
+            _python_static_truth(
+                value,
+                type_checking_names,
+                typing_modules,
+            )
+            for value in node.values
+        ]
+        if isinstance(node.op, ast.And):
+            if False in values:
+                return False
+            return True if all(value is True for value in values) else None
+        if isinstance(node.op, ast.Or):
+            if True in values:
+                return True
+            return False if all(value is False for value in values) else None
+    return None
+
+
+class _PythonUnreachableCallVisitor(ast.NodeVisitor):
+    """Collect calls inside branches whose condition is statically false."""
+
+    def __init__(
+        self,
+        type_checking_names: frozenset[str],
+        typing_modules: frozenset[str],
+    ) -> None:
+        self._dead = False
+        self.positions: set[tuple[int, int]] = set()
+        self._type_checking_names = type_checking_names
+        self._typing_modules = typing_modules
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        if self._dead:
+            self.positions.add((node.lineno, node.col_offset))
+        self.generic_visit(node)
+
+    def visit_If(self, node: ast.If) -> None:  # noqa: N802
+        self.visit(node.test)
+        truth = _python_static_truth(
+            node.test,
+            self._type_checking_names,
+            self._typing_modules,
+        )
+        self._visit_statements(node.body, dead=truth is False)
+        self._visit_statements(node.orelse, dead=truth is True)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        self._visit_function(node)
+
+    def visit_AsyncFunctionDef(  # noqa: N802
+        self,
+        node: ast.AsyncFunctionDef,
+    ) -> None:
+        self._visit_function(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for base in node.bases:
+            self.visit(base)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+
+        bindings = _PythonScopeBindingVisitor()
+        for statement in node.body:
+            bindings.visit(statement)
+        outer_names = self._type_checking_names
+        outer_modules = self._typing_modules
+        self._type_checking_names = outer_names - bindings.names
+        self._typing_modules = outer_modules - bindings.names
+        self._visit_statements(node.body, dead=False)
+        self._type_checking_names = outer_names
+        self._typing_modules = outer_modules
+
+    def _visit_function(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> None:
+        for decorator in node.decorator_list:
+            self.visit(decorator)
+        for default in (*node.args.defaults, *node.args.kw_defaults):
+            if default is not None:
+                self.visit(default)
+        all_args = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        for argument in all_args:
+            if argument.annotation is not None:
+                self.visit(argument.annotation)
+        for optional_argument in (node.args.vararg, node.args.kwarg):
+            if (
+                optional_argument is not None
+                and optional_argument.annotation is not None
+            ):
+                self.visit(optional_argument.annotation)
+        if node.returns is not None:
+            self.visit(node.returns)
+
+        bindings = _PythonScopeBindingVisitor()
+        for statement in node.body:
+            bindings.visit(statement)
+        bindings.names.update(argument.arg for argument in all_args)
+        bindings.names.update(
+            argument.arg
+            for argument in (node.args.vararg, node.args.kwarg)
+            if argument is not None
+        )
+
+        outer_names = self._type_checking_names
+        outer_modules = self._typing_modules
+        self._type_checking_names = outer_names - bindings.names
+        self._typing_modules = outer_modules - bindings.names
+        self._visit_statements(node.body, dead=False)
+        self._type_checking_names = outer_names
+        self._typing_modules = outer_modules
+
+    def _visit_statements(
+        self,
+        statements: list[ast.stmt],
+        *,
+        dead: bool,
+    ) -> None:
+        outer_dead = self._dead
+        self._dead = outer_dead or dead
+        for statement in statements:
+            self.visit(statement)
+        self._dead = outer_dead
+
+
+@lru_cache(maxsize=128)
+def _python_unreachable_call_positions(
+    source: bytes,
+) -> frozenset[tuple[int, int]]:
+    """Return one-based line/byte-column positions of proven-dead calls."""
+    try:
+        tree = ast.parse(source.decode("utf-8"))
+    except (SyntaxError, UnicodeDecodeError, ValueError):
+        return frozenset()
+    type_checking_names, typing_modules = _python_type_checking_aliases(tree)
+    visitor = _PythonUnreachableCallVisitor(
+        type_checking_names,
+        typing_modules,
+    )
+    visitor.visit(tree)
+    return frozenset(visitor.positions)
+
+
+# ---------------------------------------------------------------------------
+# Non-Python static dead-guard detection (tree-sitter ancestor walk).
+#
+# ``_python_unreachable_call_positions`` above uses the ``ast`` module and so
+# only covers Python.  The helpers below cover languages ``ast`` cannot parse,
+# walking the tree-sitter ancestor chain of a call node:
+#
+#   * Go / TypeScript / JavaScript:  ``if false { ... }`` / ``if (0) { ... }``
+#   * C / C++:                       ``#if 0`` / ``#elif 0`` preprocessor blocks
+#
+# Only the consequence (true branch) is dead; ``else`` / ``#else`` / ``#elif``
+# branches stay live.
+# ---------------------------------------------------------------------------
+
+
+def _node_is_in_child(node, child_node) -> bool:
+    """Return True if *node* is *child_node* or one of its descendants.
+
+    Compares byte ranges because the tree-sitter Python bindings create a
+    fresh ``Node`` object on every ``child_by_field_name`` call, so ``is``
+    identity fails even when both sides refer to the same tree node.
+    """
+    start_byte, end_byte = child_node.start_byte, child_node.end_byte
+    cursor = node
+    while cursor is not None:
+        if cursor.start_byte == start_byte and cursor.end_byte == end_byte:
+            return True
+        cursor = cursor.parent
+    return False
+
+
+def _is_statically_false_condition(cond) -> bool:
+    """Return True if *cond* is a statically-false literal (non-Python).
+
+    * ``parenthesized_expression`` (TS/JS wrap ``if (expr)``) is unwrapped.
+    * ``false`` -- Go and TS/JS boolean literal.
+    * ``number`` equal to ``0`` -- TS/JS ``if (0)``.
+    """
+    if cond.type == "parenthesized_expression":
+        inner = cond.named_children
+        return _is_statically_false_condition(inner[0]) if inner else False
+    if cond.type == "false":
+        return True
+    # Literal ``0`` only. ``0x0`` / ``0.0`` are equally falsy but are left
+    # undetected on purpose: missing one is a dropped suppression, never a
+    # wrongly-suppressed live call, and evaluating arbitrary numeric literals
+    # invites its own bugs. Python's ``if 0:`` is handled by the ast path.
+    if cond.type == "number" and cond.text == b"0":
+        return True
+    return False
+
+
+def _is_in_static_dead_guard(node) -> bool:
+    """Return True if *node* sits in a statically-dead branch (non-Python).
+
+    Two independent ancestor walks:
+
+    * A walk for Go / TS / JS ``if false`` / ``if (0)``.
+    * A walk for C/C++ ``#if 0`` / ``#elif 0``.
+
+    Neither walk stops at a function or class boundary. A declaration
+    nested inside a dead branch is never evaluated, so calls in its body
+    are dead too -- matching what the Python ``ast`` path above already
+    does for a ``def`` or ``class`` under ``if False:``. Unlike Python,
+    JS/TS class declarations are not hoisted, so there is no reachable
+    symbol to preserve either.
+    """
+    # Go / TS / JS: ``if`` with a statically-false condition.
+    cursor = node.parent
+    while cursor is not None:
+        node_type = cursor.type
+        if node_type == "if_statement":
+            condition = cursor.child_by_field_name("condition")
+            consequence = cursor.child_by_field_name("consequence")
+            if (
+                condition is not None
+                and consequence is not None
+                and _is_statically_false_condition(condition)
+                and _node_is_in_child(node, consequence)
+            ):
+                return True
+        cursor = cursor.parent
+
+    # C / C++: ``#if 0`` / ``#elif 0`` preprocessor block.
+    preproc = node.parent
+    while preproc is not None:
+        if preproc.type in ("preproc_if", "preproc_elif"):
+            condition = preproc.child_by_field_name("condition")
+            if (
+                condition is not None
+                and condition.type == "number_literal"
+                and condition.text == b"0"
+            ):
+                alternative = preproc.child_by_field_name("alternative")
+                if not (
+                    alternative is not None
+                    and _node_is_in_child(node, alternative)
+                ):
+                    return True
+        preproc = preproc.parent
+
+    return False
+
+
+# SQL keywords that can appear after FROM/JOIN but are NOT table names.
+_SQL_KEYWORDS: frozenset[str] = frozenset({
+    "SELECT", "WHERE", "GROUP", "ORDER", "HAVING", "LIMIT", "OFFSET",
+    "UNION", "INTERSECT", "EXCEPT", "AS", "ON", "USING", "SET",
+    "VALUES", "DEFAULT", "NULL", "TRUE", "FALSE",
+    "INNER", "OUTER", "LEFT", "RIGHT", "FULL", "CROSS", "NATURAL",
+    "LATERAL", "RECURSIVE", "ONLY", "WITH",
+})
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_PARSER_LOAD_TIMEOUT_SECONDS = 5.0
+_PARSER_PROBE_RESULTS: dict[str, bool] = {}
+_PARSER_PROBE_FAILURE_DETAILS: dict[str, str] = {}
+_PARSER_PROBE_LOCK = threading.Lock()
+_EXPECTED_PARSER_LOAD_ERRORS = (ImportError, LookupError, OSError, ValueError)
+
+
+def _parser_load_timeout_seconds() -> float:
+    """Return a safe positive timeout for native grammar probes."""
+    raw = os.environ.get(
+        "CRG_PARSER_LOAD_TIMEOUT_SECONDS",
+        str(_DEFAULT_PARSER_LOAD_TIMEOUT_SECONDS),
+    )
+    try:
+        timeout = float(raw)
+    except ValueError:
+        timeout = _DEFAULT_PARSER_LOAD_TIMEOUT_SECONDS
+    if not math.isfinite(timeout) or timeout <= 0:
+        timeout = _DEFAULT_PARSER_LOAD_TIMEOUT_SECONDS
+    return timeout
+
+
+def _run_parser_load_probe(grammar: str, timeout_seconds: float) -> bool:
+    """Probe one native grammar in a disposable interpreter process."""
+    code = (
+        "from tree_sitter_language_pack import get_parser\n"
+        "import sys\n"
+        "get_parser(sys.argv[1])\n"
+    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", code, grammar],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            timeout=timeout_seconds,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        _PARSER_PROBE_FAILURE_DETAILS[grammar] = str(exc)
+        logger.debug("tree-sitter parser probe failed for %s: %s", grammar, exc)
+        return False
+    if completed.returncode == 0:
+        _PARSER_PROBE_FAILURE_DETAILS.pop(grammar, None)
+        return True
+
+    raw_stderr = getattr(completed, "stderr", b"")
+    if isinstance(raw_stderr, bytes):
+        stderr = raw_stderr.decode("utf-8", errors="replace")
+    else:
+        stderr = str(raw_stderr)
+    detail = next(
+        (line.strip() for line in reversed(stderr.splitlines()) if line.strip()),
+        f"probe exited with status {completed.returncode}",
+    )
+    _PARSER_PROBE_FAILURE_DETAILS[grammar] = detail[:500]
+    return False
+
+
+def _parser_load_probe_succeeds(
+    grammar: str,
+    timeout_seconds: float | None = None,
+) -> bool:
+    """Return a process-cached result for one bounded grammar probe.
+
+    The lock deliberately covers the subprocess call: parallel parser users
+    must not start duplicate probes for the same grammar while the first one
+    is still running.
+    """
+    with _PARSER_PROBE_LOCK:
+        cached = _PARSER_PROBE_RESULTS.get(grammar)
+        if cached is not None:
+            return cached
+        timeout = (
+            _parser_load_timeout_seconds()
+            if timeout_seconds is None
+            else timeout_seconds
+        )
+        result = _run_parser_load_probe(grammar, timeout)
+        _PARSER_PROBE_RESULTS[grammar] = result
+        if not result:
+            detail = _PARSER_PROBE_FAILURE_DETAILS.get(grammar)
+            if detail:
+                logger.warning(
+                    "Skipping unavailable tree-sitter parser for %s: %s",
+                    grammar,
+                    detail,
+                )
+            else:
+                logger.warning(
+                    "Skipping unavailable tree-sitter parser for %s",
+                    grammar,
+                )
+        return result
+
+
+def _mark_parser_unavailable(grammar: str) -> None:
+    """Prevent repeated parent-process loads after an expected failure."""
+    with _PARSER_PROBE_LOCK:
+        _PARSER_PROBE_RESULTS[grammar] = False
+
+
+def _clear_parser_probe_cache() -> None:
+    """Clear process-level probe state (used by focused tests)."""
+    with _PARSER_PROBE_LOCK:
+        _PARSER_PROBE_RESULTS.clear()
+        _PARSER_PROBE_FAILURE_DETAILS.clear()
+
+
+def _load_tree_sitter_parser(grammar: str):
+    """Load a probed grammar, suppressing only known availability errors."""
+    if not _parser_load_probe_succeeds(grammar):
+        return None
+    try:
+        language_pack = importlib.import_module("tree_sitter_language_pack")
+        return language_pack.get_parser(grammar)  # type: ignore[attr-defined]
+    except _EXPECTED_PARSER_LOAD_ERRORS as exc:
+        _mark_parser_unavailable(grammar)
+        logger.debug("tree-sitter parser unavailable for %s: %s", grammar, exc)
+        return None
+
+
+_PhpPsr4Mappings = tuple[tuple[str, tuple[str, ...]], ...]
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    """Return whether *path* is inside *root* after both are resolved."""
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+@lru_cache(maxsize=128)
+def _read_php_composer_psr4(
+    composer_path: str,
+    repo_root: str,
+    _mtime_ns: int,
+    _size: int,
+) -> _PhpPsr4Mappings:
+    """Read immutable, shape-safe PSR-4 mappings from one composer.json."""
+    composer = Path(composer_path)
+    root = Path(repo_root)
+    try:
+        data = json.loads(
+            composer.read_text(encoding="utf-8", errors="replace"),
+        )
+    except (OSError, json.JSONDecodeError):
+        return ()
+    if not isinstance(data, dict):
+        return ()
+
+    combined: dict[str, list[str]] = {}
+    for section_name in ("autoload", "autoload-dev"):
+        section = data.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        psr4 = section.get("psr-4")
+        if not isinstance(psr4, dict):
+            continue
+        for raw_prefix, raw_paths in psr4.items():
+            if not isinstance(raw_prefix, str):
+                continue
+            prefix = raw_prefix.lstrip("\\").rstrip("\\")
+            candidate_paths = (
+                [raw_paths] if isinstance(raw_paths, str)
+                else raw_paths if isinstance(raw_paths, list)
+                else []
+            )
+            destinations = combined.setdefault(prefix, [])
+            for raw_path in candidate_paths:
+                if not isinstance(raw_path, str):
+                    continue
+                try:
+                    destination = (composer.parent / raw_path).resolve()
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if not _path_is_within(destination, root):
+                    continue
+                destination_str = str(destination)
+                if destination_str not in destinations:
+                    destinations.append(destination_str)
+
+    return tuple(
+        (prefix, tuple(destinations))
+        for prefix, destinations in sorted(
+            combined.items(),
+            key=lambda item: (-len(item[0]), item[0]),
+        )
+        if destinations
+    )
+
+
+# ---------------------------------------------------------------------------
+# Data models for extracted entities
+# ---------------------------------------------------------------------------
+
+
+def normalize_file_path(path: "str | PurePath") -> str:
+    """Return *path* as a forward-slash (POSIX) string for graph identity.
+
+    ``file_path`` values and the path component of qualified names are graph
+    identity: they must be separator-stable across operating systems so a
+    graph built on Windows produces the same identifiers as one built on
+    Linux/macOS, and so consumers that reconstruct identifiers from ``Path``
+    objects always agree with the parser. See issue #774.
+
+    Only apply this to file *paths* — never to symbol names: PHP namespace
+    identifiers (``App\\Domain\\Job``) legitimately contain backslashes.
+    """
+    if isinstance(path, PurePath):
+        return path.as_posix()
+    return str(path).replace("\\", "/")
+
+
+@dataclass
+class NodeInfo:
+    kind: str  # File, Class, Function, Type, Test
+    name: str
+    file_path: str
+    line_start: int
+    line_end: int
+    language: str = ""
+    parent_name: Optional[str] = None  # enclosing class/module
+    params: Optional[str] = None
+    return_type: Optional[str] = None
+    modifiers: Optional[str] = None
+    is_test: bool = False
+    extra: dict = field(default_factory=dict)
+    identity_name: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        # Identity invariant (#774): file paths always use POSIX separators.
+        # File nodes carry their path in ``name`` as well.
+        self.file_path = normalize_file_path(self.file_path)
+        if self.kind == "File":
+            self.name = normalize_file_path(self.name)
+
+
+@dataclass
+class EdgeInfo:
+    # CALLS, IMPORTS_FROM, INHERITS, IMPLEMENTS, CONTAINS,
+    # TESTED_BY, DEPENDS_ON, REFERENCES
+    kind: str
+    source: str  # qualified name or path
+    target: str  # qualified name or path
+    file_path: str
+    line: int = 0
+    extra: dict = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        # Identity invariant (#774): file paths always use POSIX separators.
+        # ``source``/``target`` are left alone — they may contain qualified
+        # names whose symbol part legitimately embeds backslashes (PHP FQNs).
+        self.file_path = normalize_file_path(self.file_path)
+
+
+# ---------------------------------------------------------------------------
+# Language extension mapping
+# ---------------------------------------------------------------------------
+
+EXTENSION_TO_LANGUAGE: dict[str, str] = {
+    ".py": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".ts": "typescript",
+    ".tsx": "tsx",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".cs": "csharp",
+    ".rb": "ruby",
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".cxx": "cpp",
+    ".c": "c",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".hh": "cpp",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".php": "php",
+    ".scala": "scala",
+    ".sol": "solidity",
+    ".vue": "vue",
+    ".dart": "dart",
+    ".r": "r",  # .lower() in detect_language handles .R → .r
+    ".mjs": "javascript",
+    ".astro": "typescript",
+    ".pl": "perl",
+    ".pm": "perl",
+    ".t": "perl",
+    ".xs": "c",  # Perl XS: parsed as C to capture functions/structs/includes
+    ".lua": "lua",
+    ".luau": "luau",
+    ".m": "objc",  # Objective-C (.h still maps to C; .mm defers to C++ for simplicity)
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".ksh": "bash",  # Korn shell — close enough to bash for tree-sitter-bash (#235)
+    ".ex": "elixir",
+    ".exs": "elixir",
+    ".ipynb": "notebook",
+    ".zig": "zig",
+    ".ps1": "powershell",
+    ".psm1": "powershell",
+    ".psd1": "powershell",
+    ".svelte": "svelte",
+    ".jl": "julia",
+    # ReScript: .res is implementation, .resi is interface. Both share one
+    # language label; the parser flags interface files via extra metadata.
+    # No tree-sitter grammar is bundled in tree_sitter_language_pack, so
+    # extraction is regex-based (see _parse_rescript).
+    ".res": "rescript",
+    ".resi": "rescript",
+    ".gd": "gdscript",
+    ".nix": "nix",
+    # SystemVerilog/Verilog
+    ".sv": "verilog",
+    ".svh": "verilog",
+    ".v": "verilog",
+    ".vh": "verilog",
+    # tree-sitter-language-pack does not currently bundle Visual Basic.
+    # Keep the fallback deliberately structural and repository-local.
+    ".vb": "vbnet",
+    ".sql": "sql",
+    ".tf": "hcl",
+    ".hcl": "hcl",
+    ".properties": "properties",
+    ".yml": "yaml",
+    ".yaml": "yaml",
+}
+
+# ``.h`` is shared by C and C++. Keep C as the extension default, then promote
+# a header only when the C++ grammar finds syntax that C cannot express. Weak
+# compatibility markers such as ``__cplusplus`` and ``extern "C"`` are
+# deliberately excluded because they are common in otherwise-C headers.
+_CPP_HEADER_EVIDENCE_TYPES = frozenset({
+    "access_specifier",
+    "alias_declaration",
+    "base_class_clause",
+    "class_specifier",
+    "concept_definition",
+    "lambda_expression",
+    "namespace_definition",
+    "noexcept",
+    "template_declaration",
+    "trailing_return_type",
+    "using_declaration",
+})
+
+_CPP_HEADER_EVIDENCE_QUALIFIERS = frozenset({b"consteval", b"constinit"})
+
+_CPP_QT_STRUCTURAL_MACRO_REPLACEMENTS = {
+    b"QT_BEGIN_NAMESPACE": b" " * len(b"QT_BEGIN_NAMESPACE"),
+    b"QT_END_NAMESPACE": b" " * len(b"QT_END_NAMESPACE"),
+    b"Q_OBJECT": b" " * len(b"Q_OBJECT"),
+    b"Q_SIGNALS": b"public" + b" " * (len(b"Q_SIGNALS") - len(b"public")),
+    b"Q_SLOTS": b" " * len(b"Q_SLOTS"),
+    b"Q_EMIT": b" " * len(b"Q_EMIT"),
+}
+
+# Shebang interpreter → language mapping for extension-less Unix scripts.
+# Each key is the **basename** of the interpreter path as it appears after
+# ``#!`` (or after ``#!/usr/bin/env``).  Only languages already registered
+# above are listed — this file strictly routes extension-less scripts, it
+# does NOT introduce new languages on its own.  See issue #237.
+SHEBANG_INTERPRETER_TO_LANGUAGE: dict[str, str] = {
+    # POSIX / bash-compatible shells — all routed through tree-sitter-bash
+    "bash": "bash",
+    "sh": "bash",
+    "zsh": "bash",
+    "ksh": "bash",
+    "dash": "bash",
+    "ash": "bash",
+    # Python (every common variant)
+    "python": "python",
+    "python2": "python",
+    "python3": "python",
+    "pypy": "python",
+    "pypy3": "python",
+    # JavaScript via Node
+    "node": "javascript",
+    "nodejs": "javascript",
+    # Ruby / Perl / Lua / R / PHP
+    "ruby": "ruby",
+    "perl": "perl",
+    "lua": "lua",
+    "Rscript": "r",
+    "php": "php",
+}
+
+# Maximum bytes to read from the head of a file when probing for a shebang.
+# 256 is enough for any reasonable shebang line (``#!/usr/bin/env python3 -u\n``
+# is ~30 chars) while keeping the worst-case read tiny even on fat binaries.
+_SHEBANG_PROBE_BYTES = 256
+
+# ---------------------------------------------------------------------------
+# Ansible YAML constants
+# ---------------------------------------------------------------------------
+
+# Path components that strongly suggest an Ansible project layout
+_ANSIBLE_PATH_COMPONENTS: frozenset[str] = frozenset({
+    "playbooks", "roles", "tasks", "handlers", "group_vars", "host_vars",
+})
+
+# Common top-level playbook filenames (still require content confirmation)
+_ANSIBLE_PLAYBOOK_NAMES: frozenset[str] = frozenset({
+    "site.yml", "site.yaml", "main.yml", "main.yaml",
+    "install.yml", "install.yaml", "deploy.yml", "deploy.yaml",
+})
+
+# Play-level keys that are ONLY valid in Ansible plays.
+# `hosts:` alone is not sufficient to identify a play — require at least one of these.
+_ANSIBLE_PLAY_KEYS: frozenset[str] = frozenset({
+    "tasks", "handlers", "pre_tasks", "post_tasks", "roles",
+    "gather_facts", "become", "become_user", "become_method",
+    "serial", "strategy", "vars_files", "vars_prompt",
+    "any_errors_fatal", "max_fail_percentage", "ignore_errors",
+})
+
+# Bare module names for content sniffing; also used after FQCN prefix strip
+_ANSIBLE_MODULE_KEYS: frozenset[str] = frozenset({
+    "apt", "yum", "dnf", "package", "pip", "copy", "template", "file",
+    "service", "systemd", "command", "shell", "raw", "git", "user", "stat",
+    "include_tasks", "import_tasks", "include_role", "import_role",
+    "set_fact", "debug", "fail", "assert", "wait_for", "pause",
+    "lineinfile", "blockinfile", "get_url", "uri", "unarchive",
+    "add_host", "group_by", "include_vars",
+})
+
+# Task mapping keys that are metadata, NOT module invocations
+_TASK_META_KEYS: frozenset[str] = frozenset({
+    "name", "when", "loop", "loop_control",
+    "with_items", "with_first_found", "with_fileglob", "with_dict",
+    "with_subelements", "with_nested", "with_sequence", "with_indexed_items",
+    "register", "notify", "tags", "become", "become_user", "become_method",
+    "ignore_errors", "vars", "no_log", "check_mode", "environment",
+    "any_errors_fatal", "run_once", "delegate_to", "delegate_facts",
+    "block", "rescue", "always",
+    "changed_when", "failed_when", "retries", "delay", "until",
+    "listen", "connection", "timeout",
+})
+
+# Tree-sitter node type mappings per language
+# Maps (language) -> dict of semantic role -> list of TS node types
+_CLASS_TYPES: dict[str, list[str]] = {
+    "python": ["class_definition"],
+    "javascript": ["class_declaration", "class"],
+    # TS types are declarations, not just runtime classes: an interface or type
+    # alias is the thing callers depend on, so it needs a node of its own the way
+    # Java/C#/PHP interfaces do. Without them a types-only module (types.ts,
+    # *.d.ts) contributes zero symbol nodes and its blast radius collapses to
+    # whole-file IMPORTS_FROM fan-out. See: #737
+    "typescript": [
+        "class_declaration", "class",
+        "interface_declaration", "type_alias_declaration", "enum_declaration",
+    ],
+    "tsx": [
+        "class_declaration", "class",
+        "interface_declaration", "type_alias_declaration", "enum_declaration",
+    ],
+    "go": ["type_declaration"],
+    # impl_item is a scope for methods, not a second type definition. It is
+    # dispatched separately so repeated impl blocks cannot overwrite structs.
+    "rust": ["struct_item", "enum_item", "trait_item"],
+    "java": ["class_declaration", "interface_declaration", "enum_declaration"],
+    "c": ["struct_specifier", "type_definition"],
+    "cpp": ["class_specifier", "struct_specifier"],
+    "csharp": [
+        "class_declaration", "interface_declaration",
+        "enum_declaration", "struct_declaration",
+        "record_declaration", "record_struct_declaration",
+    ],
+    "ruby": ["class", "module"],
+    "r": [],  # Classes detected via call pattern-matching, not AST node types
+    "perl": ["package_statement", "class_statement", "role_statement"],
+    "kotlin": ["class_declaration", "object_declaration"],
+    "swift": ["class_declaration", "struct_declaration", "protocol_declaration"],
+    "php": [
+        "class_declaration", "interface_declaration",
+        "trait_declaration", "enum_declaration",
+    ],
+    "scala": [
+        "class_definition", "trait_definition", "object_definition", "enum_definition",
+    ],
+    "solidity": [
+        "contract_declaration", "interface_declaration", "library_declaration",
+        "struct_declaration", "enum_declaration", "error_declaration",
+        "user_defined_type_definition",
+    ],
+    "dart": ["class_definition", "mixin_declaration", "enum_declaration"],
+    "lua": [],  # Lua has no class keyword; table-based OOP handled via constructs handler
+    "luau": ["type_definition"],  # Luau type aliases; table-based OOP via constructs handler
+    "objc": [
+        "class_interface", "class_implementation",
+        "category_interface", "protocol_declaration",
+    ],
+    "bash": [],  # Shell has no classes
+    # Elixir: `defmodule Name do ... end` is a ``call`` node whose first
+    # identifier is literally "defmodule". Dispatched via
+    # _extract_elixir_constructs to avoid matching every ``call`` here.
+    "elixir": [],
+    # Nix: attrset bindings aren't "classes"; dispatched via
+    # _extract_nix_constructs.
+    "nix": [],
+    # Zig has no single class node; struct/union/enum/opaque are VarDecl
+    # whose RHS is a SuffixExpr > ContainerDecl. Dispatched via
+    # _extract_zig_constructs.
+    "zig": [],
+    "powershell": ["class_statement"],
+    "julia": [
+        "struct_definition", "abstract_definition", "module_definition",
+    ],
+    "verilog": [
+        "module_declaration",
+        "interface_declaration",
+        "class_declaration",
+        "package_declaration",
+    ],
+    # GDScript: inner classes use ``class Name:`` (class_definition); the
+    # file-level ``class_name Name`` gives the script itself an identity.
+    "gdscript": ["class_definition", "class_name_statement"],
+    # SQL: CREATE TABLE / CREATE VIEW are handled via _parse_sql dispatch.
+    "sql": [],
+    # HCL/Terraform: all constructs are blocks; dispatched via
+    # _extract_hcl_constructs.
+    "hcl": [],
+}
+
+# TS/TSX heritage clauses. Classes wrap theirs in class_heritage; interfaces use
+# extends_type_clause. A type_identifier inside one is already covered by an
+# INHERITS edge, so it must not also emit REFERENCES.
+_TS_HERITAGE_CLAUSES = frozenset({
+    "extends_clause", "implements_clause", "extends_type_clause",
+})
+
+# TS/TSX declarations whose ``name`` field is a type_identifier. That occurrence
+# is the definition site, not a use of the type.
+_TS_TYPE_DECLARATIONS = frozenset({
+    "class_declaration", "abstract_class_declaration", "interface_declaration",
+    "type_alias_declaration", "enum_declaration",
+})
+
+_FUNCTION_TYPES: dict[str, list[str]] = {
+    "python": ["function_definition"],
+    "javascript": ["function_declaration", "method_definition", "arrow_function"],
+    "typescript": ["function_declaration", "method_definition", "arrow_function"],
+    "tsx": ["function_declaration", "method_definition", "arrow_function"],
+    "go": ["function_declaration", "method_declaration"],
+    "rust": ["function_item", "function_signature_item"],
+    "java": ["method_declaration", "constructor_declaration"],
+    "c": ["function_definition"],
+    "cpp": ["function_definition", "declaration", "field_declaration"],
+    "csharp": ["method_declaration", "constructor_declaration"],
+    "ruby": ["method", "singleton_method"],
+    "r": ["function_definition"],
+    "perl": ["subroutine_declaration_statement", "method_declaration_statement"],
+    "kotlin": ["function_declaration"],
+    # Swift: initializers, deinitializers and subscripts are separate node
+    # types, not `function_declaration`s, so they need listing alongside it —
+    # the same way java/csharp list `constructor_declaration`. Their names come
+    # from the `_get_name` Swift branch (the grammar has no usable name field).
+    "swift": [
+        "function_declaration",
+        "init_declaration",
+        "deinit_declaration",
+        "subscript_declaration",
+    ],
+    "php": ["function_definition", "method_declaration"],
+    "scala": ["function_definition", "function_declaration"],
+    # Solidity: events and modifiers use kind="Function" because the graph
+    # schema has no dedicated kind for them.  State variables are also modeled
+    # as Function nodes (public ones auto-generate getters) and distinguished
+    # via extra["solidity_kind"].
+    "solidity": [
+        "function_definition", "constructor_definition", "modifier_definition",
+        "event_definition", "fallback_receive_definition",
+    ],
+    # Dart: function_signature covers both top-level functions and class methods
+    # (class methods appear as method_signature > function_signature pairs;
+    # the parser recurses into method_signature generically and then matches
+    # function_signature inside it).
+    "dart": ["function_signature"],
+    "lua": ["function_declaration"],
+    "luau": ["function_declaration"],
+    # Objective-C: method_definition lives inside implementation_definition
+    # inside class_implementation. C-style function_definition is also present
+    # for main() and helper functions.
+    "objc": ["method_definition", "function_definition"],
+    # Bash: only function_definition; everything else is a command.
+    "bash": ["function_definition"],
+    # Elixir: def/defp/defmacro are all ``call`` nodes whose first
+    # identifier matches. Dispatched via _extract_elixir_constructs.
+    "elixir": [],
+    # Nix: `attrpath = expr;` bindings become Function nodes —
+    # handled in _extract_nix_constructs.
+    "nix": [],
+    # Zig: FnProto+Block pairs sit inside a Decl node; the standard generic
+    # walker can't bridge the FnProto signature to its sibling Block body,
+    # so the whole thing is dispatched via _extract_zig_constructs.
+    "zig": [],
+    "powershell": ["function_statement"],
+    # Julia: short-form functions `f(x) = expr` parse as `assignment` nodes
+    # (not a dedicated definition node) and are handled in
+    # _extract_julia_constructs.
+    "julia": [
+        "function_definition",
+        "macro_definition",
+    ],
+    "verilog": ["task_declaration", "function_declaration", "always_construct"],
+    # GDScript: ``func name(args) -> ReturnType:`` — includes ``static func``.
+    "gdscript": ["function_definition"],
+    # SQL: CREATE FUNCTION / CREATE PROCEDURE handled via _parse_sql dispatch.
+    "sql": [],
+    # HCL/Terraform: dispatched via _extract_hcl_constructs.
+    "hcl": [],
+}
+
+_IMPORT_TYPES: dict[str, list[str]] = {
+    "python": ["import_statement", "import_from_statement"],
+    "javascript": ["import_statement"],
+    "typescript": ["import_statement"],
+    "tsx": ["import_statement"],
+    "go": ["import_declaration"],
+    "rust": ["use_declaration"],
+    "java": ["import_declaration"],
+    "c": ["preproc_include"],
+    "cpp": ["preproc_include"],
+    "csharp": ["using_directive"],
+    "ruby": ["call"],  # require/require_relative
+    "r": ["call"],  # library(), require(), source() — filtered downstream
+    "perl": ["use_statement", "require_expression"],
+    "kotlin": ["import_header"],
+    "swift": ["import_declaration"],
+    "php": ["namespace_use_declaration"],
+    "scala": ["import_declaration"],
+    "solidity": ["import_directive"],
+    # Dart: import_or_export wraps library_import > import_specification > configurable_uri
+    "dart": ["import_or_export"],
+    # Lua/Luau: require() is a function_call, handled via _extract_lua_constructs
+    "lua": [],
+    "luau": [],
+    # Objective-C: #import "..." and #include "..." both arrive as preproc_include
+    # (tree-sitter-objc doesn't distinguish via a separate preproc_import node).
+    "objc": ["preproc_include"],
+    # Bash: source / . <file> is a command — handled in _extract_bash_source below.
+    "bash": [],
+    # Elixir: alias/import/require/use are all ``call`` nodes —
+    # handled in _extract_elixir_constructs.
+    "elixir": [],
+    # Nix: `import ./x.nix`, `callPackage ./y.nix {}`, and flake
+    # `inputs.*.url` strings become IMPORTS_FROM edges —
+    # handled in _extract_nix_constructs.
+    "nix": [],
+    # Zig: @import("path") is a SuffixExpr containing a BUILTINIDENTIFIER
+    # "@import" + FnCallArguments holding a STRINGLITERALSINGLE. Handled in
+    # _extract_zig_constructs as part of VarDecl processing.
+    "zig": [],
+    "powershell": [],
+    # Julia: import/using are import_statement nodes.
+    "julia": ["import_statement", "using_statement"],
+    "verilog": ["package_import_declaration"],
+    # GDScript has no ``import`` keyword. The closest analogue is
+    # ``extends OtherClass`` / ``extends "res://path.gd"``, which establishes
+    # a hard dependency on the parent script. preload()/load() calls remain
+    # as ordinary CALLS edges.
+    "gdscript": ["extends_statement"],
+    # SQL: table references extracted as IMPORTS_FROM via _parse_sql dispatch.
+    "sql": [],
+    # HCL/Terraform: module source attributes become IMPORTS_FROM via
+    # _extract_hcl_constructs.
+    "hcl": [],
+}
+
+_CALL_TYPES: dict[str, list[str]] = {
+    "python": ["call"],
+    "javascript": ["call_expression", "new_expression"],
+    "typescript": ["call_expression", "new_expression"],
+    "tsx": ["call_expression", "new_expression"],
+    "go": ["call_expression"],
+    "rust": ["call_expression", "macro_invocation"],
+    "java": ["method_invocation", "object_creation_expression", "method_reference"],
+    "c": ["call_expression"],
+    "cpp": ["call_expression"],
+    "csharp": ["invocation_expression", "object_creation_expression"],
+    "ruby": ["call", "method_call"],
+    "r": ["call"],
+    "perl": [
+        "function_call_expression", "method_call_expression",
+        "ambiguous_function_call_expression",
+    ],
+    "kotlin": ["call_expression"],
+    "swift": ["call_expression"],
+    "php": [
+        "function_call_expression",
+        "member_call_expression",
+        "scoped_call_expression",
+        "nullsafe_member_call_expression",
+        "object_creation_expression",
+    ],
+    "scala": ["call_expression", "instance_expression", "generic_function"],
+    "solidity": ["call_expression"],
+    "lua": ["function_call"],
+    "luau": ["function_call"],
+    # Objective-C: [receiver message:args] produces message_expression;
+    # C-style foo(x) produces call_expression.
+    "objc": ["message_expression", "call_expression"],
+    # Bash: every command invocation is a "command" node.
+    "bash": ["command"],
+    # Elixir: everything is a ``call`` node — dispatched via
+    # _extract_elixir_constructs which filters out def/defmodule/alias/etc.
+    # before treating what's left as a real call.
+    "elixir": [],
+    # Nix: function application is ubiquitous; only import/callPackage
+    # produce edges, in _extract_nix_constructs.
+    "nix": [],
+    # Zig calls are SuffixExpr/FieldOrFnCall nodes containing FnCallArguments.
+    # Mapping SuffixExpr here would over-match (every expression is a
+    # SuffixExpr); calls are walked explicitly in
+    # _extract_zig_calls_in_subtree from inside function bodies.
+    "zig": [],
+    "powershell": ["command_expression"],
+    "julia": [
+        "call_expression",
+        "broadcast_call_expression",
+        "macrocall_expression",
+    ],
+    "verilog": [
+        "module_instantiation",
+        "interface_instantiation",
+        "function_subroutine_call",
+        "subroutine_call",
+        "system_tf_call",
+    ],
+    # GDScript: bare calls produce ``call``; ``obj.method()`` is an
+    # ``attribute`` node whose right-hand side is an ``attribute_call``.
+    "gdscript": ["call", "attribute_call"],
+    # SQL: no call edges extracted (grammar too unreliable for procedure calls).
+    "sql": [],
+    # HCL/Terraform: resource references dispatched via _extract_hcl_constructs.
+    "hcl": [],
+}
+
+
+def _builtin_language_names() -> frozenset[str]:
+    """All built-in language identifiers.
+
+    Used to stop config-driven custom languages (languages.toml) from
+    shadowing a built-in language name — built-ins always win.
+    """
+    return (
+        frozenset(EXTENSION_TO_LANGUAGE.values())
+        | frozenset(_CLASS_TYPES)
+        | frozenset(_FUNCTION_TYPES)
+        | frozenset(_IMPORT_TYPES)
+        | frozenset(_CALL_TYPES)
+    )
+
+
+# Patterns that indicate a test function
+_TEST_PATTERNS = [
+    re.compile(r"^test_"),
+    re.compile(r"^Test"),
+    re.compile(r"_test$"),
+    re.compile(r"\.test\."),
+    re.compile(r"\.spec\."),
+    re.compile(r"_spec$"),
+]
+
+_TEST_FILE_PATTERNS = [
+    re.compile(r"test_.*\.py$"),
+    re.compile(r".*_test\.py$"),
+    re.compile(r".*\.test\.[jt]sx?$"),
+    re.compile(r".*\.spec\.[jt]sx?$"),
+    re.compile(r".*_test\.go$"),
+    re.compile(r"tests?/"),
+    re.compile(r"[\\/]__tests__[\\/]"),
+    re.compile(r".*_test\.dart$"),
+    re.compile(r"test[_-].*\.[rR]$"),
+    re.compile(r"tests/testthat/"),
+    re.compile(r".*Test\.kt$"),
+    re.compile(r".*Test\.java$"),
+    re.compile(r".*_test\.resi?$"),
+    re.compile(r".*\.test\.resi?$"),
+    re.compile(r"test/runtests\.jl$"),
+    re.compile(r"test/.*\.jl$"),
+]
+
+_TEST_RUNNER_NAMES = frozenset({
+    "describe", "it", "test", "beforeEach", "afterEach",
+    "beforeAll", "afterAll",
+    # Mocha TDD interface: `suite` is the describe-equivalent.
+    # `test`, the it-equivalent, is already covered above.
+    "suite",
+})
+
+# Annotations/decorators that mark test methods (JUnit, TestNG, etc.)
+_TEST_ANNOTATIONS = frozenset({
+    "Test", "ParameterizedTest", "RepeatedTest", "TestFactory",
+    "org.junit.Test", "org.junit.jupiter.api.Test",
+    # Rust: built-in `#[test]` plus common async-runtime + framework
+    # variants. Stripped of the `#[ ]` wrapper before lookup.
+    "test", "tokio::test", "async_std::test",
+    "rstest", "rstest::rstest", "proptest",
+})
+
+# Spring stereotype annotations that mark classes as managed beans
+_SPRING_STEREOTYPE_ANNOTATIONS = frozenset({
+    "Component", "Service", "Repository", "Controller", "RestController",
+    "Configuration", "Indexed", "ControllerAdvice", "RestControllerAdvice",
+    "EventListener",
+})
+
+# Spring DI injection annotations (field/setter/constructor-level)
+_SPRING_INJECT_ANNOTATIONS = frozenset({
+    "Autowired", "Inject", "Resource",
+})
+_SPRING_PLACEHOLDER_RE = re.compile(r"\$\{([^{}]+)\}")
+
+# Temporal workflow/activity interface markers
+_TEMPORAL_INTERFACE_ANNOTATIONS = frozenset({
+    "WorkflowInterface", "ActivityInterface",
+})
+
+# Temporal method-level markers
+_TEMPORAL_METHOD_ANNOTATIONS = frozenset({
+    "WorkflowMethod", "ActivityMethod", "SignalMethod", "QueryMethod",
+})
+
+# Kafka consumer annotations (annotation-based pattern)
+_KAFKA_LISTENER_ANNOTATIONS = frozenset({"KafkaListener", "KafkaHandler"})
+
+# Kafka consumer field types (reactive / imperative)
+_KAFKA_CONSUMER_TYPES = frozenset({
+    "KafkaReceiver",
+    "ReactiveKafkaConsumerTemplate",
+    "MessageListenerContainer",
+    "ConcurrentMessageListenerContainer",
+})
+
+# Kafka producer field types
+_KAFKA_PRODUCER_TYPES = frozenset({
+    "KafkaTemplate",
+    "KafkaOperations",
+    "ReactiveKafkaProducerTemplate",
+    "KafkaSender",
+})
+
+# Spring scheduling annotations. ``Scheduled`` is repeatable; ``Schedules``
+# is its explicit Java container form.
+_SPRING_SCHEDULED_ANNOTATIONS = frozenset({"Scheduled", "Schedules"})
+
+_SPRING_EVENT_LISTENER_ANNOTATIONS = frozenset({"EventListener"})
+_SPRING_EVENT_PUBLISH_METHODS = frozenset({"publishEvent"})
+_JAVA_PACKAGE_KEY = "__crg_java_package__"
+_SPRING_REQUEST_PREFIX_KEY = "__crg_spring_request_prefix__:"
+_JS_IMPORT_ORIGINAL_PREFIX_KEY = "__crg_js_import_original__:"
+_SPRING_REQUEST_MAPPINGS = {
+    "DeleteMapping": ("DELETE",),
+    "GetMapping": ("GET",),
+    "PatchMapping": ("PATCH",),
+    "PostMapping": ("POST",),
+    "PutMapping": ("PUT",),
+    "RequestMapping": (),
+}
+_SPRING_WEBFLUX_HTTP_VERBS = frozenset({"DELETE", "GET", "PATCH", "POST", "PUT"})
+_HTTP_REQUEST_METHODS = frozenset({
+    "CONNECT", "DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE",
+})
+
+
+# ---------------------------------------------------------------------------
+# VB.NET regex patterns and helpers (no tree-sitter grammar bundled)
+# ---------------------------------------------------------------------------
+
+_VBNET_IDENT = r"(?:[A-Za-z_][A-Za-z0-9_]*|\[[^\]\r\n]+\])"
+_VBNET_DOTTED_IDENT = rf"{_VBNET_IDENT}(?:\.{_VBNET_IDENT})*"
+_VBNET_MODIFIER_WORDS = (
+    "Public",
+    "Private",
+    "Protected",
+    "Friend",
+    "Partial",
+    "Shared",
+    "Static",
+    "MustInherit",
+    "NotInheritable",
+    "Overridable",
+    "Overrides",
+    "MustOverride",
+    "Overloads",
+    "Default",
+    "ReadOnly",
+    "WriteOnly",
+    "Shadows",
+    "Async",
+    "Iterator",
+    "Declare",
+    "Narrowing",
+    "Widening",
+)
+_VBNET_MODIFIER_RE = rf"(?:(?:{'|'.join(_VBNET_MODIFIER_WORDS)})\s+)*"
+
+_VBNET_IMPORT_RE = re.compile(r"^\s*Imports\s+(.+?)\s*$", re.IGNORECASE)
+_VBNET_NAMESPACE_RE = re.compile(
+    rf"^\s*Namespace\s+(?P<name>{_VBNET_DOTTED_IDENT})\s*$",
+    re.IGNORECASE,
+)
+_VBNET_END_NAMESPACE_RE = re.compile(
+    r"^\s*End\s+Namespace\b", re.IGNORECASE,
+)
+_VBNET_TYPE_RE = re.compile(
+    rf"^\s*{_VBNET_MODIFIER_RE}"
+    rf"(?P<kind>Class|Interface|Structure|Module|Enum)\s+"
+    rf"(?P<name>{_VBNET_IDENT})\b(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_VBNET_END_TYPE_RE = re.compile(
+    r"^\s*End\s+(?P<kind>Class|Interface|Structure|Module|Enum)\b",
+    re.IGNORECASE,
+)
+_VBNET_MEMBER_RE = re.compile(
+    rf"^\s*(?P<mods>{_VBNET_MODIFIER_RE})"
+    rf"(?P<kind>Function|Sub|Property)\s+"
+    rf"(?P<name>{_VBNET_IDENT})\b(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_VBNET_OPERATOR_RE = re.compile(
+    rf"^\s*(?P<mods>{_VBNET_MODIFIER_RE})"
+    r"(?P<kind>Operator)\s+(?P<name>\S+)\s*(?P<rest>.*)$",
+    re.IGNORECASE,
+)
+_VBNET_END_MEMBER_RE = re.compile(
+    r"^\s*End\s+(Function|Sub|Property|Operator)\b", re.IGNORECASE,
+)
+_VBNET_INHERITS_RE = re.compile(r"\bInherits\s+(.+?)\s*$", re.IGNORECASE)
+_VBNET_IMPLEMENTS_RE = re.compile(r"\bImplements\s+(.+?)\s*$", re.IGNORECASE)
+_VBNET_NEW_RE = re.compile(
+    rf"\bNew\s+(?P<target>{_VBNET_DOTTED_IDENT})\s*(?:\(Of\b[^)]*\))?\s*\(",
+    re.IGNORECASE,
+)
+_VBNET_CALL_RE = re.compile(
+    rf"(?<![A-Za-z0-9_.])(?P<target>{_VBNET_DOTTED_IDENT})\s*\(",
+    re.IGNORECASE,
+)
+
+_VBNET_CALL_KEYWORDS = frozenset({
+    "addhandler", "and", "andalso", "as", "call", "case", "catch",
+    "class", "cobj", "continue", "ctype", "directcast", "do", "each",
+    "else", "elseif", "end", "enum", "erase", "error", "event", "exit",
+    "finally", "for", "function", "get", "gettype", "getxmlnamespace",
+    "global", "gosub", "goto", "if", "implements", "imports", "inherits",
+    "interface", "loop", "module", "mustinherit", "new", "next", "not",
+    "nothing", "operator", "option", "or", "orelse", "property",
+    "raiseevent", "redim", "rem", "removehandler", "resume", "return",
+    "select", "set", "step", "stop", "structure", "sub", "synclock",
+    "then", "throw", "to", "try", "typeof", "until", "using", "when",
+    "while", "with", "withevents", "xor",
+})
+
+
+def _vbnet_normalize_name(value: str) -> str:
+    """Remove VB escaping while preserving dotted identity."""
+    return ".".join(
+        part[1:-1] if part.startswith("[") and part.endswith("]") else part
+        for part in value.strip().split(".")
+    )
+
+
+def _strip_vbnet_noise(text: str) -> str:
+    """Blank VB comments and string contents while preserving line numbers."""
+    cleaned_lines: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        ending = raw_line[len(line):]
+        if re.match(r"^\s*Rem\b", line, re.IGNORECASE):
+            cleaned_lines.append(" " * len(line) + ending)
+            continue
+
+        out: list[str] = []
+        in_string = False
+        i = 0
+        while i < len(line):
+            char = line[i]
+            if char == '"':
+                out.append(char)
+                if in_string and i + 1 < len(line) and line[i + 1] == '"':
+                    out.append(" ")
+                    i += 2
+                    continue
+                in_string = not in_string
+                i += 1
+                continue
+            if not in_string and char == "'":
+                out.append(" " * (len(line) - i))
+                break
+            out.append(" " if in_string else char)
+            i += 1
+        cleaned_lines.append("".join(out) + ending)
+    return "".join(cleaned_lines)
+
+
+def _vbnet_logical_lines(cleaned: str) -> list[tuple[int, int, str]]:
+    """Join explicit and parenthesized VB continuations with source ranges."""
+    logical: list[tuple[int, int, str]] = []
+    parts: list[str] = []
+    start_line = 1
+    depth = 0
+    for line_no, raw_line in enumerate(cleaned.splitlines(), start=1):
+        stripped = raw_line.strip()
+        if not stripped and not parts:
+            continue
+        if not parts:
+            start_line = line_no
+        explicit = stripped.endswith("_")
+        if explicit:
+            stripped = stripped[:-1].rstrip()
+        parts.append(stripped)
+        depth += stripped.count("(") - stripped.count(")")
+        if explicit or depth > 0:
+            continue
+        logical.append((start_line, line_no, " ".join(parts)))
+        parts = []
+        depth = 0
+    if parts:
+        logical.append((start_line, len(cleaned.splitlines()) or 1, " ".join(parts)))
+    return logical
+
+
+def _vbnet_parenthesized(text: str, start: int) -> tuple[str, int] | None:
+    """Return one balanced parenthesized group and its exclusive end."""
+    if start >= len(text) or text[start] != "(":
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == "(":
+            depth += 1
+        elif text[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1:index], index + 1
+    return None
+
+
+def _vbnet_split_top_level(value: str) -> list[str]:
+    """Split a comma list without splitting generic/array groups."""
+    parts: list[str] = []
+    start = 0
+    depth = 0
+    for index, char in enumerate(value):
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(0, depth - 1)
+        elif char == "," and depth == 0:
+            parts.append(value[start:index])
+            start = index + 1
+    parts.append(value[start:])
+    return parts
+
+
+def _vbnet_type_parameters(rest: str) -> tuple[list[str], str]:
+    tail = rest.lstrip()
+    if not tail.lower().startswith("(of "):
+        return [], rest
+    group = _vbnet_parenthesized(tail, 0)
+    if group is None:
+        return [], rest
+    content, end = group
+    params = [
+        part.strip().split()[0]
+        for part in _vbnet_split_top_level(content[3:])
+        if part.strip()
+    ]
+    return params, tail[end:]
+
+
+def _vbnet_signature_parts(
+    rest: str,
+) -> tuple[Optional[str], Optional[str], list[str]]:
+    """Extract parameters, return type, and method type parameters."""
+    type_params, tail = _vbnet_type_parameters(rest)
+    tail = tail.lstrip()
+    params: Optional[str] = None
+    if tail.startswith("("):
+        group = _vbnet_parenthesized(tail, 0)
+        if group is not None:
+            raw_params, end = group
+            params = re.sub(r"\s+", " ", raw_params).strip()
+            tail = tail[end:]
+
+    return_type = None
+    return_match = re.search(
+        r"\bAs\s+(.+?)(?=\s+(?:Implements|Handles)\b|$)",
+        tail,
+        re.IGNORECASE,
+    )
+    if return_match:
+        return_type = re.sub(r"\s+", " ", return_match.group(1)).strip()
+    return params, return_type, type_params
+
+
+def _vbnet_relationship_targets(value: str) -> list[str]:
+    targets: list[str] = []
+    for raw_part in _vbnet_split_top_level(value):
+        part = raw_part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            part = part.split("=", 1)[1].strip()
+        if part.lower().startswith("global."):
+            part = part[7:]
+        part = re.sub(r"\s*\(Of\b.*\)\s*$", "", part, flags=re.IGNORECASE)
+        if re.fullmatch(_VBNET_DOTTED_IDENT, part):
+            targets.append(_vbnet_normalize_name(part))
+    return targets
+
+
+# ---------------------------------------------------------------------------
+# ReScript regex patterns and helpers (no tree-sitter grammar bundled)
+# ---------------------------------------------------------------------------
+
+_RESCRIPT_IDENT = r"[A-Za-z_][A-Za-z0-9_']*"
+
+# `module Name =`, `module type Name =`, `module Name: {`, `module Name: (Sig) => {`
+_RESCRIPT_MODULE_RE = re.compile(
+    r"^\s*module\s+(?:type\s+)?([A-Z][A-Za-z0-9_']*)\s*[:=]",
+    re.MULTILINE,
+)
+
+# Optional leading decorator block on the same line, e.g. `@deriving(foo)`.
+_RESCRIPT_DECORATOR_PREFIX = r"(?:@[A-Za-z_][A-Za-z0-9_']*(?:\([^)]*\))?\s+)*"
+
+# `let [rec] name` / `and name` — captures binding name. Multi-line decorators
+# on prior lines don't interfere (they end with a newline and the anchor
+# restarts on the next line); same-line decorators are tolerated.
+_RESCRIPT_LET_RE = re.compile(
+    rf"^\s*{_RESCRIPT_DECORATOR_PREFIX}"
+    rf"(?:let\s+(?:rec\s+)?|and\s+)({_RESCRIPT_IDENT})\b",
+    re.MULTILINE,
+)
+
+# `external name: sig = "..."`
+_RESCRIPT_EXTERNAL_RE = re.compile(
+    rf"^\s*{_RESCRIPT_DECORATOR_PREFIX}external\s+({_RESCRIPT_IDENT})\s*:",
+    re.MULTILINE,
+)
+
+# `type name` / `type rec name` / `type name<'a>`
+_RESCRIPT_TYPE_RE = re.compile(
+    rf"^\s*{_RESCRIPT_DECORATOR_PREFIX}type\s+(?:rec\s+)?({_RESCRIPT_IDENT})\b",
+    re.MULTILINE,
+)
+
+# `open Foo` / `include Foo.Bar`
+_RESCRIPT_OPEN_RE = re.compile(
+    r"^\s*(open|include)\s+([A-Z][A-Za-z0-9_'.]*)",
+    re.MULTILINE,
+)
+
+# `module X = Foo.Bar` with no `{` body — a module alias/re-export. Distinct
+# from `module X = { ... }` (handled by _RESCRIPT_MODULE_RE + brace scan).
+_RESCRIPT_MODULE_ALIAS_RE = re.compile(
+    r"^\s*module\s+([A-Z][A-Za-z0-9_']*)\s*=\s*"
+    r"([A-Z][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)\s*$",
+    re.MULTILINE,
+)
+
+# JSX opening tag: `<Foo`, `<Foo.Bar`, `<Foo.Bar.Baz`. First segment must be
+# Capitalized (lowercase tags are HTML elements, not ReScript components).
+# The leading `<` must NOT be part of `=>`, `<=`, `<-`, or a generic-type
+# parameter (we approximate by requiring the char before `<` to be space,
+# newline, `{`, `(`, `,`, `>`, `}`, or BOF).
+_RESCRIPT_JSX_RE = re.compile(
+    r"(?:^|(?<=[\s{(,>}]))"
+    r"<([A-Z][A-Za-z0-9_']*(?:\.[A-Z][A-Za-z0-9_']*)*)\b",
+    re.MULTILINE,
+)
+
+# `@module("path")` — source module for an external binding
+_RESCRIPT_MODULE_ATTR_RE = re.compile(
+    r'@module\(\s*"([^"]+)"\s*\)',
+)
+
+# `Ident(`, `Mod.fn(` — anything that looks like a call site. Preceded by a
+# non-identifier char to avoid matching suffixes of identifiers.
+_RESCRIPT_CALL_RE = re.compile(
+    rf"(?<![A-Za-z0-9_']){_RESCRIPT_IDENT}(?:\.{_RESCRIPT_IDENT})*\s*\(",
+)
+
+# Recompiled to grab the captured identifier sequence. We need a different
+# regex with a capture group for matching:
+_RESCRIPT_CALL_RE = re.compile(
+    r"(?<![A-Za-z0-9_'])"
+    r"([A-Za-z_][A-Za-z0-9_']*(?:\.[A-Za-z_][A-Za-z0-9_']*)*)"
+    r"\s*\(",
+)
+
+# Reserved words + syntactic noise that should never be treated as names
+# or as call targets.
+_RESCRIPT_KEYWORDS = frozenset({
+    "let", "rec", "and", "type", "module", "open", "include", "external",
+    "if", "else", "switch", "when", "match", "fun", "true", "false",
+    "for", "while", "mutable", "try", "catch", "throw", "assert",
+    "lazy", "do", "in", "of", "as", "exception", "private",
+    "constraint", "with", "downto", "to", "unpack", "async", "await",
+})
+
+
+def _strip_rescript_noise(text: str) -> str:
+    """Replace ReScript comments and string/backtick content with spaces.
+
+    Newlines are preserved so absolute offsets still map back to accurate
+    line numbers. ReScript block comments may nest, so we track depth.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        c = text[i]
+        nxt = text[i + 1] if i + 1 < n else ""
+        # Line comment
+        if c == "/" and nxt == "/":
+            while i < n and text[i] != "\n":
+                out.append(" ")
+                i += 1
+            continue
+        # Nestable block comment
+        if c == "/" and nxt == "*":
+            depth = 1
+            out.append("  ")
+            i += 2
+            while i < n and depth > 0:
+                if i + 1 < n and text[i] == "/" and text[i + 1] == "*":
+                    depth += 1
+                    out.append("  ")
+                    i += 2
+                elif i + 1 < n and text[i] == "*" and text[i + 1] == "/":
+                    depth -= 1
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append("\n" if text[i] == "\n" else " ")
+                    i += 1
+            continue
+        # Double-quoted string — blank content, keep quotes + newlines.
+        if c == '"':
+            out.append('"')
+            i += 1
+            while i < n and text[i] != '"':
+                if text[i] == "\\" and i + 1 < n:
+                    out.append("  ")
+                    i += 2
+                    continue
+                out.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            if i < n:
+                out.append('"')
+                i += 1
+            continue
+        # Backtick template string — blank content, preserve newlines.
+        if c == "`":
+            out.append("`")
+            i += 1
+            while i < n and text[i] != "`":
+                out.append("\n" if text[i] == "\n" else " ")
+                i += 1
+            if i < n:
+                out.append("`")
+                i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _rescript_brace_depth_array(cleaned: str) -> list[int]:
+    """Compute brace depth at every offset in `cleaned` (comment/string-stripped).
+
+    Returned array has length len(cleaned); `depth[i]` is the depth
+    immediately before the character at position i.
+    """
+    depth = [0] * (len(cleaned) + 1)
+    d = 0
+    for i, c in enumerate(cleaned):
+        depth[i] = d
+        if c == "{":
+            d += 1
+        elif c == "}":
+            d = max(0, d - 1)
+    depth[len(cleaned)] = d
+    return depth
+
+
+def _scan_rescript_modules(cleaned: str, offset_to_line) -> list[dict]:
+    """Find `module Name = { ... }` blocks and their offset/line ranges.
+
+    Returns dicts with name, start/end offsets, start/end lines, and parent
+    module name (or None for top-level).
+    """
+    modules: list[dict] = []
+    n = len(cleaned)
+    # Module aliases (`module X = Foo.Bar`) also match _RESCRIPT_MODULE_RE but
+    # have no brace body — skip them here to avoid the greedy `{`-scanner
+    # swallowing the next unrelated block (e.g. a `let` body).
+    alias_starts = {
+        m.start() for m in _RESCRIPT_MODULE_ALIAS_RE.finditer(cleaned)
+    }
+    for match in _RESCRIPT_MODULE_RE.finditer(cleaned):
+        if match.start() in alias_starts:
+            continue
+        name = match.group(1)
+        header_start = match.start()
+        # Find the first `{` after the header's `:` or `=`. To avoid grabbing
+        # a `{` from an unrelated following statement, require that the chars
+        # between `match.end()` and `brace_open` contain no definition-starting
+        # keywords (`let`, `type`, `module`, `external`).
+        brace_open = cleaned.find("{", match.end())
+        if brace_open == -1:
+            continue
+        between = cleaned[match.end():brace_open]
+        if re.search(
+            r"(?:^|\s)(?:let|type|module|external|and)\s",
+            between,
+        ):
+            continue
+        # Walk braces to find the matching close.
+        depth = 1
+        j = brace_open + 1
+        while j < n and depth > 0:
+            c = cleaned[j]
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+            j += 1
+        brace_close = j - 1 if depth == 0 else n - 1
+        modules.append({
+            "name": name,
+            "start_off": header_start,
+            "end_off": brace_close,
+            "body_start_off": brace_open + 1,
+            "start_line": offset_to_line(header_start),
+            "end_line": offset_to_line(brace_close),
+            "parent": None,
+        })
+
+    # Parent = innermost strictly-containing module.
+    for i, m in enumerate(modules):
+        parent_name = None
+        parent_start = -1
+        for j, other in enumerate(modules):
+            if i == j:
+                continue
+            if (
+                other["start_off"] < m["start_off"]
+                and other["end_off"] > m["end_off"]
+                and other["start_off"] > parent_start
+            ):
+                parent_name = other["name"]
+                parent_start = other["start_off"]
+        m["parent"] = parent_name
+    return modules
+
+
+def _is_test_file(path: str) -> bool:
+    return any(p.search(path) for p in _TEST_FILE_PATTERNS)
+
+
+def _is_test_function(
+    name: str, file_path: str, decorators: tuple[str, ...] = (),
+) -> bool:
+    """A function is a test if its name matches test patterns, it lives
+    in a test file and has a test-runner name, or it has a @Test annotation.
+    """
+    if any(p.search(name) for p in _TEST_PATTERNS):
+        return True
+    if _is_test_file(file_path) and name in _TEST_RUNNER_NAMES:
+        return True
+    if decorators and any(d in _TEST_ANNOTATIONS for d in decorators):
+        return True
+    return False
+
+
+# Documentation summaries are stored in ``NodeInfo.extra`` so the graph
+# schema remains backward compatible.  A hard cap keeps parser metadata and
+# semantic-search input bounded even when a source file contains a very long
+# API reference as its docstring.
+_MAX_DOCSTRING_CHARS = 400
+_DOC_COMMENT_NODE_TYPES = frozenset({
+    "comment",
+    "block_comment",
+    "line_comment",
+    "doc_comment",
+})
+_DOC_COMMENT_SKIP_TYPES = frozenset({"attribute_item", "decorator"})
+_DOC_COMMENT_WRAPPER_TYPES = frozenset({
+    "export_statement",
+    "template_declaration",
+})
+_CSHARP_SUMMARY_RE = re.compile(
+    r"<summary(?:\s[^>]*)?>(.*?)</summary\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_XML_TAG_RE = re.compile(r"<[^>]+>")
+_DOC_PARAGRAPH_TAG_RE = re.compile(
+    r"</?(?:p|para)(?:\s[^>]*)?>",
+    re.IGNORECASE,
+)
+_DOC_INLINE_TAG_RE = re.compile(
+    r"\{@(?:code|literal|link)\s+([^}]+)\}",
+    re.IGNORECASE,
+)
+_DOC_BRIEF_RE = re.compile(r"^\s*[@\\]brief\s+", re.IGNORECASE)
+
+
+def _clean_docstring_summary(raw: str, language: str) -> str:
+    """Return a whitespace-stable, first-paragraph documentation summary."""
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    if language == "csharp":
+        summary = _CSHARP_SUMMARY_RE.search(text)
+        if summary:
+            text = summary.group(1)
+    if language != "python":
+        text = _DOC_PARAGRAPH_TAG_RE.sub("\n\n", text)
+        text = _DOC_INLINE_TAG_RE.sub(r"\1", text)
+        text = _XML_TAG_RE.sub(" ", text)
+        text = html.unescape(text)
+        text = _DOC_BRIEF_RE.sub("", text)
+
+    lines = [line.strip() for line in text.splitlines()]
+    while lines and not lines[0]:
+        lines.pop(0)
+    paragraph: list[str] = []
+    for line in lines:
+        if not line:
+            break
+        if paragraph and line.startswith(("@param", "@return", "\\param", "\\return")):
+            break
+        paragraph.append(line)
+    return " ".join(" ".join(paragraph).split())[:_MAX_DOCSTRING_CHARS]
+
+
+def _strip_block_doc_comment(text: str) -> str:
+    """Remove a Doxygen/Javadoc-style wrapper and per-line ``*`` prefix."""
+    if text.startswith(("/**", "/*!")):
+        text = text[3:]
+    elif text.startswith("/*"):
+        text = text[2:]
+    if text.endswith("*/"):
+        text = text[:-2]
+
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("*"):
+            stripped = stripped[1:]
+            if stripped.startswith(" "):
+                stripped = stripped[1:]
+        lines.append(stripped)
+    return "\n".join(lines)
+
+
+def _modifier_annotation_names(node) -> list[str]:
+    """Return annotation names from a ``modifiers`` child of *node*.
+
+    Covers Java/Kotlin/C# where annotations live inside a ``modifiers``
+    node as ``annotation`` / ``marker_annotation`` children. The leading
+    ``@`` is stripped. See: #295
+    """
+    names: list[str] = []
+    for sub in node.children:
+        if sub.type == "modifiers":
+            for mod in sub.children:
+                if mod.type in ("annotation", "marker_annotation"):
+                    text = mod.text.decode("utf-8", errors="replace")
+                    names.append(text.lstrip("@").strip())
+    return names
+
+
+def _python_decorator_names(node) -> list[str]:
+    """Return decorators wrapping a Python definition in source order."""
+    parent = node.parent
+    if parent is None or parent.type != "decorated_definition":
+        return []
+
+    names: list[str] = []
+    for sibling in parent.children:
+        if sibling.type != "decorator":
+            continue
+        text = sibling.text.decode("utf-8", errors="replace")
+        names.append(text.lstrip("@").strip())
+    return names
+
+
+def _csharp_attribute_names(node) -> list[str]:
+    """Return C# attribute names from ``attribute_list`` children of *node*.
+
+    C# attributes (``[HttpGet]``, ``[Authorize]``, ``[ApiController]``) are
+    ``attribute_list`` nodes, each wrapping one or more ``attribute`` nodes
+    whose first ``identifier`` is the attribute name. The bracket wrapper
+    and any argument list are dropped. See: #295
+    """
+    names: list[str] = []
+    for sub in node.children:
+        if sub.type != "attribute_list":
+            continue
+        for attr in sub.children:
+            if attr.type != "attribute":
+                continue
+            for ident in attr.children:
+                if ident.type in ("identifier", "qualified_name"):
+                    names.append(ident.text.decode("utf-8", errors="replace").strip())
+                    break
+    return names
+
+
+_PHPUNIT_TEST_ATTRIBUTE = "phpunit\\framework\\attributes\\test"
+
+
+def _php_attribute_aliases(node) -> dict[str, str]:
+    """Return aliases that resolve specifically to PHPUnit's Test attribute."""
+    root = node
+    while root.parent is not None:
+        root = root.parent
+
+    aliases: dict[str, str] = {}
+    stack = [root]
+    while stack:
+        current = stack.pop()
+        if current.type == "namespace_use_clause":
+            alias = current.child_by_field_name("alias")
+            if alias is not None:
+                target = next(
+                    (
+                        child
+                        for child in current.children
+                        if child.type in ("name", "qualified_name")
+                        and child != alias
+                    ),
+                    None,
+                )
+                if target is not None:
+                    alias_text = alias.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip()
+                    target_text = target.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip()
+                    if current.parent.type == "namespace_use_group":
+                        declaration = current.parent.parent
+                        prefix = next(
+                            (
+                                child
+                                for child in declaration.children
+                                if child.type == "namespace_name"
+                            ),
+                            None,
+                        )
+                        if prefix is not None:
+                            prefix_text = prefix.text.decode(
+                                "utf-8", errors="replace",
+                            ).strip()
+                            target_text = f"{prefix_text}\\{target_text}"
+                    normalized_target = target_text.lstrip("\\").casefold()
+                    if normalized_target == _PHPUNIT_TEST_ATTRIBUTE:
+                        aliases[alias_text.casefold()] = "Test"
+        stack.extend(reversed(current.children))
+    return aliases
+
+
+def _php_attribute_names(node) -> list[str]:
+    """Return PHP attribute names from ``attribute_list`` children of *node*.
+
+    PHP 8 attributes (``#[Test]``, ``#[DataProvider('x')]``) are
+    ``attribute_list`` nodes wrapping one or more ``attribute_group`` nodes,
+    each wrapping one or more ``attribute`` nodes whose ``name`` child is the
+    attribute name -- one level deeper than C#'s ``attribute_list >
+    attribute``. See: #693
+    """
+    names: list[str] = []
+    for sub in node.children:
+        if sub.type != "attribute_list":
+            continue
+        for group in sub.children:
+            if group.type != "attribute_group":
+                continue
+            for attr in group.children:
+                if attr.type != "attribute":
+                    continue
+                for ident in attr.children:
+                    if ident.type in ("name", "qualified_name"):
+                        raw_name = ident.text.decode(
+                            "utf-8", errors="replace",
+                        ).strip()
+                        normalized = raw_name.lstrip("\\")
+                        if normalized.casefold() == _PHPUNIT_TEST_ATTRIBUTE:
+                            names.append("Test")
+                        else:
+                            names.append(normalized)
+                        break
+    if not names:
+        return []
+    aliases = _php_attribute_aliases(node)
+    return [aliases.get(name.casefold(), name) for name in names]
+
+
+_PHP_TEST_DOC_TAG_RE = re.compile(r"(?<![\w-])@test(?![\w-])")
+
+
+def _php_docblock_marks_test(node) -> bool:
+    """Return True if a PHPUnit ``/** @test */`` docblock precedes *node*.
+
+    PHPUnit's legacy convention marks a test method with an ``@test`` tag in
+    the doc comment immediately above it, instead of a ``test_`` name prefix
+    or a ``#[Test]`` attribute. Tree-sitter represents that comment as a
+    preceding sibling of the ``method_declaration``, not a child, so it needs
+    its own check rather than reuse of the attribute-based extraction above.
+    See: #693
+    """
+    sib = node.prev_sibling
+    return bool(
+        sib is not None
+        and sib.type == "comment"
+        and _PHP_TEST_DOC_TAG_RE.search(sib.text.decode("utf-8", errors="replace"))
+    )
+
+
+def _csharp_namespaces(root_node) -> list[str]:
+    """Return all namespaces declared in a C# compilation unit.
+
+    Handles both the block form (``namespace_declaration``) and the C# 10+
+    file-scoped form (``file_scoped_namespace_declaration``). A single file
+    may declare multiple namespaces; all are returned in source order.
+    See: #310
+    """
+    namespaces: list[str] = []
+    stack = [(root_node, None)]
+
+    while stack:
+        node, parent_namespace = stack.pop()
+        current_namespace = parent_namespace
+        if node.type in (
+            "namespace_declaration", "file_scoped_namespace_declaration",
+        ):
+            for c in node.children:
+                if c.type in ("qualified_name", "identifier"):
+                    text = c.text.decode("utf-8", errors="replace").strip()
+                    if text:
+                        current_namespace = (
+                            f"{parent_namespace}.{text}"
+                            if parent_namespace
+                            else text
+                        )
+                        namespaces.append(current_namespace)
+                    break
+        stack.extend(
+            (child, current_namespace)
+            for child in reversed(node.children)
+        )
+    return namespaces
+
+
+def file_hash(path: Path) -> str:
+    """SHA-256 hash of file contents."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# HCL / Terraform helpers (module-level; no self needed)
+# ---------------------------------------------------------------------------
+
+def _hcl_text(node) -> str:
+    """Decode tree-sitter node bytes to a string."""
+    return node.text.decode("utf-8", errors="replace")
+
+
+def _hcl_child(node, *types: str):
+    """Return the first direct child whose type is in *types*, or None."""
+    return next((c for c in node.children if c.type in types), None)
+
+
+def _hcl_block_name(prefix: str, labels: list[str], n_labels: int) -> Optional[str]:
+    """Build *prefix.label0[.label1]* from the first *n_labels* labels, or None."""
+    if len(labels) < n_labels:
+        return None
+    return ".".join([prefix] + labels[:n_labels])
+
+
+# Terraform reference-namespace prefixes (special roots, not resource types).
+# These roots are *not* resource type names, so they must never be mapped to
+# ``resource.<root>.*``.  The block-local iterators (each, count, self) and
+# built-in namespace objects (path, terraform) are also included so that
+# expressions like ``each.value.id`` or ``terraform.workspace`` do not
+# generate spurious REFERENCES edges.
+_HCL_REF_PREFIXES: frozenset[str] = frozenset({
+    "var", "module", "local", "data",
+    # block-local meta-argument iterators
+    "each", "count", "self",
+    # built-in namespace objects
+    "path", "terraform",
+})
+
+
+def _hcl_ref_target(root: str, attrs: list[str]) -> Optional[str]:
+    """Map a ``variable_expr.get_attr*`` chain to its canonical graph name."""
+    if root == "var" and attrs:
+        return f"var.{attrs[0]}"
+    if root == "module" and attrs:
+        return f"module.{attrs[0]}"
+    if root == "local" and attrs:
+        return f"local.{attrs[0]}"
+    if root == "data" and len(attrs) >= 2:
+        return f"data.{attrs[0]}.{attrs[1]}"
+    if root not in _HCL_REF_PREFIXES and attrs:
+        return f"resource.{root}.{attrs[0]}"
+    return None
+
+
+def _hcl_variable_refs(expr_node):
+    """Yield (root, attrs, line) for each ``variable_expr get_attr*`` chain
+    that is a direct child sequence inside *expr_node*."""
+    children = expr_node.children
+    i = 0
+    while i < len(children):
+        child = children[i]
+        if child.type != "variable_expr":
+            i += 1
+            continue
+        ident = _hcl_child(child, "identifier")
+        if ident is None:
+            i += 1
+            continue
+        j, attrs = i + 1, []
+        while j < len(children) and children[j].type == "get_attr":
+            id_node = _hcl_child(children[j], "identifier")
+            if id_node:
+                attrs.append(_hcl_text(id_node))
+            j += 1
+        yield _hcl_text(ident), attrs, child.start_point[0] + 1
+        i = j
+
+
+# Node types to recurse into when scanning for HCL variable references.
+# ``function_call`` / ``function_arguments`` ensure that variable references
+# inside calls like ``length(var.x)`` are extracted.
+# ``quoted_template`` / ``template_interpolation`` ensure that variable
+# references inside ``"${var.x}"`` template strings are extracted.
+_HCL_RECURSE_TYPES: frozenset[str] = frozenset({
+    "expression", "body", "block", "attribute", "tuple",
+    "object", "object_elem", "collection_value",
+    "template_expr", "for_expr", "for_tuple_expr", "for_object_expr",
+    "for_intro", "for_cond", "conditional",
+    # variable refs inside function call arguments, e.g. length(var.x)
+    "function_call", "function_arguments",
+    # variable refs inside template string interpolations, e.g. "${var.x}"
+    "quoted_template", "template_interpolation",
+})
+
+
+def _hcl_for_iterator_names(for_expr_node) -> frozenset[str]:
+    """Return loop-local symbols declared by a Terraform for-expression."""
+    stack = [for_expr_node]
+    while stack:
+        current = stack.pop()
+        if current.type == "for_intro":
+            return frozenset(
+                _hcl_text(child)
+                for child in current.children
+                if child.type == "identifier"
+            )
+        stack.extend(reversed(current.children))
+    return frozenset()
+
+
+def _hcl_dynamic_iterator_name(block_node) -> Optional[str]:
+    """Return the iterator symbol for a ``dynamic`` block, or ``None``.
+
+    Defaults to the dynamic block's string label (e.g. ``"setting"`` becomes
+    the symbol ``setting``).  Can be overridden by an
+    ``iterator = <ident>`` attribute inside the block body.  Returns ``None``
+    when *block_node* is not a ``dynamic`` block.
+
+    This is used by ``_walk_hcl_expressions`` to build a *local_names* scope
+    so that iterator references such as ``setting.value[...]`` or
+    ``origin_group.key`` do not produce spurious ``resource.*`` REFERENCES
+    edges.
+    """
+    id_node = _hcl_child(block_node, "identifier")
+    if id_node is None or _hcl_text(id_node) != "dynamic":
+        return None
+
+    # Default iterator name = the string label of the dynamic block.
+    # Block children: identifier("dynamic"), string_lit(label), body
+    default_name: Optional[str] = None
+    for child in block_node.children:
+        if child.type == "string_lit":
+            tmpl = _hcl_child(child, "template_literal")
+            default_name = _hcl_text(tmpl) if tmpl is not None else _hcl_text(child).strip('"')
+            break
+    if default_name is None:
+        return None
+
+    # Check for optional ``iterator = <ident>`` override inside the block body.
+    # The value is an unquoted identifier expression, e.g. ``iterator = srv``.
+    body_node = _hcl_child(block_node, "body")
+    if body_node is not None:
+        for attr in body_node.children:
+            if attr.type != "attribute":
+                continue
+            key = _hcl_child(attr, "identifier")
+            if key is None or _hcl_text(key) != "iterator":
+                continue
+            expr = _hcl_child(attr, "expression")
+            if expr is None:
+                continue
+            # Handles both bare identifier (``srv``) and quoted string (``"srv"``)
+            raw = _hcl_text(expr).strip().strip('"')
+            if raw and raw.isidentifier():
+                return raw
+
+    return default_name
+
+
+# Dispatch table: block_type → (graph_kind, name_prefix, n_labels, emit_refs)
+# "terraform" and unknown types are absent so they are silently skipped.
+_HCL_BLOCK_CFG: dict[str, tuple[str, str, int, bool]] = {
+    "resource": ("Class",    "resource", 2, True),
+    "data":     ("Class",    "data",     2, True),
+    "module":   ("Class",    "module",   1, True),
+    "variable": ("Function", "var",      1, False),
+    "output":   ("Function", "output",   1, True),
+    "provider": ("Function", "provider", 1, True),
+}
+
+
+# ---------------------------------------------------------------------------
+# Ansible YAML helpers (module-level so tests can import them directly)
+# ---------------------------------------------------------------------------
+
+
+def _is_ansible_path(path: Path) -> bool:
+    """Return True if the path suggests an Ansible YAML file by directory convention."""
+    parts = {p.lower() for p in path.parts}
+    return bool(parts & _ANSIBLE_PATH_COMPONENTS) or path.name.lower() in _ANSIBLE_PLAYBOOK_NAMES
+
+
+def _is_ansible_content(source: bytes) -> bool:
+    """Lightweight byte-scan: does this YAML look like an Ansible file?
+
+    Checks that the file is a top-level list and contains at least one
+    Ansible-specific structural marker (hosts, tasks, handlers, import_playbook,
+    or a known module key / FQCN pattern).
+    """
+    try:
+        text = source.decode("utf-8", errors="replace")
+    except Exception:
+        return False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or stripped == "---":
+            continue  # skip blank lines, comments, and YAML document markers
+        if not (line.startswith("- ") or line == "-"):
+            return False
+        break
+    else:
+        return False
+    has_hosts = bool(re.search(r"^\s+hosts\s*:", text, re.MULTILINE))
+    has_tasks = bool(re.search(r"^\s+tasks\s*:", text, re.MULTILINE))
+    has_handlers = bool(re.search(r"^\s+handlers\s*:", text, re.MULTILINE))
+    has_import_pb = bool(re.search(r"^\s+import_playbook\s*:", text, re.MULTILINE))
+    has_name = bool(re.search(r"^\s+-?\s*name\s*:", text, re.MULTILINE))
+    has_module = any(
+        re.search(rf"^\s+{re.escape(k)}\s*:", text, re.MULTILINE)
+        for k in _ANSIBLE_MODULE_KEYS
+    ) or bool(re.search(r"^\s+ansible\.\w+\.\w+\s*:", text, re.MULTILINE))
+    return has_hosts or has_import_pb or has_tasks or has_handlers or (has_name and has_module)
+
+
+def _ansible_file_type(path: Path) -> str:
+    """Classify an Ansible file by path convention.
+
+    Returns one of: 'playbook', 'tasks', 'handlers', 'meta', 'vars', 'unknown'.
+    """
+    parts_lower = [p.lower() for p in path.parts]
+    name_lower = path.name.lower()
+    if "meta" in parts_lower and name_lower in ("main.yml", "main.yaml"):
+        return "meta"
+    if "handlers" in parts_lower:
+        return "handlers"
+    if "tasks" in parts_lower:
+        return "tasks"
+    if any(p in parts_lower for p in ("group_vars", "host_vars", "vars", "defaults")):
+        return "vars"
+    if "playbooks" in parts_lower or name_lower in _ANSIBLE_PLAYBOOK_NAMES:
+        return "playbook"
+    return "unknown"
+
+
+def _ansible_fqcn_short(key: str) -> str:
+    """Strip FQCN prefix: 'ansible.builtin.include_tasks' → 'include_tasks'."""
+    return key.rsplit(".", 1)[-1]
+
+
+def _yaml_line(node: object) -> int:
+    return node.start_mark.line + 1  # type: ignore[attr-defined]
+
+
+def _yaml_end_line(node: object) -> int:
+    return node.end_mark.line + 1  # type: ignore[attr-defined]
+
+
+def _yaml_get_key(mapping_node: object, key: str) -> Optional[object]:
+    for k_node, v_node in mapping_node.value:  # type: ignore[attr-defined]
+        if isinstance(k_node, _YamlScalar) and k_node.value == key:
+            return v_node
+    return None
+
+
+def _yaml_scalar(node: object) -> Optional[str]:
+    if isinstance(node, _YamlScalar):
+        return node.value  # type: ignore[attr-defined]
+    return None
+
+
+def _ansible_is_play_item(item: object) -> bool:
+    """True if this top-level sequence item is a definitive Ansible play or playbook import.
+
+    Requires EITHER:
+    - ``import_playbook:`` key (unambiguous), OR
+    - ``hosts:`` key AND at least one key from ``_ANSIBLE_PLAY_KEYS``.
+
+    A bare ``hosts: all`` without any other play key is too generic and is rejected.
+    """
+    if not isinstance(item, _YamlMapping):
+        return False
+    keys: set[Optional[str]] = {
+        _yaml_scalar(k)
+        for k, _ in item.value  # type: ignore[attr-defined]
+        if isinstance(k, _YamlScalar)
+    }
+    if "import_playbook" in keys:
+        return True
+    return "hosts" in keys and bool(keys & _ANSIBLE_PLAY_KEYS)
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+class CodeParser:
+    """Parses source files using Tree-sitter and extracts structural information."""
+
+    _MODULE_CACHE_MAX = 15_000  # Evict cache to cap memory on huge monorepos
+    _BLADE_COMMENT_RE = re.compile(r"\{\{--.*?(?:--\}\}|$)", re.DOTALL)
+    _BLADE_DIRECTIVE_RE = re.compile(
+        r"""(?<!@)@(extends|include|component|livewire)\s*\(\s*(['"])([^'"]+)\2\s*\)""",
+    )
+    _LARAVEL_ROUTE_FACADE = "Illuminate\\Support\\Facades\\Route"
+    _LARAVEL_ELOQUENT_MODEL = "Illuminate\\Database\\Eloquent\\Model"
+    _LARAVEL_ROUTE_VERBS = frozenset({
+        "get", "post", "put", "patch", "delete", "options",
+        "any", "match", "resource", "apiResource",
+    })
+    _LARAVEL_RELATIONSHIPS = frozenset({
+        "hasMany", "hasOne", "belongsTo", "belongsToMany",
+        "morphTo", "morphMany", "morphOne", "morphToMany",
+        "morphedByMany", "hasManyThrough", "hasOneThrough",
+    })
+
+    def __init__(self, repo_root: Optional[Path] = None) -> None:
+        self._repo_root = Path(repo_root).resolve() if repo_root is not None else None
+        self._dbt_model_paths_cache: dict[Path, tuple[Path, ...]] = {}
+        self._parsers: dict[str, object] = {}
+        self._module_file_cache: dict[str, Optional[str]] = {}
+        # Absolute file paths to treat as absent during import resolution.
+        # ``forget`` sets this (via :meth:`exclude_files`) so a re-parsed
+        # referrer resolves exactly as it would in a build where the forgotten
+        # files never existed on disk. See ``forget.forget_files``.
+        self._excluded_files: set[str] = set()
+        self._export_symbol_cache: dict[str, Optional[str]] = {}
+        self._tsconfig_resolver = TsconfigResolver()
+        # Per-parse cache of Dart pubspec root lookups; see #87
+        self._dart_pubspec_cache: dict[tuple[str, str], Optional[Path]] = {}
+        # Cargo discovery is shared by every Rust import/call in a source file.
+        self._rust_project_cache: dict[
+            str, tuple[Path, Path, Path, dict[str, Path], Path]
+        ] = {}
+        # Config-driven custom languages (.code-review-graph/languages.toml).
+        # The built-in tables stay shared module-level constants; only when a
+        # repo defines custom languages does this parser switch to merged
+        # copies, so other CodeParser instances (multi-repo registry, worker
+        # processes for other repos) are never affected.  See #320.
+        self._extension_map: dict[str, str] = EXTENSION_TO_LANGUAGE
+        self._class_types: dict[str, list[str]] = _CLASS_TYPES
+        self._function_types: dict[str, list[str]] = _FUNCTION_TYPES
+        self._import_types: dict[str, list[str]] = _IMPORT_TYPES
+        self._call_types: dict[str, list[str]] = _CALL_TYPES
+        self._custom_languages: dict[str, CustomLanguage] = {}
+        if repo_root is not None:
+            self._custom_languages = load_custom_languages(
+                Path(repo_root),
+                builtin_extensions=EXTENSION_TO_LANGUAGE,
+                builtin_languages=_builtin_language_names(),
+            )
+        if self._custom_languages:
+            self._extension_map = dict(EXTENSION_TO_LANGUAGE)
+            self._class_types = dict(_CLASS_TYPES)
+            self._function_types = dict(_FUNCTION_TYPES)
+            self._import_types = dict(_IMPORT_TYPES)
+            self._call_types = dict(_CALL_TYPES)
+            for custom in self._custom_languages.values():
+                for ext in custom.extensions:
+                    self._extension_map[ext] = custom.name
+                self._class_types[custom.name] = list(custom.class_node_types)
+                self._function_types[custom.name] = list(custom.function_node_types)
+                self._import_types[custom.name] = list(custom.import_node_types)
+                self._call_types[custom.name] = list(custom.call_node_types)
+
+    def _get_parser(self, language: str):  # type: ignore[arg-type]
+        if language not in self._parsers:
+            # Custom languages map their name onto a packaged grammar.
+            custom = self._custom_languages.get(language)
+            grammar = custom.grammar if custom is not None else language
+            parser = _load_tree_sitter_parser(grammar)
+            if parser is None:
+                return None
+            self._parsers[language] = parser
+        return self._parsers[language]
+
+    def detect_language(self, path: Path, source: Optional[bytes] = None) -> Optional[str]:
+        """Map a file path to its language name.
+
+        Extension-based lookup is tried first.  For extension-less files
+        (typical for Unix scripts like ``bin/myapp`` or ``.git/hooks/pre-commit``)
+        we fall back to reading the first line for a shebang.  Files that
+        already have a known extension are never re-read — shebang probing
+        only runs when the extension lookup returns ``None`` **and** the path
+        has no suffix at all.  See issue #237.
+
+        When *source* is provided, the shebang is sniffed from those bytes
+        instead of re-reading the file.  Callers that hash-and-parse one byte
+        snapshot MUST pass it: a separate disk read can race a concurrent
+        save, mis-detect the language, and store a wrong parse under the
+        snapshot's hash (issue #746).
+        """
+        if path.name.lower().endswith(".blade.php"):
+            return "blade"
+        suffix = path.suffix.lower()
+        lang = self._extension_map.get(suffix)
+        if lang == "yaml" and _is_ansible_path(path):
+            return "ansible"
+        if lang in ("properties", "yaml") and is_spring_config_path(path):
+            return "spring_config"
+        if lang == "properties":
+            return None
+        if lang is not None:
+            return lang
+        # Only probe shebang for files without any extension — "README", "LICENSE",
+        # and other extension-less text files also fall here, but the probe is a
+        # cheap 256-byte read that returns None when no shebang is found.
+        if suffix == "":
+            head = source[:_SHEBANG_PROBE_BYTES] if source is not None else None
+            return self._detect_language_from_shebang(path, head)
+        return None
+
+    @staticmethod
+    def _detect_language_from_shebang(
+        path: Path,
+        head: Optional[bytes] = None,
+    ) -> Optional[str]:
+        """Inspect the first line of ``path`` for a shebang interpreter.
+
+        When *head* is given it is used as the first bytes of the file and
+        the file is not read from disk (TOCTOU-safe for callers that already
+        hold the byte snapshot being parsed, see issue #746).
+
+        Returns the mapped language name or ``None`` if the file has no
+        shebang, is unreadable, or names an interpreter we don't map.
+
+        Accepted shapes::
+
+            #!/bin/bash
+            #!/usr/bin/env python3
+            #!/usr/bin/env -S node --experimental-vm-modules
+            #!/usr/bin/bash -e
+
+        Only the basename of the interpreter is consulted.  Trailing flags
+        after the interpreter are ignored.  Windows-style ``\r\n`` line
+        endings are handled.  Binary files read as garbage bytes simply
+        fail the ``#!`` prefix check and return ``None``.
+        """
+        if head is None:
+            try:
+                with path.open("rb") as fh:
+                    head = fh.read(_SHEBANG_PROBE_BYTES)
+            except (OSError, PermissionError):
+                return None
+        if not head.startswith(b"#!"):
+            return None
+
+        # Take just the first line, stripped of leading "#!" and any
+        # surrounding whitespace.  Split on NUL to defend against accidental
+        # binary content following a ``#!`` prefix.
+        first_line = head.split(b"\n", 1)[0].split(b"\0", 1)[0]
+        try:
+            line = first_line[2:].decode("utf-8", errors="strict").strip()
+        except UnicodeDecodeError:
+            return None
+        if not line:
+            return None
+
+        tokens = line.split()
+        if not tokens:
+            return None
+
+        first = tokens[0]
+        # `/usr/bin/env` indirection: the interpreter is the next token.
+        # `/usr/bin/env -S node --flag` is also valid — skip any leading
+        # ``-`` options after env.
+        if first.endswith("/env") or first == "env":
+            interpreter_token: Optional[str] = None
+            for tok in tokens[1:]:
+                if tok.startswith("-"):
+                    # ``-S`` takes no argument in most envs; skip and continue.
+                    continue
+                interpreter_token = tok
+                break
+            if interpreter_token is None:
+                return None
+            interpreter = interpreter_token.rsplit("/", 1)[-1]
+        else:
+            # Direct form: ``#!/bin/bash`` or ``#!/usr/local/bin/python3``.
+            interpreter = first.rsplit("/", 1)[-1]
+
+        return SHEBANG_INTERPRETER_TO_LANGUAGE.get(interpreter)
+
+    def parse_file(self, path: Path) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a single file and return extracted nodes and edges."""
+        try:
+            source = path.read_bytes()
+        except (OSError, PermissionError):
+            return [], []
+        return self.parse_bytes(path, source)
+
+    def parse_bytes(self, path: Path, source: bytes) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse pre-read bytes and return extracted nodes and edges.
+
+        This avoids re-reading the file from disk, eliminating TOCTOU gaps
+        when the caller has already read the bytes (e.g. for hashing): every
+        parse decision, including shebang language detection, derives from
+        *source* so the stored file hash always describes the bytes that were
+        actually parsed (issue #746).
+        """
+        language = self.detect_language(path, source)
+        if not language:
+            return [], []
+
+        parser = None
+        tree = None
+        parse_source = source
+        if language == "c" and path.suffix.lower() == ".h":
+            cpp_parser = self._get_parser("cpp")
+            if cpp_parser is not None:
+                cpp_source = self._mask_cpp_qt_macros(source)
+                cpp_tree = cpp_parser.parse(cpp_source)
+                if self._has_cpp_header_evidence(cpp_tree.root_node):
+                    language = "cpp"
+                    parser = cpp_parser
+                    tree = cpp_tree
+                    parse_source = cpp_source
+        elif language == "cpp":
+            parse_source = self._mask_cpp_qt_macros(source)
+
+        if language == "blade":
+            return self._parse_blade(path, source)
+
+        # Vue SFCs: parse with vue parser, then delegate script blocks to JS/TS
+        if language == "vue":
+            return self._parse_vue(path, source)
+
+        # Svelte SFCs: same approach as Vue — extract <script> blocks
+        if language == "svelte":
+            return self._parse_svelte(path, source)
+
+        # Jupyter notebooks: extract code cells and parse as Python
+        if language == "notebook":
+            return self._parse_notebook(path, source)
+
+        # Databricks .py notebook exports.  The header is ALWAYS the very
+        # first line, but the file may have CRLF line endings on Windows
+        # (git's core.autocrlf=true default).  Match the first line robustly
+        # after stripping any trailing ``\r`` so the detection works on both
+        # platforms.  See issue #239.
+        if language == "python":
+            first_newline = source.find(b"\n")
+            first_line = (
+                source[:first_newline].rstrip(b"\r")
+                if first_newline != -1
+                else source.rstrip(b"\r")
+            )
+            if first_line == b"# Databricks notebook source":
+                return self._parse_databricks_py_notebook(path, source)
+
+        # VB.NET and ReScript use bounded structural fallbacks because the
+        # bundled language pack has no grammar for either language.
+        if language == "vbnet":
+            return self._parse_vbnet(path, source)
+
+        # ReScript: regex-based parser (no tree-sitter grammar bundled).
+        if language == "rescript":
+            return self._parse_rescript(path, source)
+
+        # SQL: dedicated parser — tree-sitter for tables/views/functions +
+        # regex fallback for CREATE PROCEDURE (unsupported by the grammar).
+        if language == "sql":
+            return self._parse_sql(path, source)
+
+        # Ansible YAML: path heuristic promoted to "ansible".
+        if language == "ansible":
+            if _yaml is None:
+                return [], []
+            file_type = _ansible_file_type(path)
+            # Variable and role-metadata files are identified by Ansible's
+            # directory contract. Task/handler paths are not sufficient on
+            # their own: generic YAML repositories commonly contain those
+            # directory names, so require Ansible content evidence there.
+            if file_type in ("vars", "meta") or _is_ansible_content(source):
+                return self._parse_ansible(path, source)
+            return [], []
+
+        # Spring configuration: only conventional application files reach
+        # this branch. Generic YAML and arbitrary .properties files stay out.
+        if language == "spring_config":
+            if _yaml is None:
+                return [], []
+            if path.suffix.lower() in (".yaml", ".yml") and _is_ansible_content(source):
+                return self._parse_ansible(path, source)
+            return self._parse_spring_config(path, source)
+
+        # Generic YAML: no tree-sitter grammar bundled; skip.
+        if language == "yaml":
+            return [], []
+
+        if parser is None:
+            parser = self._get_parser(language)
+        if not parser:
+            return [], []
+
+        if tree is None:
+            tree = parser.parse(parse_source)
+        nodes: list[NodeInfo] = []
+        edges: list[EdgeInfo] = []
+        file_path_str = normalize_file_path(path)
+
+        # File node
+        test_file = _is_test_file(file_path_str)
+        file_extra: dict = {}
+        # C#: record the namespace(s) this file declares so query-time
+        # fallbacks can resolve namespace-form IMPORTS_FROM targets (from
+        # `using X.Y;` directives) back to the declaring file. See: #310
+        if language == "csharp":
+            ns_list = _csharp_namespaces(tree.root_node)
+            if ns_list:
+                file_extra["csharp_namespaces"] = ns_list
+        nodes.append(NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=source.count(b"\n") + 1,
+            language=language,
+            is_test=test_file,
+            extra=file_extra,
+        ))
+
+        # Pre-scan for import mappings and defined names
+        import_map, defined_names = self._collect_file_scope(
+            tree.root_node, language, source,
+        )
+        if language == "python":
+            self._expand_python_star_imports(
+                tree.root_node, file_path_str, import_map,
+            )
+
+        typed_call_targets = self._collect_typed_call_targets(
+            tree.root_node,
+            language,
+            file_path_str,
+            import_map,
+            defined_names,
+        )
+
+        # Walk the tree
+        self._extract_from_tree(
+            tree.root_node, source, language, file_path_str, nodes, edges,
+            import_map=import_map, defined_names=defined_names,
+        )
+
+        if language == "php":
+            self._extract_php_laravel_edges(
+                tree.root_node,
+                file_path_str,
+                edges,
+            )
+            edges = self._resolve_php_scoped_calls(
+                tree.root_node,
+                nodes,
+                edges,
+                file_path_str,
+            )
+
+        edges = self._apply_typed_call_targets(edges, typed_call_targets, language)
+
+        # Resolve bare call targets to qualified names using same-file definitions
+        edges = self._resolve_call_targets(nodes, edges, file_path_str)
+
+        # Generate TESTED_BY edges: when a test function calls a production
+        # function, create an edge from the production function back to the test.
+        test_qnames = set()
+        for n in nodes:
+            if n.is_test:
+                qn = self._node_qualified(n)
+                test_qnames.add(qn)
+        if test_qnames:
+            for edge in list(edges):
+                if edge.kind == "CALLS" and edge.source in test_qnames:
+                    edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                        extra=edge.extra.copy(),
+                    ))
+
+        return nodes, edges
+
+    @staticmethod
+    def _has_cpp_header_evidence(root) -> bool:
+        """Return whether a parsed ``.h`` tree contains C++-only syntax."""
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if node.type == "ERROR" or _is_in_static_dead_guard(node):
+                continue
+
+            previous = node.prev_named_sibling
+            recovered_after_error = (
+                previous is not None
+                and previous.type == "ERROR"
+                and previous.end_byte == node.start_byte
+            )
+            if recovered_after_error:
+                continue
+
+            if node.type in _CPP_HEADER_EVIDENCE_TYPES:
+                return True
+            if (
+                node.type == "enum_specifier"
+                and any(child.type in ("class", "struct") for child in node.children)
+            ):
+                return True
+            if (
+                node.type == "type_qualifier"
+                and node.text in _CPP_HEADER_EVIDENCE_QUALIFIERS
+            ):
+                return True
+            pending.extend(node.named_children)
+        return False
+
+    @staticmethod
+    def _mask_cpp_qt_macros(source: bytes) -> bytes:
+        """Shield structural Qt macros without changing byte or line offsets."""
+        masked = bytearray(source)
+        length = len(source)
+        index = 0
+        line_has_code = False
+
+        def skip_quoted(start: int, quote: int) -> int:
+            cursor = start + 1
+            while cursor < length:
+                if source[cursor] == ord("\\"):
+                    cursor += 2
+                elif source[cursor] == quote:
+                    return cursor + 1
+                else:
+                    cursor += 1
+            return length
+
+        def raw_string_end(start: int) -> Optional[int]:
+            for prefix in (b'u8R"', b'LR"', b'UR"', b'uR"', b'R"'):
+                if not source.startswith(prefix, start):
+                    continue
+                delimiter_start = start + len(prefix)
+                opening = source.find(b"(", delimiter_start, delimiter_start + 17)
+                if opening == -1:
+                    return None
+                delimiter = source[delimiter_start:opening]
+                if any(byte in b" ()\\\t\r\n" for byte in delimiter):
+                    return None
+                closing = source.find(b")" + delimiter + b'"', opening + 1)
+                return length if closing == -1 else closing + len(delimiter) + 2
+            return None
+
+        while index < length:
+            byte = source[index]
+            if byte == ord("\n"):
+                line_has_code = False
+                index += 1
+                continue
+
+            if source.startswith(b"//", index):
+                newline = source.find(b"\n", index + 2)
+                index = length if newline == -1 else newline
+                continue
+            if source.startswith(b"/*", index):
+                closing = source.find(b"*/", index + 2)
+                comment_end = length if closing == -1 else closing + 2
+                if b"\n" in source[index:comment_end]:
+                    line_has_code = False
+                index = comment_end
+                continue
+
+            if byte == ord("#") and not line_has_code:
+                cursor = index
+                while cursor < length:
+                    newline = source.find(b"\n", cursor)
+                    if newline == -1:
+                        cursor = length
+                        break
+                    previous = newline - 1
+                    if previous >= cursor and source[previous] == ord("\r"):
+                        previous -= 1
+                    if previous < cursor or source[previous] != ord("\\"):
+                        cursor = newline
+                        break
+                    cursor = newline + 1
+                index = cursor
+                continue
+
+            raw_end = raw_string_end(index)
+            if raw_end is not None:
+                line_has_code = True
+                index = raw_end
+                continue
+            if byte in (ord('"'), ord("'")):
+                line_has_code = True
+                index = skip_quoted(index, byte)
+                continue
+
+            if byte == ord("_") or chr(byte).isalpha():
+                end = index + 1
+                while end < length:
+                    candidate = source[end]
+                    if candidate != ord("_") and not chr(candidate).isalnum():
+                        break
+                    end += 1
+                token = source[index:end]
+                replacement = _CPP_QT_STRUCTURAL_MACRO_REPLACEMENTS.get(token)
+                if replacement is not None:
+                    masked[index:end] = replacement
+                line_has_code = True
+                index = end
+                continue
+
+            if byte not in b" \t\v\f\r":
+                line_has_code = True
+            index += 1
+
+        return bytes(masked)
+
+    @classmethod
+    def _mask_blade_comments(cls, text: str) -> str:
+        """Mask Blade comments while preserving offsets and line numbers."""
+        def replace_comment(match: re.Match[str]) -> str:
+            return "".join(
+                char if char in "\r\n" else " "
+                for char in match.group(0)
+            )
+
+        return cls._BLADE_COMMENT_RE.sub(replace_comment, text)
+
+    def _parse_blade(
+        self,
+        path: Path,
+        source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse static Blade template references without a Tree-sitter grammar."""
+        text = source.decode("utf-8", errors="replace")
+        masked = self._mask_blade_comments(text)
+        file_path = normalize_file_path(path)
+        nodes = [
+            NodeInfo(
+                kind="File",
+                name=file_path,
+                file_path=file_path,
+                line_start=1,
+                line_end=source.count(b"\n") + 1,
+                language="blade",
+                is_test=_is_test_file(file_path),
+            ),
+        ]
+        edges: list[EdgeInfo] = []
+        for match in self._BLADE_DIRECTIVE_RE.finditer(masked):
+            directive = match.group(1)
+            target = match.group(3)
+            edges.append(EdgeInfo(
+                kind="REFERENCES" if directive == "livewire" else "IMPORTS_FROM",
+                source=file_path,
+                target=target,
+                file_path=file_path,
+                line=masked.count("\n", 0, match.start()) + 1,
+                extra={"blade_directive": directive},
+            ))
+        return nodes, edges
+
+    def _parse_vue(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a Vue SFC by extracting <script> blocks and delegating to JS/TS."""
+        vue_parser = self._get_parser("vue")
+        if not vue_parser:
+            return [], []
+
+        tree = vue_parser.parse(source)
+        file_path_str = normalize_file_path(path)
+        test_file = _is_test_file(file_path_str)
+
+        all_nodes: list[NodeInfo] = [NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=source.count(b"\n") + 1,
+            language="vue",
+            is_test=test_file,
+        )]
+        all_edges: list[EdgeInfo] = []
+
+        # Find script_element blocks in the Vue AST
+        for child in tree.root_node.children:
+            if child.type != "script_element":
+                continue
+
+            # Detect language from lang="ts" attribute
+            script_lang = "javascript"
+            start_tag = None
+            raw_text_node = None
+            for sub in child.children:
+                if sub.type == "start_tag":
+                    start_tag = sub
+                elif sub.type == "raw_text":
+                    raw_text_node = sub
+
+            if start_tag:
+                for attr in start_tag.children:
+                    if attr.type == "attribute":
+                        attr_name = None
+                        attr_value = None
+                        for a in attr.children:
+                            if a.type == "attribute_name":
+                                attr_name = a.text.decode("utf-8", errors="replace")
+                            elif a.type == "quoted_attribute_value":
+                                for v in a.children:
+                                    if v.type == "attribute_value":
+                                        attr_value = v.text.decode(
+                                            "utf-8", errors="replace",
+                                        )
+                        if attr_name == "lang" and attr_value in ("ts", "typescript"):
+                            script_lang = "typescript"
+
+            if not raw_text_node:
+                continue
+
+            script_source = raw_text_node.text
+            line_offset = raw_text_node.start_point[0]  # 0-based line of raw_text start
+
+            # Parse the script block with the appropriate JS/TS parser
+            script_parser = self._get_parser(script_lang)
+            if not script_parser:
+                continue
+
+            script_tree = script_parser.parse(script_source)
+
+            # Collect imports and defined names from the script block
+            import_map, defined_names = self._collect_file_scope(
+                script_tree.root_node, script_lang, script_source,
+            )
+
+            nodes: list[NodeInfo] = []
+            edges: list[EdgeInfo] = []
+            self._extract_from_tree(
+                script_tree.root_node, script_source, script_lang,
+                file_path_str, nodes, edges,
+                import_map=import_map, defined_names=defined_names,
+            )
+
+            # Adjust line numbers to account for position within the .vue file
+            for node in nodes:
+                node.line_start += line_offset
+                node.line_end += line_offset
+                node.language = "vue"
+            for edge in edges:
+                edge.line += line_offset
+
+            all_nodes.extend(nodes)
+            all_edges.extend(edges)
+
+        # Generate TESTED_BY edges
+        if test_file:
+            test_qnames = set()
+            for n in all_nodes:
+                if n.is_test:
+                    qn = self._qualify(n.name, n.file_path, n.parent_name)
+                    test_qnames.add(qn)
+            for edge in list(all_edges):
+                if edge.kind == "CALLS" and edge.source in test_qnames:
+                    all_edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                    ))
+
+        return all_nodes, all_edges
+
+    def _parse_svelte(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a Svelte SFC by extracting <script> blocks.
+
+        Uses the same approach as Vue: parse the outer HTML structure,
+        locate ``<script>`` blocks, detect ``lang="ts"`` for TypeScript,
+        and delegate each block to the appropriate JS/TS parser.
+        """
+        # Svelte uses HTML-like structure; reuse the vue grammar which
+        # also handles generic HTML with <script> elements.
+        svelte_parser = self._get_parser("svelte")
+        # Fall back to the vue grammar if a dedicated svelte grammar
+        # is not available in the installed tree-sitter language pack.
+        if not svelte_parser:
+            svelte_parser = self._get_parser("vue")
+        if not svelte_parser:
+            return [], []
+
+        tree = svelte_parser.parse(source)
+        file_path_str = normalize_file_path(path)
+        test_file = _is_test_file(file_path_str)
+
+        all_nodes: list[NodeInfo] = [NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=source.count(b"\n") + 1,
+            language="svelte",
+            is_test=test_file,
+        )]
+        all_edges: list[EdgeInfo] = []
+
+        # Walk root children looking for script_element blocks
+        for child in tree.root_node.children:
+            if child.type != "script_element":
+                continue
+
+            script_lang = "javascript"
+            start_tag = None
+            raw_text_node = None
+            for sub in child.children:
+                if sub.type == "start_tag":
+                    start_tag = sub
+                elif sub.type == "raw_text":
+                    raw_text_node = sub
+
+            if start_tag:
+                for attr in start_tag.children:
+                    if attr.type == "attribute":
+                        attr_name = None
+                        attr_value = None
+                        for a in attr.children:
+                            if a.type == "attribute_name":
+                                attr_name = a.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                            elif a.type == "quoted_attribute_value":
+                                for v in a.children:
+                                    if v.type == "attribute_value":
+                                        attr_value = v.text.decode(
+                                            "utf-8",
+                                            errors="replace",
+                                        )
+                        if (
+                            attr_name == "lang"
+                            and attr_value
+                            in ("ts", "typescript")
+                        ):
+                            script_lang = "typescript"
+
+            if not raw_text_node:
+                continue
+
+            script_source = raw_text_node.text
+            line_offset = raw_text_node.start_point[0]
+
+            script_parser = self._get_parser(script_lang)
+            if not script_parser:
+                continue
+
+            script_tree = script_parser.parse(script_source)
+            import_map, defined_names = self._collect_file_scope(
+                script_tree.root_node, script_lang, script_source,
+            )
+
+            nodes: list[NodeInfo] = []
+            edges: list[EdgeInfo] = []
+            self._extract_from_tree(
+                script_tree.root_node, script_source,
+                script_lang, file_path_str, nodes, edges,
+                import_map=import_map,
+                defined_names=defined_names,
+            )
+
+            for node in nodes:
+                node.line_start += line_offset
+                node.line_end += line_offset
+                node.language = "svelte"
+            for edge in edges:
+                edge.line += line_offset
+
+            all_nodes.extend(nodes)
+            all_edges.extend(edges)
+
+        # Generate TESTED_BY edges
+        if test_file:
+            test_qnames = set()
+            for n in all_nodes:
+                if n.is_test:
+                    qn = self._qualify(
+                        n.name, n.file_path, n.parent_name,
+                    )
+                    test_qnames.add(qn)
+            for edge in list(all_edges):
+                if (
+                    edge.kind == "CALLS"
+                    and edge.source in test_qnames
+                ):
+                    all_edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                    ))
+
+        return all_nodes, all_edges
+
+    def _parse_notebook(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a Jupyter notebook by extracting code cells."""
+        try:
+            nb = json.loads(source)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return [], []
+
+        # Determine kernel language
+        kernel_lang = (
+            nb.get("metadata", {}).get("kernelspec", {}).get("language")
+            or nb.get("metadata", {}).get("language_info", {}).get("name")
+            or "python"
+        ).lower()
+
+        # Only parse supported languages
+        supported = {"python", "r"}
+        if kernel_lang not in supported:
+            return [], []
+
+        # Build CellInfo list from code cells
+        cells: list[CellInfo] = []
+        magic_lang_map = {
+            "%python": "python",
+            "%sql": "sql",
+            "%r": "r",
+        }
+        skip_magics = {"%scala", "%md", "%sh"}
+
+        for cell_idx, cell in enumerate(nb.get("cells", [])):
+            if cell.get("cell_type") != "code":
+                continue
+            lines = cell.get("source", [])
+            if isinstance(lines, str):
+                lines = lines.splitlines(keepends=True)
+            if not lines:
+                continue
+
+            # Check first line for language-switching magic
+            first_line = lines[0].strip()
+            cell_lang = kernel_lang
+            cell_lines = lines
+
+            for magic, lang in magic_lang_map.items():
+                if first_line == magic or first_line.startswith(magic + " "):
+                    cell_lang = lang
+                    cell_lines = lines[1:]  # strip magic line
+                    break
+            else:
+                # Check for skip magics
+                for skip in skip_magics:
+                    if first_line == skip or first_line.startswith(skip + " "):
+                        cell_lines = []
+                        break
+
+            # Filter %pip, ! lines from Python/R content (not SQL)
+            if cell_lang in ("python", "r"):
+                filtered = [
+                    ln for ln in cell_lines
+                    if not ln.lstrip().startswith(("%", "!"))
+                ]
+            else:
+                filtered = cell_lines
+            if not filtered:
+                continue
+
+            cell_source = "".join(filtered)
+            cells.append(CellInfo(cell_index=cell_idx, language=cell_lang, source=cell_source))
+
+        if not cells:
+            file_path_str = normalize_file_path(path)
+            return [NodeInfo(
+                kind="File",
+                name=file_path_str,
+                file_path=file_path_str,
+                line_start=1,
+                line_end=1,
+                language=kernel_lang,
+                is_test=_is_test_file(file_path_str),
+            )], []
+
+        return self._parse_notebook_cells(path, cells, kernel_lang)
+
+    def _parse_notebook_cells(
+        self,
+        path: Path,
+        cells: list[CellInfo],
+        default_language: str,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse notebook cells grouped by language.
+
+        Args:
+            path: Notebook file path.
+            cells: List of CellInfo with index, language, and source.
+            default_language: Default language for the File node.
+        """
+        file_path_str = normalize_file_path(path)
+        test_file = _is_test_file(file_path_str)
+
+        # Group cells by language
+        lang_cells: dict[str, list[CellInfo]] = {}
+        for cell in cells:
+            lang_cells.setdefault(cell.language, []).append(cell)
+
+        all_nodes: list[NodeInfo] = []
+        all_edges: list[EdgeInfo] = []
+
+        # Track offsets per language for cell_index tagging.
+        # Each language group is parsed independently by Tree-sitter,
+        # so line numbers restart at 1 for each group.
+        all_cell_offsets: list[tuple[int, int, int]] = []
+        max_line = 1
+
+        for lang, lang_group in lang_cells.items():
+            if lang == "sql":
+                # SQL: regex-based table extraction
+                for cell in lang_group:
+                    for match in _SQL_TABLE_RE.finditer(cell.source):
+                        table_name = match.group(1).replace("`", "")
+                        all_edges.append(EdgeInfo(
+                            kind="IMPORTS_FROM",
+                            source=file_path_str,
+                            target=table_name,
+                            file_path=file_path_str,
+                            line=1,
+                        ))
+                continue
+
+            if lang not in ("python", "r"):
+                continue
+
+            ts_parser = self._get_parser(lang)
+            if not ts_parser:
+                continue
+
+            # Concatenate cells of this language.
+            # Line numbers start at 1 for each language group because
+            # Tree-sitter parses each concatenation independently.
+            code_chunks: list[str] = []
+            cell_offsets: list[tuple[int, int, int]] = []
+            current_line = 1
+
+            for cell in lang_group:
+                cell_line_count = cell.source.count("\n") + (
+                    1 if not cell.source.endswith("\n") else 0
+                )
+                cell_offsets.append((
+                    cell.cell_index, current_line, current_line + cell_line_count - 1,
+                ))
+                code_chunks.append(cell.source)
+                current_line += cell_line_count + 1
+
+            concatenated = "\n".join(code_chunks)
+            concat_bytes = concatenated.encode("utf-8")
+
+            tree = ts_parser.parse(concat_bytes)
+
+            import_map, defined_names = self._collect_file_scope(
+                tree.root_node, lang, concat_bytes,
+            )
+            if lang == "python":
+                self._expand_python_star_imports(
+                    tree.root_node, file_path_str, import_map,
+                )
+            self._extract_from_tree(
+                tree.root_node, concat_bytes, lang,
+                file_path_str, all_nodes, all_edges,
+                import_map=import_map, defined_names=defined_names,
+            )
+
+            all_cell_offsets.extend(cell_offsets)
+            max_line = max(max_line, current_line)
+
+        # Create File node
+        file_node = NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=max_line,
+            language=default_language,
+            is_test=test_file,
+        )
+        all_nodes.insert(0, file_node)
+
+        # Resolve call targets
+        all_edges = self._resolve_call_targets(
+            all_nodes, all_edges, file_path_str,
+        )
+
+        # Tag nodes with cell_index
+        for node in all_nodes:
+            if node.kind == "File":
+                continue
+            for cell_idx, start, end in all_cell_offsets:
+                if start <= node.line_start <= end:
+                    node.extra["cell_index"] = cell_idx
+                    break
+
+        # Generate TESTED_BY edges
+        if test_file:
+            test_qnames = set()
+            for n in all_nodes:
+                if n.is_test:
+                    qn = self._qualify(n.name, n.file_path, n.parent_name)
+                    test_qnames.add(qn)
+            for edge in list(all_edges):
+                if edge.kind == "CALLS" and edge.source in test_qnames:
+                    all_edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                    ))
+
+        return all_nodes, all_edges
+
+    def _parse_databricks_py_notebook(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a Databricks .py notebook export."""
+        text = source.decode("utf-8", errors="replace")
+
+        # Strip the header line
+        lines = text.split("\n")
+        if lines and lines[0].strip() == "# Databricks notebook source":
+            lines = lines[1:]
+
+        # Split on COMMAND delimiters
+        cell_chunks: list[list[str]] = [[]]
+        for line in lines:
+            if re.match(r"^# COMMAND\s*-+\s*$", line):
+                cell_chunks.append([])
+            else:
+                cell_chunks[-1].append(line)
+
+        # Classify each cell
+        cells: list[CellInfo] = []
+        magic_lang_map = {
+            "# MAGIC %sql": "sql",
+            "# MAGIC %r": "r",
+        }
+        skip_prefixes = ("# MAGIC %md", "# MAGIC %sh")
+
+        for cell_idx, chunk in enumerate(cell_chunks):
+            non_empty = [ln for ln in chunk if ln.strip()]
+            if not non_empty:
+                continue
+
+            first_line = non_empty[0]
+
+            # Check if all non-empty lines are MAGIC lines
+            all_magic = all(ln.startswith("# MAGIC ") for ln in non_empty)
+
+            # Detect language from the first MAGIC line (e.g. "# MAGIC %sql")
+            cell_lang = None
+            if all_magic:
+                for prefix, lang in magic_lang_map.items():
+                    if first_line.startswith(prefix):
+                        cell_lang = lang
+                        break
+
+            if cell_lang:
+                # Strip "# MAGIC " prefix (8 chars) then skip the %lang directive line
+                stripped = [
+                    ln[8:] if ln.startswith("# MAGIC ") else ln
+                    for ln in chunk
+                ]
+                # Remove the first non-empty line if it's just the %lang directive
+                stripped_non_empty = [ln for ln in stripped if ln.strip()]
+                if stripped_non_empty and stripped_non_empty[0].strip().startswith("%"):
+                    # Drop the directive line from the source
+                    first_directive = stripped_non_empty[0]
+                    stripped = [ln for ln in stripped if ln != first_directive]
+                cell_source = "\n".join(stripped)
+                cells.append(CellInfo(
+                    cell_index=cell_idx, language=cell_lang, source=cell_source,
+                ))
+                continue
+
+            # Check for skip prefixes (md, sh)
+            if all_magic and first_line.startswith(skip_prefixes):
+                continue
+
+            # Default: Python cell (mixed or no MAGIC)
+            py_lines = [ln for ln in chunk if not ln.startswith("# MAGIC ")]
+            cell_source = "\n".join(py_lines)
+            cells.append(CellInfo(
+                cell_index=cell_idx, language="python", source=cell_source,
+            ))
+
+        if not cells:
+            file_path_str = normalize_file_path(path)
+            file_node = NodeInfo(
+                kind="File",
+                name=file_path_str,
+                file_path=file_path_str,
+                line_start=1,
+                line_end=1,
+                language="python",
+                is_test=_is_test_file(file_path_str),
+            )
+            file_node.extra["notebook_format"] = "databricks_py"
+            return [file_node], []
+
+        nodes, edges = self._parse_notebook_cells(path, cells, "python")
+
+        # Tag File node with notebook_format
+        for node in nodes:
+            if node.kind == "File":
+                node.extra["notebook_format"] = "databricks_py"
+                break
+
+        return nodes, edges
+
+    # ------------------------------------------------------------------
+    # VB.NET: bounded structural fallback (no bundled tree-sitter grammar)
+    # ------------------------------------------------------------------
+
+    def _parse_vbnet(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse stable VB structure without pretending to be a full compiler.
+
+        VB is case-insensitive. Symbols are therefore resolved only when an
+        exact case-folded, scope-aware match exists in this file; ambiguous or
+        external targets remain unresolved instead of gaining a false edge.
+        """
+        text = source.decode("utf-8", errors="replace")
+        cleaned = _strip_vbnet_noise(text)
+        statements = _vbnet_logical_lines(cleaned)
+        file_path = normalize_file_path(path)
+        line_count = text.count("\n") + 1
+        test_file = _is_test_file(file_path)
+
+        nodes = [NodeInfo(
+            kind="File",
+            name=file_path,
+            file_path=file_path,
+            line_start=1,
+            line_end=line_count,
+            language="vbnet",
+            is_test=test_file,
+        )]
+        edges: list[EdgeInfo] = []
+        namespace_stack: list[dict] = []
+        type_stack: list[dict] = []
+        member_stack: list[dict] = []
+        member_nodes: dict[tuple[str, str], int] = {}
+
+        def namespace_scope() -> Optional[str]:
+            return namespace_stack[-1]["full"] if namespace_stack else None
+
+        def current_type() -> Optional[dict]:
+            return type_stack[-1] if type_stack else None
+
+        def parent_scope() -> Optional[str]:
+            current = current_type()
+            return current["full"] if current else namespace_scope()
+
+        def container_qn(scope: Optional[str]) -> str:
+            return self._qualify(scope, file_path, None) if scope else file_path
+
+        def close_member(line_no: int) -> None:
+            if not member_stack:
+                return
+            entry = member_stack.pop()
+            node = nodes[entry["node_index"]]
+            node.line_end = max(node.line_end, line_no)
+
+        def close_type(line_no: int, kind: Optional[str] = None) -> None:
+            while member_stack:
+                close_member(line_no)
+            if not type_stack:
+                return
+            if kind is None:
+                entry = type_stack.pop()
+            else:
+                wanted = kind.casefold()
+                index = next(
+                    (
+                        pos for pos in range(len(type_stack) - 1, -1, -1)
+                        if type_stack[pos]["kind"] == wanted
+                    ),
+                    len(type_stack) - 1,
+                )
+                entry = type_stack.pop(index)
+            nodes[entry["node_index"]].line_end = line_no
+
+        def emit_relationships(
+            statement: str, source_qn: str, line_no: int,
+        ) -> None:
+            for pattern, edge_kind in (
+                (_VBNET_INHERITS_RE, "INHERITS"),
+                (_VBNET_IMPLEMENTS_RE, "IMPLEMENTS"),
+            ):
+                match = pattern.search(statement)
+                if match is None:
+                    continue
+                for target in _vbnet_relationship_targets(match.group(1)):
+                    edges.append(EdgeInfo(
+                        kind=edge_kind,
+                        source=source_qn,
+                        target=target,
+                        file_path=file_path,
+                        line=line_no,
+                        extra={"vbnet_unresolved": True},
+                    ))
+
+        def emit_calls(statement: str, source_qn: str, line_no: int) -> None:
+            new_spans: list[tuple[int, int]] = []
+            for match in _VBNET_NEW_RE.finditer(statement):
+                target = _vbnet_normalize_name(match.group("target"))
+                new_spans.append(match.span())
+                edges.append(EdgeInfo(
+                    kind="CALLS",
+                    source=source_qn,
+                    target=target,
+                    file_path=file_path,
+                    line=line_no,
+                    extra={"vbnet_unresolved": True, "constructor": True},
+                ))
+
+            for match in _VBNET_CALL_RE.finditer(statement):
+                if any(start <= match.start() < end for start, end in new_spans):
+                    continue
+                target = _vbnet_normalize_name(match.group("target"))
+                first = target.split(".", 1)[0].casefold()
+                if first in _VBNET_CALL_KEYWORDS:
+                    continue
+                edges.append(EdgeInfo(
+                    kind="CALLS",
+                    source=source_qn,
+                    target=target,
+                    file_path=file_path,
+                    line=line_no,
+                    extra={"vbnet_unresolved": True},
+                ))
+
+        for line_start, line_end, statement in statements:
+            if not statement:
+                continue
+
+            import_match = _VBNET_IMPORT_RE.match(statement)
+            if import_match:
+                for target in _vbnet_relationship_targets(import_match.group(1)):
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=target,
+                        file_path=file_path,
+                        line=line_start,
+                    ))
+                continue
+
+            if _VBNET_END_NAMESPACE_RE.match(statement):
+                while type_stack:
+                    close_type(line_end)
+                if namespace_stack:
+                    entry = namespace_stack.pop()
+                    nodes[entry["node_index"]].line_end = line_end
+                continue
+
+            namespace_match = _VBNET_NAMESPACE_RE.match(statement)
+            if namespace_match:
+                raw_name = _vbnet_normalize_name(namespace_match.group("name"))
+                outer = namespace_scope()
+                full_name = ".".join(filter(None, (outer, raw_name)))
+                node_index = len(nodes)
+                nodes.append(NodeInfo(
+                    kind="Class",
+                    name=raw_name,
+                    file_path=file_path,
+                    line_start=line_start,
+                    line_end=line_end,
+                    language="vbnet",
+                    parent_name=outer,
+                    extra={"vbnet_kind": "namespace"},
+                ))
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=container_qn(outer),
+                    target=self._qualify(raw_name, file_path, outer),
+                    file_path=file_path,
+                    line=line_start,
+                ))
+                namespace_stack.append({
+                    "full": full_name,
+                    "node_index": node_index,
+                })
+                continue
+
+            end_member = _VBNET_END_MEMBER_RE.match(statement)
+            if end_member:
+                close_member(line_end)
+                continue
+
+            end_type = _VBNET_END_TYPE_RE.match(statement)
+            if end_type:
+                close_type(line_end, end_type.group("kind"))
+                continue
+
+            type_match = _VBNET_TYPE_RE.match(statement)
+            if type_match:
+                while member_stack:
+                    close_member(line_start)
+                name = _vbnet_normalize_name(type_match.group("name"))
+                kind = type_match.group("kind").casefold()
+                scope = parent_scope()
+                full_scope = ".".join(filter(None, (scope, name)))
+                type_params, _ = _vbnet_type_parameters(type_match.group("rest"))
+                extra: dict = {"vbnet_kind": kind}
+                if type_params:
+                    extra["vbnet_type_parameters"] = type_params
+                node_index = len(nodes)
+                nodes.append(NodeInfo(
+                    kind="Class",
+                    name=name,
+                    file_path=file_path,
+                    line_start=line_start,
+                    line_end=line_end,
+                    language="vbnet",
+                    parent_name=scope,
+                    extra=extra,
+                ))
+                type_qn = self._qualify(name, file_path, scope)
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=container_qn(scope),
+                    target=type_qn,
+                    file_path=file_path,
+                    line=line_start,
+                ))
+                type_stack.append({
+                    "full": full_scope,
+                    "kind": kind,
+                    "node_index": node_index,
+                })
+                emit_relationships(type_match.group("rest"), type_qn, line_start)
+                continue
+
+            type_entry = current_type()
+            if type_entry and re.match(
+                r"^\s*(?:Inherits|Implements)\b", statement, re.IGNORECASE,
+            ):
+                emit_relationships(
+                    statement,
+                    self._qualify(type_entry["full"], file_path, None),
+                    line_start,
+                )
+                continue
+
+            member_match = (
+                _VBNET_MEMBER_RE.match(statement)
+                or _VBNET_OPERATOR_RE.match(statement)
+            )
+            if member_match:
+                while member_stack:
+                    close_member(line_start)
+                member_kind = member_match.group("kind").casefold()
+                name = _vbnet_normalize_name(member_match.group("name"))
+                if member_kind == "operator":
+                    name = f"operator_{name}"
+                modifiers = re.sub(
+                    r"\s+", " ", member_match.group("mods").strip(),
+                ) or None
+                params, return_type, type_params = _vbnet_signature_parts(
+                    member_match.group("rest"),
+                )
+                scope = parent_scope()
+                qn = self._qualify(name, file_path, scope)
+                key = ((scope or "").casefold(), name.casefold())
+                member_index = member_nodes.get(key)
+                if member_index is None:
+                    is_test = _is_test_function(name, file_path)
+                    extra = {"vbnet_kind": member_kind}
+                    if type_params:
+                        extra["vbnet_type_parameters"] = type_params
+                    member_index = len(nodes)
+                    nodes.append(NodeInfo(
+                        kind="Test" if is_test else "Function",
+                        name=name,
+                        file_path=file_path,
+                        line_start=line_start,
+                        line_end=line_end,
+                        language="vbnet",
+                        parent_name=scope,
+                        params=params,
+                        return_type=return_type,
+                        modifiers=modifiers,
+                        is_test=is_test,
+                        extra=extra,
+                    ))
+                    member_nodes[key] = member_index
+                    edges.append(EdgeInfo(
+                        kind="CONTAINS",
+                        source=container_qn(scope),
+                        target=qn,
+                        file_path=file_path,
+                        line=line_start,
+                    ))
+                else:
+                    existing = nodes[member_index]
+                    overloads = existing.extra.setdefault(
+                        "vbnet_overloads", [existing.params or ""],
+                    )
+                    overloads.append(params or "")
+                    existing.line_end = max(existing.line_end, line_end)
+
+                implements = _VBNET_IMPLEMENTS_RE.search(
+                    member_match.group("rest"),
+                )
+                if implements:
+                    for target in _vbnet_relationship_targets(implements.group(1)):
+                        edges.append(EdgeInfo(
+                            kind="IMPLEMENTS",
+                            source=qn,
+                            target=target,
+                            file_path=file_path,
+                            line=line_start,
+                            extra={"vbnet_unresolved": True},
+                        ))
+
+                modifier_words = {
+                    word.casefold() for word in (modifiers or "").split()
+                }
+                has_body = (
+                    not type_entry or type_entry["kind"] != "interface"
+                ) and not modifier_words.intersection({"mustoverride", "declare"})
+                if has_body:
+                    member_stack.append({
+                        "node_index": member_index,
+                        "qn": qn,
+                    })
+                continue
+
+            if member_stack:
+                emit_calls(statement, member_stack[-1]["qn"], line_start)
+
+        while member_stack:
+            close_member(line_count)
+        while type_stack:
+            close_type(line_count)
+        while namespace_stack:
+            entry = namespace_stack.pop()
+            nodes[entry["node_index"]].line_end = line_count
+
+        edges = self._resolve_vbnet_edges(nodes, edges, file_path)
+        if test_file:
+            test_qnames = {
+                self._qualify(node.name, file_path, node.parent_name)
+                for node in nodes
+                if node.is_test
+            }
+            for edge in list(edges):
+                if edge.kind == "CALLS" and edge.source in test_qnames:
+                    edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                    ))
+        return nodes, edges
+
+    def _resolve_vbnet_edges(
+        self,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        file_path: str,
+    ) -> list[EdgeInfo]:
+        """Resolve only unique case-insensitive same-file VB targets."""
+        prefix = f"{file_path}::"
+        symbols: dict[str, list[str]] = {}
+        bare_symbols: dict[str, list[str]] = {}
+        for node in nodes:
+            if node.kind not in ("Class", "Function", "Test", "Type"):
+                continue
+            qn = self._qualify(node.name, file_path, node.parent_name)
+            tail = qn.removeprefix(prefix)
+            symbols.setdefault(tail.casefold(), []).append(qn)
+            bare_symbols.setdefault(node.name.casefold(), []).append(qn)
+
+        def unique(candidate: str) -> Optional[str]:
+            matches = symbols.get(candidate.casefold(), [])
+            return matches[0] if len(matches) == 1 else None
+
+        def resolve(edge: EdgeInfo) -> Optional[str]:
+            raw = edge.target
+            if "::" in raw:
+                return raw
+            target = _vbnet_normalize_name(raw)
+            source_tail = edge.source.removeprefix(prefix)
+            source_parts = source_tail.split(".") if source_tail else []
+            scope_parts = source_parts[:-1]
+
+            lowered = target.casefold()
+            if lowered.startswith("global."):
+                target = target[7:]
+            elif lowered.startswith("me."):
+                target = target[3:]
+            elif lowered.startswith("myclass."):
+                target = target[8:]
+
+            for size in range(len(scope_parts), -1, -1):
+                candidate = ".".join((*scope_parts[:size], target))
+                found = unique(candidate)
+                if found is not None:
+                    return found
+            found = unique(target)
+            if found is not None:
+                return found
+            bare = bare_symbols.get(target.casefold(), [])
+            return bare[0] if len(bare) == 1 else None
+
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            if edge.kind not in ("CALLS", "INHERITS", "IMPLEMENTS"):
+                resolved.append(edge)
+                continue
+            target = resolve(edge)
+            if target is None:
+                resolved.append(edge)
+                continue
+            extra = dict(edge.extra)
+            extra.pop("vbnet_unresolved", None)
+            resolved.append(EdgeInfo(
+                kind=edge.kind,
+                source=edge.source,
+                target=target,
+                file_path=edge.file_path,
+                line=edge.line,
+                extra=extra,
+            ))
+        return resolved
+
+    # ------------------------------------------------------------------
+    # ReScript: regex-based structural parser (no tree-sitter grammar
+    # is bundled for ReScript, so we extract best-effort structure via
+    # comment-stripping + line-anchored regex + brace-counted module scan).
+    # ------------------------------------------------------------------
+
+    def _parse_rescript(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a ReScript `.res` or `.resi` file.
+
+        Extracts modules, let bindings, types, external bindings, open/include
+        imports, and function calls. Interface files (`.resi`) are flagged via
+        ``File`` node ``extra["rescript_interface"]=True`` and skip call
+        extraction since signatures have no call sites.
+        """
+        text = source.decode("utf-8", errors="replace")
+        file_path_str = normalize_file_path(path)
+        test_file = _is_test_file(file_path_str)
+        is_interface = path.suffix.lower() == ".resi"
+
+        # Strip comments and string/backtick literal content so downstream
+        # regex matches are not fooled by code-looking text inside strings.
+        # Newlines are preserved so offset→line mapping stays accurate.
+        cleaned = _strip_rescript_noise(text)
+
+        # Build offset → line index (1-based).
+        line_starts = [0]
+        for i, ch in enumerate(cleaned):
+            if ch == "\n":
+                line_starts.append(i + 1)
+
+        def offset_to_line(off: int) -> int:
+            lo, hi = 0, len(line_starts) - 1
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if line_starts[mid] <= off:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            return lo + 1
+
+        nodes: list[NodeInfo] = []
+        edges: list[EdgeInfo] = []
+
+        file_extra: dict = {}
+        if is_interface:
+            file_extra["rescript_interface"] = True
+        nodes.append(NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=text.count("\n") + 1,
+            language="rescript",
+            is_test=test_file,
+            extra=file_extra,
+        ))
+
+        # Modules with brace-matched offset ranges.
+        modules = _scan_rescript_modules(cleaned, offset_to_line)
+        depth_arr = _rescript_brace_depth_array(cleaned)
+
+        def is_top_level(off: int, parent_mod: Optional[str]) -> bool:
+            """True if offset is at file scope (depth 0) or directly inside
+            `parent_mod`'s body (depth = module body depth)."""
+            d = depth_arr[off] if off < len(depth_arr) else 0
+            if parent_mod is None:
+                return d == 0
+            for m in modules:
+                if m["name"] == parent_mod and m["start_off"] <= off <= m["end_off"]:
+                    expected = depth_arr[m["body_start_off"]]
+                    return d == expected
+            return False
+        for m in modules:
+            nodes.append(NodeInfo(
+                kind="Class",
+                name=m["name"],
+                file_path=file_path_str,
+                line_start=m["start_line"],
+                line_end=m["end_line"],
+                language="rescript",
+                parent_name=m["parent"],
+                extra={"rescript_kind": "module"},
+            ))
+
+        def enclosing_module(off: int) -> Optional[str]:
+            innermost_name = None
+            innermost_start = -1
+            for m in modules:
+                if (
+                    m["start_off"] <= off <= m["end_off"]
+                    and m["start_off"] > innermost_start
+                ):
+                    innermost_name = m["name"]
+                    innermost_start = m["start_off"]
+            return innermost_name
+
+        # First: let/and bindings — collect offsets so we can later compute
+        # end offsets for call attribution.
+        let_entries: list[dict] = []
+        for match in _RESCRIPT_LET_RE.finditer(cleaned):
+            name = match.group(1)
+            if name in _RESCRIPT_KEYWORDS:
+                continue
+            off = match.start(1)
+            parent = enclosing_module(off)
+            if not is_top_level(off, parent):
+                continue  # nested local `let` — not a structural node
+            line_start = offset_to_line(off)
+            is_test_fn = _is_test_function(name, file_path_str)
+            let_entries.append({
+                "name": name,
+                "start_off": off,
+                "line_start": line_start,
+                "parent": parent,
+                "is_test": is_test_fn,
+            })
+
+        # Sort by start_off, compute end_off as next same-or-outer-scope let start
+        # or the closing brace of the enclosing module, or end of file.
+        let_entries.sort(key=lambda e: e["start_off"])
+        for i, entry in enumerate(let_entries):
+            nxt = len(cleaned)
+            for later in let_entries[i + 1:]:
+                nxt = later["start_off"]
+                break
+            # Clamp by enclosing module end if any
+            if entry["parent"]:
+                for m in modules:
+                    if (
+                        m["name"] == entry["parent"]
+                        and m["start_off"] <= entry["start_off"] <= m["end_off"]
+                    ):
+                        nxt = min(nxt, m["end_off"])
+                        break
+            entry["end_off"] = max(nxt, entry["start_off"] + 1)
+            entry["line_end"] = offset_to_line(entry["end_off"] - 1)
+
+        for entry in let_entries:
+            nodes.append(NodeInfo(
+                kind="Test" if entry["is_test"] else "Function",
+                name=entry["name"],
+                file_path=file_path_str,
+                line_start=entry["line_start"],
+                line_end=entry["line_end"],
+                language="rescript",
+                parent_name=entry["parent"],
+                is_test=entry["is_test"],
+            ))
+
+        # External bindings (also create IMPORTS_FROM edges for @module attrs).
+        for match in _RESCRIPT_EXTERNAL_RE.finditer(cleaned):
+            name = match.group(1)
+            if name in _RESCRIPT_KEYWORDS:
+                continue
+            off = match.start(1)
+            parent = enclosing_module(off)
+            if not is_top_level(off, parent):
+                continue
+            line_start = offset_to_line(off)
+            nodes.append(NodeInfo(
+                kind="Function",
+                name=name,
+                file_path=file_path_str,
+                line_start=line_start,
+                line_end=line_start,
+                language="rescript",
+                parent_name=parent,
+                extra={"rescript_external": True},
+            ))
+            # Look back up to 200 chars for a nearby @module("...") attr.
+            # Read from the ORIGINAL text (not `cleaned`) so string literal
+            # content like "fs" is preserved. Offsets are length-equivalent
+            # because `_strip_rescript_noise` replaces with spaces/newlines.
+            look_start = max(0, off - 200)
+            snippet = text[look_start:off]
+            for attr in _RESCRIPT_MODULE_ATTR_RE.finditer(snippet):
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path_str,
+                    target=attr.group(1),
+                    file_path=file_path_str,
+                    line=line_start,
+                    extra={"rescript_import_kind": "external_module"},
+                ))
+
+        # Type definitions.
+        for match in _RESCRIPT_TYPE_RE.finditer(cleaned):
+            name = match.group(1)
+            if name in _RESCRIPT_KEYWORDS:
+                continue
+            off = match.start(1)
+            parent = enclosing_module(off)
+            if not is_top_level(off, parent):
+                continue
+            line_start = offset_to_line(off)
+            nodes.append(NodeInfo(
+                kind="Type",
+                name=name,
+                file_path=file_path_str,
+                line_start=line_start,
+                line_end=line_start,
+                language="rescript",
+                parent_name=parent,
+            ))
+
+        # open / include statements.
+        for match in _RESCRIPT_OPEN_RE.finditer(cleaned):
+            kind = match.group(1)
+            target = match.group(2)
+            off = match.start()
+            line = offset_to_line(off)
+            edges.append(EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=file_path_str,
+                target=target,
+                file_path=file_path_str,
+                line=line,
+                extra={"rescript_import_kind": kind},
+            ))
+
+        # Module aliases: `module X = Foo.Bar` (no brace body). These
+        # re-export another module and are the second most common way ReScript
+        # files reference each other (after JSX).
+        for match in _RESCRIPT_MODULE_ALIAS_RE.finditer(cleaned):
+            alias_name = match.group(1)
+            target = match.group(2)
+            off = match.start()
+            # Skip if the alias was actually the header of a `module X = { ... }`
+            # block already captured by `modules`. That scanner requires `{` to
+            # follow, so a trailing-dot form like `module X = Foo.Bar` at EOL
+            # never gets mistaken for a block.
+            if any(m["start_off"] == off for m in modules):
+                continue
+            line = offset_to_line(off)
+            edges.append(EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=file_path_str,
+                target=target,
+                file_path=file_path_str,
+                line=line,
+                extra={
+                    "rescript_import_kind": "module_alias",
+                    "alias_name": alias_name,
+                },
+            ))
+
+        # JSX component usage: `<Foo />`, `<Foo.Bar />`. The root module is
+        # what matters for cross-file dependency tracking (importers_of);
+        # the specific component is the CALLS target for finer queries.
+        if not is_interface:
+            for match in _RESCRIPT_JSX_RE.finditer(cleaned):
+                target = match.group(1)
+                off = match.start(1)
+                root = target.split(".", 1)[0]
+                line = offset_to_line(off)
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path_str,
+                    target=root,
+                    file_path=file_path_str,
+                    line=line,
+                    extra={"rescript_import_kind": "jsx"},
+                ))
+                # Attribute a CALLS edge to the enclosing let, so
+                # callers_of(<Foo.Bar />) can find the caller.
+                caller = None
+                caller_parent = None
+                for entry in let_entries:
+                    if entry["start_off"] <= off < entry["end_off"]:
+                        caller = entry["name"]
+                        caller_parent = entry["parent"]
+                    elif entry["start_off"] > off:
+                        break
+                if caller is not None:
+                    edges.append(EdgeInfo(
+                        kind="CALLS",
+                        source=self._qualify(
+                            caller, file_path_str, caller_parent,
+                        ),
+                        target=target,
+                        file_path=file_path_str,
+                        line=line,
+                        extra={"rescript_call_kind": "jsx"},
+                    ))
+
+        # Calls — interface files have no call sites, skip.
+        if not is_interface and let_entries:
+            for match in _RESCRIPT_CALL_RE.finditer(cleaned):
+                target = match.group(1)
+                off = match.start(1)
+                top = target.split(".", 1)[0]
+                if top in _RESCRIPT_KEYWORDS or target in _RESCRIPT_KEYWORDS:
+                    continue
+                # Find enclosing let by offset range.
+                caller = None
+                caller_parent = None
+                for entry in let_entries:
+                    if entry["start_off"] <= off < entry["end_off"]:
+                        caller = entry["name"]
+                        caller_parent = entry["parent"]
+                    elif entry["start_off"] > off:
+                        break
+                if caller is None:
+                    continue
+                # Skip the definition site itself: `let name = ...` where
+                # name(x) is actually the definition header, not a call.
+                if caller == target and off == next(
+                    (e["start_off"] for e in let_entries if e["name"] == caller),
+                    -1,
+                ):
+                    continue
+                line = offset_to_line(off)
+                source_qn = self._qualify(caller, file_path_str, caller_parent)
+                edges.append(EdgeInfo(
+                    kind="CALLS",
+                    source=source_qn,
+                    target=target,
+                    file_path=file_path_str,
+                    line=line,
+                ))
+
+        # CONTAINS edges: each module node contains its members.
+        for n in nodes:
+            if n.kind in ("Function", "Type", "Test") and n.parent_name:
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=self._qualify(n.parent_name, file_path_str, None),
+                    target=self._qualify(n.name, file_path_str, n.parent_name),
+                    file_path=file_path_str,
+                    line=n.line_start,
+                ))
+
+        # Tag modules whose member functions are all externals as JS bindings.
+        # (e.g. `module TextEncoder = { type encoder; @new external ... }`)
+        member_funcs: dict[str, list[NodeInfo]] = {}
+        for n in nodes:
+            if n.kind == "Function" and n.parent_name:
+                member_funcs.setdefault(n.parent_name, []).append(n)
+        for mod_node in nodes:
+            if mod_node.kind != "Class":
+                continue
+            members = member_funcs.get(mod_node.name, [])
+            if members and all(
+                m.extra.get("rescript_external") for m in members
+            ):
+                mod_node.extra["rescript_kind"] = "js_binding"
+
+        # Dedupe IMPORTS_FROM edges by (source, target). The same `open X`
+        # can appear multiple times legitimately (e.g. reopened within
+        # different scopes), and include+open of the same module produces
+        # two edges; collapse them.
+        seen_imports: set[tuple[str, str]] = set()
+        deduped_edges: list[EdgeInfo] = []
+        for e in edges:
+            if e.kind == "IMPORTS_FROM":
+                key = (e.source, e.target)
+                if key in seen_imports:
+                    continue
+                seen_imports.add(key)
+            deduped_edges.append(e)
+        edges = deduped_edges
+
+        edges = self._resolve_call_targets(nodes, edges, file_path_str)
+
+        if test_file:
+            test_qnames = set()
+            for n in nodes:
+                if n.is_test:
+                    qn = self._qualify(n.name, n.file_path, n.parent_name)
+                    test_qnames.add(qn)
+            for edge in list(edges):
+                if edge.kind == "CALLS" and edge.source in test_qnames:
+                    edges.append(EdgeInfo(
+                        kind="TESTED_BY",
+                        source=edge.target,
+                        target=edge.source,
+                        file_path=edge.file_path,
+                        line=edge.line,
+                    ))
+
+        return nodes, edges
+
+    # ------------------------------------------------------------------
+    # SQL parser
+    # ------------------------------------------------------------------
+
+    # Regex for CREATE PROCEDURE — tree-sitter SQL grammar emits an ERROR node
+    # for this statement, so we fall back to a regex scan.
+    _SQL_PROC_RE = re.compile(
+        r"CREATE\s+(?:OR\s+REPLACE\s+)?PROCEDURE\s+(\w+(?:\.\w+)*)",
+        re.IGNORECASE,
+    )
+
+    # Named DDL statements supported by tree-sitter-sql.
+    _SQL_DDL_NODE_TYPES = frozenset({
+        "create_table",
+        "create_view",
+        "create_function",
+    })
+
+    def _parse_sql(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse a `.sql` file.
+
+        Extracts:
+        - Tables (CREATE TABLE) → Class nodes with extra["sql_kind"]="table"
+        - Views  (CREATE VIEW)  → Class nodes with extra["sql_kind"]="view"
+        - Functions (CREATE FUNCTION) → Function nodes with extra["sql_kind"]="function"
+        - Procedures (CREATE PROCEDURE, regex fallback) → Function nodes with
+          extra["sql_kind"]="procedure"
+
+        Data dependencies (FROM/JOIN table references) are recorded as
+        IMPORTS_FROM edges so the impact-radius query can follow them.
+
+        dbt models use a dedicated extraction instead: one Class node per
+        model, named after the file stem, with IMPORTS_FROM edges from the
+        Jinja dependency calls. Within a dbt project, model membership comes
+        from ``model-paths`` in ``dbt_project.yml``; without project context,
+        a ``ref()`` / ``source()`` call remains a best-effort content signal.
+        """
+        text = source.decode("utf-8", errors="replace")
+        file_path_str = normalize_file_path(path)
+        test_file = _is_test_file(file_path_str)
+
+        nodes: list[NodeInfo] = []
+        edges: list[EdgeInfo] = []
+
+        nodes.append(NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=text.count("\n") + 1,
+            language="sql",
+            is_test=test_file,
+        ))
+
+        # --- dbt model pass ---
+        # A dbt model has no DDL (dbt wraps the SELECT at build time), its
+        # dependencies live in Jinja calls the FROM/JOIN regex cannot see,
+        # and the plain-SQL passes below would only pick up CTE names as
+        # phantom IMPORTS_FROM targets. Handle it separately and skip them.
+        dbt_refs = list(_DBT_REF_RE.finditer(text))
+        dbt_model_path = self._is_dbt_model_path(path)
+        if dbt_model_path is True or (dbt_model_path is None and dbt_refs):
+            self._extract_dbt_model(
+                path, text, dbt_refs, file_path_str, test_file, nodes, edges,
+            )
+            return nodes, edges
+
+        # --- tree-sitter pass ---
+        parser = self._get_parser("sql")
+        if parser:
+            tree = parser.parse(source)
+            self._walk_sql_tree(
+                tree.root_node, source, file_path_str, nodes, edges,
+            )
+
+        # --- regex fallback for CREATE PROCEDURE ---
+        for m in self._SQL_PROC_RE.finditer(text):
+            raw_name = m.group(1)
+            name = raw_name.split(".")[-1]  # strip schema prefix
+            line = text[: m.start()].count("\n") + 1
+            qualified = f"{file_path_str}::{name}"
+            nodes.append(NodeInfo(
+                kind="Function",
+                name=name,
+                file_path=file_path_str,
+                line_start=line,
+                line_end=line,
+                language="sql",
+                extra={"sql_kind": "procedure"},
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=file_path_str,
+                target=qualified,
+                file_path=file_path_str,
+                line=line,
+            ))
+
+        # --- table-reference pass (FROM / JOIN targets) ---
+        seen_refs: set[str] = set()
+        for m in _SQL_TABLE_RE.finditer(text):
+            raw_ref = m.group(1).strip("`")
+            ref = raw_ref.split(".")[-1]  # strip schema/db prefix
+            if ref and ref.upper() not in _SQL_KEYWORDS and ref not in seen_refs:
+                seen_refs.add(ref)
+                line = text[: m.start()].count("\n") + 1
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path_str,
+                    target=ref,
+                    file_path=file_path_str,
+                    line=line,
+                ))
+
+        return nodes, edges
+
+    def _is_dbt_model_path(self, path: Path) -> Optional[bool]:
+        """Return whether *path* belongs to a configured dbt model directory.
+
+        ``None`` means there is no enclosing dbt project in this parser's
+        repository context, so callers may use content sniffing as a fallback.
+        """
+        if self._repo_root is None:
+            return None
+
+        resolved_path = path.resolve()
+        try:
+            resolved_path.relative_to(self._repo_root)
+        except ValueError:
+            return None
+
+        directory = resolved_path.parent
+        while True:
+            project_file = directory / "dbt_project.yml"
+            if project_file.is_file():
+                return any(
+                    resolved_path.is_relative_to(model_path)
+                    for model_path in self._dbt_model_paths(project_file)
+                )
+            if directory == self._repo_root:
+                return None
+            parent = directory.parent
+            if parent == directory or not parent.is_relative_to(self._repo_root):
+                return None
+            directory = parent
+
+    def _dbt_model_paths(self, project_file: Path) -> tuple[Path, ...]:
+        """Read and cache the model directories for one dbt project."""
+        cached = self._dbt_model_paths_cache.get(project_file)
+        if cached is not None:
+            return cached
+
+        configured_paths: object = ["models"]
+        if _yaml is not None:
+            try:
+                config = _yaml.safe_load(project_file.read_text(encoding="utf-8"))
+                if isinstance(config, dict):
+                    configured_paths = config.get("model-paths", ["models"])
+            except (OSError, _yaml.YAMLError):
+                configured_paths = ["models"]
+
+        if isinstance(configured_paths, str):
+            configured_paths = [configured_paths]
+        if not isinstance(configured_paths, list):
+            configured_paths = ["models"]
+
+        model_paths = tuple(
+            (project_file.parent / configured_path).resolve()
+            for configured_path in configured_paths
+            if isinstance(configured_path, str) and configured_path
+        )
+        self._dbt_model_paths_cache[project_file] = model_paths
+        return model_paths
+
+    def _extract_dbt_model(
+        self,
+        path: Path,
+        text: str,
+        dbt_refs: list[re.Match],
+        file_path_str: str,
+        test_file: bool,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Extract a dbt model file: one Class node plus its Jinja deps.
+
+        dbt materializes each model file as a table or view named after the
+        file stem, so the stem is the node name.
+
+        - `{{ ref('m') }}` → IMPORTS_FROM target `m`
+        - `{{ ref('pkg', 'm') }}` → IMPORTS_FROM target `pkg.m`
+        - `{{ source('src', 'tbl') }}` → IMPORTS_FROM target `src.tbl`
+          (kept qualified: sources are external tables, not project models,
+          so the target must not collide with a model node of the same name)
+        """
+        model_name = path.stem
+        qualified = f"{file_path_str}::{model_name}"
+        nodes.append(NodeInfo(
+            kind="Class",
+            name=model_name,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=text.count("\n") + 1,
+            language="sql",
+            is_test=test_file,
+            extra={"sql_kind": "dbt_model"},
+        ))
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=file_path_str,
+            target=qualified,
+            file_path=file_path_str,
+            line=1,
+        ))
+
+        seen_targets: set[str] = set()
+        for m in dbt_refs:
+            func, first_arg, second_arg = m.group(1), m.group(2), m.group(3)
+            if func == "source":
+                if second_arg is None:
+                    continue  # source() requires two args; malformed call
+                target = f"{first_arg}.{second_arg}"
+            elif second_arg is not None:
+                target = f"{first_arg}.{second_arg}"
+            else:
+                target = first_arg
+            if target and target != model_name and target not in seen_targets:
+                seen_targets.add(target)
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path_str,
+                    target=target,
+                    file_path=file_path_str,
+                    line=text[: m.start()].count("\n") + 1,
+                ))
+
+    def _walk_sql_tree(
+        self,
+        node,
+        source: bytes,
+        file_path_str: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Recursively walk a tree-sitter SQL AST and extract DDL entities."""
+        if node.type in self._SQL_DDL_NODE_TYPES:
+            self._extract_sql_ddl(node, source, file_path_str, nodes, edges)
+            return  # don't recurse into the DDL body — no nested DDL expected
+        for child in node.children:
+            self._walk_sql_tree(child, source, file_path_str, nodes, edges)
+
+    def _extract_sql_ddl(
+        self,
+        node,
+        source: bytes,
+        file_path_str: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Extract a single CREATE TABLE / VIEW / FUNCTION DDL node."""
+        node_type = node.type
+        line_start = node.start_point[0] + 1
+        line_end = node.end_point[0] + 1
+
+        # Locate the identifier / object_reference child that holds the name.
+        name: Optional[str] = None
+        for child in node.children:
+            if child.type in ("identifier", "object_reference", "dotted_name"):
+                raw = source[child.start_byte: child.end_byte].decode("utf-8", errors="replace")
+                # Strip schema prefix (schema.name → name)
+                name = raw.strip("`\"").split(".")[-1]
+                break
+            # Some grammars nest: relation > object_reference > identifier
+            if child.type == "relation":
+                for gc in child.children:
+                    if gc.type in ("object_reference", "identifier"):
+                        raw = source[gc.start_byte: gc.end_byte].decode(
+                            "utf-8", errors="replace",
+                        )
+                        name = raw.strip("`\"").split(".")[-1]
+                        break
+                if name:
+                    break
+
+        if not name:
+            return
+
+        if node_type == "create_table":
+            kind = "Class"
+            sql_kind = "table"
+        elif node_type == "create_view":
+            kind = "Class"
+            sql_kind = "view"
+        else:  # create_function
+            kind = "Function"
+            sql_kind = "function"
+
+        qualified = f"{file_path_str}::{name}"
+        nodes.append(NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path_str,
+            line_start=line_start,
+            line_end=line_end,
+            language="sql",
+            extra={"sql_kind": sql_kind},
+        ))
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=file_path_str,
+            target=qualified,
+            file_path=file_path_str,
+            line=line_start,
+        ))
+
+    def _resolve_call_targets(
+        self,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        file_path: str,
+    ) -> list[EdgeInfo]:
+        """Resolve bare call targets to qualified names using same-file definitions.
+
+        After parsing, CALLS edges store bare function names (e.g. ``FirebaseAuth``)
+        as targets. This method builds a symbol table from the parsed nodes and
+        qualifies any bare target that matches a local definition, so that
+        ``callers_of`` / ``callees_of`` queries produce correct results.
+
+        External calls (names not defined in this file) remain bare.
+        """
+        if any(node.language == "julia" for node in nodes):
+            return self._resolve_julia_call_targets(
+                nodes, edges, file_path,
+            )
+
+        is_cpp = any(node.language == "cpp" for node in nodes)
+
+        def cpp_resolution_extra(
+            extra: dict,
+            resolution: str,
+            candidates: list[str],
+        ) -> dict:
+            limit = 20
+            return {
+                **extra,
+                f"{resolution}_targets": candidates[:limit],
+                f"{resolution}_target_count": len(candidates),
+                f"{resolution}_targets_truncated": len(candidates) > limit,
+            }
+
+        # Build symbol table: bare_name -> qualified names. Most languages
+        # retain their established first-definition behavior; C++ needs all
+        # candidates so an overloaded call is never silently bound to one.
+        symbols: dict[str, list[tuple[str, Optional[str]]]] = {}
+        callable_symbols: dict[str, list[tuple[str, Optional[str]]]] = {}
+        source_scopes: dict[str, Optional[str]] = {}
+        for node in nodes:
+            if node.kind in ("Function", "Class", "Type", "Test"):
+                bare = node.name
+                qualified = self._node_qualified(node)
+                entry = (qualified, node.parent_name)
+                if entry not in symbols.setdefault(bare, []):
+                    symbols[bare].append(entry)
+                if (
+                    node.kind in ("Function", "Test")
+                    and entry not in callable_symbols.setdefault(bare, [])
+                ):
+                    callable_symbols[bare].append(entry)
+                source_scopes[qualified] = node.parent_name
+
+        def candidate_entries(
+            target: str,
+            edge_kind: str,
+        ) -> list[tuple[str, Optional[str]]]:
+            entries = symbols.get(target, [])
+            if is_cpp and edge_kind == "CALLS":
+                return callable_symbols.get(target) or entries
+            return entries
+
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            if (
+                edge.kind == "REFERENCES"
+                and edge.extra.get("julia_qualified_def")
+            ):
+                resolved.append(edge)
+                continue
+            receiver = edge.extra.get("receiver")
+            has_receiver = bool(receiver)
+            if edge.kind in ("CALLS", "REFERENCES") and "::" not in edge.target:
+                # JS/TS calls retain their full member expression as evidence
+                # (``app.handle``) while keeping the method name (``handle``)
+                # as the fallback target for external calls. Prefer the full
+                # expression when it identifies a same-file member-assigned
+                # function; otherwise preserve the existing bare-name
+                # resolution behavior.
+                member_call = edge.extra.get("member_call")
+                member_candidates = symbols.get(member_call, [])
+                if member_candidates:
+                    edge = EdgeInfo(
+                        kind=edge.kind,
+                        source=edge.source,
+                        target=member_candidates[0][0],
+                        file_path=edge.file_path,
+                        line=edge.line,
+                        extra=edge.extra,
+                    )
+                    resolved.append(edge)
+                    continue
+            cpp_lexical_receiver = is_cpp and receiver == "this"
+            if (
+                is_cpp
+                and has_receiver
+                and not cpp_lexical_receiver
+                and edge.kind in ("CALLS", "REFERENCES")
+                and "::" not in edge.target
+            ):
+                receiver_candidates = [
+                    qualified
+                    for qualified, _ in candidate_entries(edge.target, edge.kind)
+                ]
+                edge = EdgeInfo(
+                    kind=edge.kind,
+                    source=edge.source,
+                    target=edge.target,
+                    file_path=edge.file_path,
+                    line=edge.line,
+                    extra=cpp_resolution_extra(
+                        edge.extra,
+                        "unresolved",
+                        receiver_candidates,
+                    ),
+                )
+                resolved.append(edge)
+                continue
+            if (
+                is_cpp
+                and edge.kind in ("CALLS", "REFERENCES")
+                and "::" in edge.target
+                and not edge.target.startswith(f"{file_path}::")
+            ):
+                explicit_scope, bare_target = edge.target.rsplit("::", 1)
+                global_scope = edge.target.startswith("::")
+                explicit_scope = explicit_scope.lstrip(":").replace("::", ".")
+                scoped_entries = candidate_entries(bare_target, edge.kind)
+                if explicit_scope:
+                    explicit_preferred_scopes: list[str] = []
+                    source_scope = source_scopes.get(edge.source)
+                    if not global_scope:
+                        while source_scope:
+                            explicit_preferred_scopes.append(
+                                f"{source_scope}.{explicit_scope}",
+                            )
+                            source_scope = (
+                                source_scope.rsplit(".", 1)[0]
+                                if "." in source_scope
+                                else None
+                            )
+                    explicit_preferred_scopes.append(explicit_scope)
+                    matching_entries = []
+                    for preferred_scope in explicit_preferred_scopes:
+                        matching_entries = [
+                            (qualified, parent_scope)
+                            for qualified, parent_scope in scoped_entries
+                            if parent_scope == preferred_scope
+                        ]
+                        if matching_entries:
+                            break
+                else:
+                    matching_entries = [
+                        (qualified, parent_scope)
+                        for qualified, parent_scope in scoped_entries
+                        if parent_scope is None
+                    ]
+                scoped_candidates = [
+                    qualified for qualified, _ in matching_entries
+                ]
+                if scoped_candidates:
+                    if len(scoped_candidates) > 1:
+                        edge = EdgeInfo(
+                            kind=edge.kind,
+                            source=edge.source,
+                            target=edge.target,
+                            file_path=edge.file_path,
+                            line=edge.line,
+                            extra=cpp_resolution_extra(
+                                edge.extra,
+                                "ambiguous",
+                                scoped_candidates,
+                            ),
+                        )
+                    else:
+                        edge = EdgeInfo(
+                            kind=edge.kind,
+                            source=edge.source,
+                            target=scoped_candidates[0],
+                            file_path=edge.file_path,
+                            line=edge.line,
+                            extra=edge.extra,
+                        )
+                    resolved.append(edge)
+                    continue
+            if (
+                edge.kind in ("CALLS", "REFERENCES")
+                and "::" not in edge.target
+                and (not has_receiver or cpp_lexical_receiver)
+            ):
+                entries = candidate_entries(edge.target, edge.kind)
+                candidates = [qualified for qualified, _ in entries]
+                if is_cpp and entries:
+                    source_scope = source_scopes.get(edge.source)
+                    preferred_scopes: list[Optional[str]] = []
+                    while source_scope:
+                        preferred_scopes.append(source_scope)
+                        source_scope = (
+                            source_scope.rsplit(".", 1)[0]
+                            if "." in source_scope
+                            else None
+                        )
+                    preferred_scopes.append(None)
+                    candidates = []
+                    for preferred_scope in preferred_scopes:
+                        candidates = [
+                            qualified
+                            for qualified, parent_scope in entries
+                            if parent_scope == preferred_scope
+                        ]
+                        if candidates:
+                            break
+                    if not candidates:
+                        edge = EdgeInfo(
+                            kind=edge.kind,
+                            source=edge.source,
+                            target=edge.target,
+                            file_path=edge.file_path,
+                            line=edge.line,
+                            extra=cpp_resolution_extra(
+                                edge.extra,
+                                "unresolved",
+                                [qualified for qualified, _ in entries],
+                            ),
+                        )
+                        resolved.append(edge)
+                        continue
+                if candidates:
+                    if is_cpp and len(candidates) > 1:
+                        edge = EdgeInfo(
+                            kind=edge.kind,
+                            source=edge.source,
+                            target=edge.target,
+                            file_path=edge.file_path,
+                            line=edge.line,
+                            extra=cpp_resolution_extra(
+                                edge.extra,
+                                "ambiguous",
+                                candidates,
+                            ),
+                        )
+                        resolved.append(edge)
+                        continue
+                    edge = EdgeInfo(
+                        kind=edge.kind,
+                        source=edge.source,
+                        target=candidates[0],
+                        file_path=edge.file_path,
+                        line=edge.line,
+                        extra=edge.extra,
+                    )
+            resolved.append(edge)
+        return resolved
+
+    def _resolve_julia_call_targets(
+        self,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        file_path: str,
+    ) -> list[EdgeInfo]:
+        """Resolve Julia calls from the nearest lexical scope outward."""
+        prefix = f"{file_path}::"
+
+        # Qualified methods retain their explicit identity path, but that
+        # module qualifier is not a lexical parent. Record the method
+        # boundary and the scope to jump to after searching definitions
+        # nested inside that exact method body.
+        qualified_boundaries: list[tuple[str, str]] = []
+        for node in nodes:
+            qualifier = node.extra.get("julia_module_qualifier")
+            if not isinstance(qualifier, str) or not qualifier:
+                continue
+            identity_parent = node.parent_name or ""
+            parent_parts = identity_parent.split(".") if identity_parent else []
+            qualifier_parts = qualifier.split(".")
+            if parent_parts[-len(qualifier_parts):] != qualifier_parts:
+                continue
+            lexical_parent = ".".join(
+                parent_parts[:-len(qualifier_parts)],
+            )
+            identity_path = ".".join(
+                part for part in (identity_parent, node.name) if part
+            )
+            qualified_boundaries.append((identity_path, lexical_parent))
+        qualified_boundaries.sort(
+            key=lambda item: len(item[0]), reverse=True,
+        )
+
+        symbols: dict[str, str] = {}
+        for node in nodes:
+            if node.kind not in ("Function", "Class", "Type", "Test"):
+                continue
+            qualified = self._qualify(
+                node.name, file_path, node.parent_name,
+            )
+            identity_path = qualified.removeprefix(prefix)
+            symbols[identity_path] = qualified
+
+        def _search_scopes(
+            source_scope: str,
+            seen: frozenset[str] = frozenset(),
+        ):
+            if source_scope in seen:
+                return
+            next_seen = seen | {source_scope}
+            boundary = next(
+                (
+                    item for item in qualified_boundaries
+                    if source_scope == item[0]
+                    or source_scope.startswith(f"{item[0]}.")
+                ),
+                None,
+            )
+            scope_parts = source_scope.split(".") if source_scope else []
+            if boundary is None:
+                for size in range(len(scope_parts), -1, -1):
+                    yield ".".join(scope_parts[:size])
+                return
+
+            identity_boundary, lexical_parent = boundary
+            boundary_depth = len(identity_boundary.split("."))
+            for size in range(len(scope_parts), boundary_depth - 1, -1):
+                yield ".".join(scope_parts[:size])
+            yield from _search_scopes(lexical_parent, next_seen)
+
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            if (
+                edge.kind == "REFERENCES"
+                and edge.extra.get("julia_qualified_def")
+            ):
+                resolved.append(edge)
+                continue
+            if (
+                edge.kind not in ("CALLS", "REFERENCES")
+                or "::" in edge.target
+            ):
+                resolved.append(edge)
+                continue
+
+            source_tail = (
+                edge.source.removeprefix(prefix)
+                if edge.source.startswith(prefix)
+                else ""
+            )
+            target = None
+            for scope in _search_scopes(source_tail):
+                candidate = f"{scope}.{edge.target}" if scope else edge.target
+                target = symbols.get(candidate)
+                if target is not None:
+                    break
+            if target is not None:
+                edge = EdgeInfo(
+                    kind=edge.kind,
+                    source=edge.source,
+                    target=target,
+                    file_path=edge.file_path,
+                    line=edge.line,
+                    extra=edge.extra,
+                )
+            resolved.append(edge)
+        return resolved
+
+    _TYPED_CALL_LANGUAGES = frozenset({
+        "python", "kotlin", "java", "javascript", "typescript", "tsx", "php",
+        "csharp",
+    })
+    _TRANSPARENT_TYPE_WRAPPERS = frozenset({"Annotated", "Optional", "Type"})
+    _NON_RECEIVER_TYPE_NAMES = frozenset({
+        "Array", "Collection", "Dict", "Iterable", "List", "Map", "Mapping",
+        "MutableList", "MutableMap", "MutableMapping", "ReadonlyArray",
+        "Sequence", "Set", "Tuple", "Union", "dict", "frozenset", "list",
+        "set", "tuple",
+    })
+
+    def _collect_typed_call_targets(
+        self,
+        root,
+        language: str,
+        file_path: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> dict[tuple[int, str, str], tuple[str, str, str]]:
+        """Collect evidence-backed targets for calls on typed receivers.
+
+        The result is keyed by source line, receiver, and method so the normal
+        call extractor remains the single producer of CALLS edges. Statically
+        typed receivers resolve directly when their class is repository-local.
+        PHP variables assigned from ``new Type`` retain a bare parse-time target
+        plus the constructed class scope for conservative graph-wide resolution.
+        Unknown or ambiguous types keep their existing bare targets.
+        """
+        if language not in self._TYPED_CALL_LANGUAGES:
+            return {}
+
+        class_types = set(self._class_types.get(language, []))
+        function_types = set(self._function_types.get(language, []))
+        call_types = set(self._call_types.get(language, []))
+        block_types = {
+            "java": {"block"},
+            "kotlin": {"statements"},
+            "javascript": {"statement_block"},
+            "typescript": {"statement_block"},
+            "tsx": {"statement_block"},
+            "php": {"compound_statement"},
+            "csharp": {"block"},
+        }.get(language, set())
+        targets: dict[tuple[int, str, str], tuple[str, str, str]] = {}
+
+        def walk(
+            node,
+            bindings: dict[str, str],
+            class_fields: dict[str, str],
+            depth: int = 0,
+        ) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            if node.type in class_types:
+                fields = self._collect_class_typed_fields(
+                    node, language, function_types, class_types,
+                )
+                class_bindings = dict(bindings)
+                class_bindings.update(fields)
+                for child in node.children:
+                    walk(child, class_bindings, fields, depth + 1)
+                return
+
+            if node.type in function_types:
+                scoped = dict(bindings)
+                scoped.update(class_fields)
+                scoped.update(self._collect_function_typed_parameters(node, language))
+                for child in node.children:
+                    walk(child, scoped, class_fields, depth + 1)
+                return
+
+            if node.type in block_types:
+                scoped = dict(bindings)
+                for child in node.children:
+                    walk(child, scoped, class_fields, depth + 1)
+                return
+
+            new_bindings = self._typed_bindings_from_node(node, language)
+            assigned_names = (
+                self._php_assigned_variables(node)
+                if language == "php"
+                else set()
+            )
+            if new_bindings or assigned_names:
+                # Initializers are evaluated before their declaration becomes
+                # visible, so visit children with the previous environment.
+                for child in node.children:
+                    walk(child, bindings, class_fields, depth + 1)
+                for name in assigned_names:
+                    bindings.pop(name, None)
+                bindings.update(new_bindings)
+                return
+
+            if node.type in call_types:
+                receiver, method = self._get_member_call_receiver_method(
+                    node, language,
+                )
+                if receiver and method:
+                    type_name = bindings.get(receiver)
+                    evidence = (
+                        "constructed_receiver"
+                        if language == "php"
+                        else "typed_receiver"
+                    )
+                    if type_name is None and receiver[:1].isupper():
+                        # C# receivers keep their class-name evidence even
+                        # when the class is not visible in this file: the
+                        # graph-wide scoped resolver validates it against
+                        # actual Class nodes plus namespace evidence (#612).
+                        if (
+                            receiver in import_map
+                            or receiver in defined_names
+                            or language == "csharp"
+                        ):
+                            type_name = receiver
+                            evidence = "class_receiver"
+                    if type_name:
+                        target = self._resolve_typed_method_target(
+                            type_name,
+                            method,
+                            file_path,
+                            language,
+                            import_map,
+                            defined_names,
+                        )
+                        if target:
+                            key = (node.start_point[0] + 1, receiver, method)
+                            targets[key] = (target, type_name, evidence)
+
+            for child in node.children:
+                walk(child, bindings, class_fields, depth + 1)
+
+        walk(root, {}, {})
+        return targets
+
+    def _collect_class_typed_fields(
+        self,
+        class_node,
+        language: str,
+        function_types: set[str],
+        class_types: set[str],
+    ) -> dict[str, str]:
+        """Return declared instance-field types for one class."""
+        fields: dict[str, str] = {}
+
+        def visit(node, depth: int = 0) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            if node is not class_node and node.type in class_types:
+                return
+            if node is not class_node and node.type in function_types:
+                if language in ("javascript", "typescript", "tsx"):
+                    name = node.child_by_field_name("name")
+                    if name is not None and name.text == b"constructor":
+                        fields.update(self._collect_ts_parameter_properties(node))
+                return
+            fields.update(self._typed_bindings_from_node(node, language))
+            for child in node.children:
+                visit(child, depth + 1)
+
+        visit(class_node)
+        return fields
+
+    def _collect_function_typed_parameters(
+        self,
+        function_node,
+        language: str,
+    ) -> dict[str, str]:
+        """Return typed parameters declared directly by one function."""
+        bindings: dict[str, str] = {}
+        parameter_types = {
+            "python": {"typed_parameter", "typed_default_parameter"},
+            "kotlin": {"parameter"},
+            "java": {"formal_parameter", "spread_parameter"},
+            "javascript": {"required_parameter", "optional_parameter"},
+            "typescript": {"required_parameter", "optional_parameter"},
+            "tsx": {"required_parameter", "optional_parameter"},
+            "csharp": {"parameter"},
+        }.get(language, set())
+
+        def visit(node, depth: int = 0) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            if node is not function_node and node.type in self._function_types.get(
+                language, []
+            ):
+                return
+            if node.type in parameter_types:
+                bindings.update(self._typed_bindings_from_node(node, language))
+                return
+            # Function bodies cannot contain parameters of this function.
+            if node.type in ("block", "statement_block", "function_body"):
+                return
+            for child in node.children:
+                visit(child, depth + 1)
+
+        visit(function_node)
+        return bindings
+
+    def _collect_ts_parameter_properties(self, constructor_node) -> dict[str, str]:
+        """Return TypeScript constructor parameters that declare fields."""
+        bindings: dict[str, str] = {}
+
+        def visit(node, depth: int = 0) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            if node.type in ("required_parameter", "optional_parameter"):
+                has_field_modifier = any(
+                    child.type in (
+                        "accessibility_modifier", "override_modifier", "readonly",
+                    )
+                    for child in node.children
+                )
+                if has_field_modifier:
+                    bindings.update(
+                        self._typed_bindings_from_node(node, "typescript"),
+                    )
+                return
+            if node.type == "statement_block":
+                return
+            for child in node.children:
+                visit(child, depth + 1)
+
+        visit(constructor_node)
+        return bindings
+
+    def _typed_bindings_from_node(
+        self,
+        node,
+        language: str,
+    ) -> dict[str, str]:
+        """Extract typed variable declarations from one AST node."""
+        result: dict[str, str] = {}
+
+        if language == "python" and node.type in (
+            "assignment", "typed_parameter", "typed_default_parameter",
+        ):
+            name_node = node.child_by_field_name("left")
+            if name_node is None:
+                name_node = next(
+                    (child for child in node.children if child.type == "identifier"),
+                    None,
+                )
+            type_node = node.child_by_field_name("type")
+            self._store_typed_binding(result, name_node, type_node)
+
+        elif language == "kotlin" and node.type in (
+            "class_parameter", "parameter", "variable_declaration",
+        ):
+            name_node = next(
+                (
+                    child
+                    for child in node.children
+                    if child.type == "simple_identifier"
+                ),
+                None,
+            )
+            type_node = next(
+                (
+                    child
+                    for child in node.children
+                    if child.type in ("user_type", "nullable_type")
+                ),
+                None,
+            )
+            self._store_typed_binding(result, name_node, type_node)
+
+        elif language == "java" and node.type in (
+            "formal_parameter", "spread_parameter",
+        ):
+            self._store_typed_binding(
+                result,
+                node.child_by_field_name("name"),
+                node.child_by_field_name("type"),
+            )
+
+        elif language == "java" and node.type in (
+            "field_declaration", "local_variable_declaration",
+        ):
+            type_node = node.child_by_field_name("type")
+            for child in node.children:
+                if child.type == "variable_declarator":
+                    self._store_typed_binding(
+                        result,
+                        child.child_by_field_name("name"),
+                        type_node,
+                    )
+
+        elif language in ("javascript", "typescript", "tsx") and node.type in (
+            "required_parameter", "optional_parameter", "variable_declarator",
+            "public_field_definition",
+        ):
+            name_node = (
+                node.child_by_field_name("name")
+                or node.child_by_field_name("pattern")
+            )
+            if name_node is None:
+                name_node = next(
+                    (child for child in node.children if child.type == "identifier"),
+                    None,
+                )
+            self._store_typed_binding(
+                result,
+                name_node,
+                node.child_by_field_name("type"),
+            )
+
+        elif language == "csharp" and node.type == "variable_declaration":
+            type_node = node.child_by_field_name("type")
+            if type_node is not None and type_node.type == "implicit_type":
+                type_node = None
+            for child in node.children:
+                if child.type != "variable_declarator":
+                    continue
+                declared_type = type_node
+                if declared_type is None:
+                    # ``var x = new Service();`` — use the constructed type.
+                    creation = next(
+                        (
+                            sub for sub in child.children
+                            if sub.type == "object_creation_expression"
+                        ),
+                        None,
+                    )
+                    if creation is not None:
+                        declared_type = creation.child_by_field_name("type")
+                self._store_typed_binding(
+                    result,
+                    child.child_by_field_name("name"),
+                    declared_type,
+                )
+
+        elif language == "csharp" and node.type == "parameter":
+            self._store_typed_binding(
+                result,
+                node.child_by_field_name("name"),
+                node.child_by_field_name("type"),
+            )
+
+        elif language == "php" and node.type == "assignment_expression":
+            name_node = node.child_by_field_name("left")
+            value_node = node.child_by_field_name("right")
+            if (
+                name_node is not None
+                and name_node.type == "variable_name"
+                and value_node is not None
+                and value_node.type == "object_creation_expression"
+            ):
+                type_node = next(
+                    (
+                        child
+                        for child in value_node.children
+                        if child.type in ("name", "qualified_name")
+                    ),
+                    None,
+                )
+                if type_node is not None:
+                    name = name_node.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                    type_name = type_node.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip("\\")
+                    if name and type_name:
+                        result[name] = type_name
+
+        return result
+
+    @staticmethod
+    def _php_assigned_variables(node) -> set[str]:
+        """Return simple PHP variables invalidated by one assignment."""
+        if node.type != "assignment_expression":
+            return set()
+        name_node = node.child_by_field_name("left")
+        if name_node is None or name_node.type != "variable_name":
+            return set()
+        name = name_node.text.decode("utf-8", errors="replace")
+        return {name} if name else set()
+
+    @classmethod
+    def _store_typed_binding(cls, result: dict[str, str], name_node, type_node) -> None:
+        if name_node is None or type_node is None:
+            return
+        name = name_node.text.decode("utf-8", errors="replace")
+        type_name = cls._base_type_name(
+            type_node.text.decode("utf-8", errors="replace"),
+        )
+        if name and type_name:
+            result[name] = type_name
+
+    @classmethod
+    def _base_type_name(cls, annotation: str) -> Optional[str]:
+        """Return the receiver class from a generic/nullable annotation."""
+        current = annotation.strip()
+        for _ in range(4):
+            match = re.search(r"[\"']?([A-Za-z_][A-Za-z0-9_.]*)", current)
+            if match is None:
+                return None
+            outer = match.group(1).rsplit(".", 1)[-1]
+            remainder = current[match.end():].lstrip()
+            if remainder.startswith("[]"):
+                return None
+            if outer in cls._TRANSPARENT_TYPE_WRAPPERS:
+                openings = [
+                    index for index in (current.find("["), current.find("<"))
+                    if index >= 0
+                ]
+                if not openings:
+                    return None
+                current = current[min(openings) + 1:].lstrip()
+                continue
+            if outer in cls._NON_RECEIVER_TYPE_NAMES:
+                return None
+            if outer in (
+                "None", "bool", "boolean", "float", "int", "number", "str",
+                "string", "unknown", "void",
+            ):
+                return None
+            return outer
+        return None
+
+    def _resolve_typed_method_target(
+        self,
+        type_name: str,
+        method: str,
+        file_path: str,
+        language: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> Optional[str]:
+        if language == "php":
+            normalized = type_name.strip("\\")
+            if not normalized:
+                return None
+            local_name = normalized.rsplit("\\", 1)[-1]
+            imported = import_map.get(local_name.casefold())
+            scope = imported or normalized
+            return f"{scope}::{method}"
+
+        if language == "csharp":
+            # C# ``using`` directives import namespaces, not files, so a
+            # class receiver cannot be resolved to its defining file during
+            # a single-file parse. Emit the receiver class as a scope target
+            # for the graph-wide scoped resolver (#612).
+            base_type = self._base_type_name(type_name)
+            if not base_type:
+                return None
+            return f"{base_type}::{method}"
+
+        base_type = self._base_type_name(type_name)
+        if not base_type:
+            return None
+        if base_type in import_map:
+            resolved = self._resolve_imported_symbol(
+                self._js_imported_symbol_name(base_type, import_map),
+                import_map[base_type],
+                file_path,
+                language,
+            )
+            if resolved:
+                return f"{resolved}.{method}"
+        if base_type in defined_names:
+            return f"{file_path}::{base_type}.{method}"
+        return None
+
+    @staticmethod
+    def _apply_typed_call_targets(
+        edges: list[EdgeInfo],
+        targets: dict[tuple[int, str, str], tuple[str, str, str]],
+        language: str,
+    ) -> list[EdgeInfo]:
+        if not targets:
+            return edges
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            receiver = edge.extra.get("receiver")
+            method = edge.target.rsplit(".", 1)[-1].rsplit("::", 1)[-1]
+            evidence = targets.get((edge.line, receiver, method)) if receiver else None
+            if edge.kind == "CALLS" and evidence:
+                target, type_name, evidence_kind = evidence
+                extra = dict(edge.extra)
+                extra.update({
+                    "receiver_type": type_name,
+                    "receiver_resolution": evidence_kind,
+                })
+                resolved_target = target
+                if evidence_kind == "constructed_receiver" or language == "csharp":
+                    # Keep PHP/C# parse-only CALLS output backward-compatible
+                    # (bare method target) while preserving the receiver
+                    # class scope for the graph-wide resolver.
+                    scope, separator, _ = target.rpartition("::")
+                    if separator and scope:
+                        extra["receiver_scope"] = scope
+                    resolved_target = edge.target
+                edge = EdgeInfo(
+                    kind=edge.kind,
+                    source=edge.source,
+                    target=resolved_target,
+                    file_path=edge.file_path,
+                    line=edge.line,
+                    extra=extra,
+                )
+            resolved.append(edge)
+        return resolved
+
+    _MAX_AST_DEPTH = 180  # Guard against pathologically nested source files
+    _MAX_TEST_DESCRIPTION_LEN = 200  # Cap test description length in node names
+
+    def _get_test_description(self, call_node, source: bytes) -> Optional[str]:
+        """Extract the first string argument from a test runner call node."""
+        for child in call_node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type in ("string", "template_string"):
+                        raw = arg.text.decode("utf-8", errors="replace")
+                        stripped = raw.strip("'\"`")
+                        normalized = re.sub(r"\s+", " ", stripped).strip()
+                        if len(normalized) > self._MAX_TEST_DESCRIPTION_LEN:
+                            normalized = normalized[: self._MAX_TEST_DESCRIPTION_LEN]
+                        return normalized
+        return None
+
+    # -----------------------------------------------------------------------
+    # Spring application configuration parser
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _spring_config_file_node(path: Path, source: bytes, language: str) -> NodeInfo:
+        file_path = normalize_file_path(path)
+        return NodeInfo(
+            kind="File",
+            name=file_path,
+            file_path=file_path,
+            line_start=1,
+            line_end=source.count(b"\n") + 1,
+            language=language,
+            extra={"config_format": path.suffix.lower().lstrip(".")},
+        )
+
+    def _parse_spring_config(
+        self,
+        path: Path,
+        source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Index Spring property names while deliberately discarding values."""
+        if path.suffix.lower() == ".properties":
+            return self._parse_spring_properties(path, source)
+        return self._parse_spring_yaml(path, source)
+
+    def _parse_spring_yaml(
+        self,
+        path: Path,
+        source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Flatten Spring YAML keys using PyYAML's syntax tree, never values."""
+        try:
+            documents = list(_yaml.compose_all(source.decode("utf-8", errors="replace")))
+        except _yaml.YAMLError as exc:
+            logger.debug("Spring YAML parse error in %s: %s", path, exc)
+            return [], []
+
+        if self._is_non_spring_yaml(documents):
+            return [], []
+
+        file_path = normalize_file_path(path)
+        nodes = [self._spring_config_file_node(path, source, "yaml")]
+        emitted: set[str] = set()
+
+        def emit(raw_key: str, value_node: object, document_index: int) -> None:
+            key = normalize_spring_config_key(raw_key)
+            if not key or key in emitted:
+                return
+            emitted.add(key)
+            tag = str(getattr(value_node, "tag", ""))
+            value_type = tag.rsplit(":", 1)[-1]
+            if value_type not in {"bool", "float", "int", "null", "str", "timestamp"}:
+                value_type = "scalar"
+            nodes.append(NodeInfo(
+                kind="ConfigProperty",
+                name=key,
+                file_path=file_path,
+                line_start=_yaml_line(value_node),
+                line_end=_yaml_end_line(value_node),
+                language="yaml",
+                extra={
+                    "document_index": document_index,
+                    "raw_key": raw_key,
+                    "source_file": path.name,
+                    "value_type": value_type,
+                },
+            ))
+
+        def visit(
+            node: object,
+            prefix: str,
+            document_index: int,
+            ancestors: frozenset[int],
+        ) -> None:
+            node_id = id(node)
+            if node_id in ancestors:
+                return
+            nested_ancestors = ancestors | {node_id}
+            if isinstance(node, _YamlMapping):
+                for key_node, value_node in node.value:
+                    raw_segment = _yaml_scalar(key_node)
+                    if not raw_segment or raw_segment == "<<":
+                        continue
+                    raw_key = f"{prefix}.{raw_segment}" if prefix else raw_segment
+                    if isinstance(value_node, _YamlScalar):
+                        emit(raw_key, value_node, document_index)
+                    else:
+                        visit(value_node, raw_key, document_index, nested_ancestors)
+            elif isinstance(node, _YamlSequence):
+                for index, item in enumerate(node.value):
+                    raw_key = f"{prefix}[{index}]"
+                    if isinstance(item, _YamlScalar):
+                        emit(raw_key, item, document_index)
+                    else:
+                        visit(item, raw_key, document_index, nested_ancestors)
+
+        for document_index, document in enumerate(documents):
+            if document is not None:
+                visit(document, "", document_index, frozenset())
+        return nodes, []
+
+    @staticmethod
+    def _is_non_spring_yaml(documents: list[object]) -> bool:
+        """Reject clear CI, deployment, and API manifests despite their filename."""
+        signatures = (
+            frozenset({"apiVersion", "kind"}),
+            frozenset({"jobs", "on"}),
+            frozenset({"openapi", "paths"}),
+            frozenset({"paths", "swagger"}),
+            frozenset({"services", "version"}),
+            frozenset({"AWSTemplateFormatVersion", "Resources"}),
+        )
+        for document in documents:
+            if document is None:
+                continue
+            if not isinstance(document, _YamlMapping):
+                return True
+            top_level_keys = {
+                key
+                for key_node, _ in document.value
+                if (key := _yaml_scalar(key_node)) is not None
+            }
+            if any(signature <= top_level_keys for signature in signatures):
+                return True
+        return False
+
+    @staticmethod
+    def _spring_property_logical_lines(text: str) -> list[tuple[int, str]]:
+        """Join Java-properties continuation lines while retaining start lines."""
+        logical: list[tuple[int, str]] = []
+        buffer = ""
+        start_line = 1
+        for line_number, physical in enumerate(text.splitlines(), start=1):
+            if not buffer:
+                start_line = line_number
+            buffer += physical.lstrip() if buffer else physical
+            backslashes = len(buffer) - len(buffer.rstrip("\\"))
+            if backslashes % 2:
+                buffer = buffer[:-1]
+                continue
+            logical.append((start_line, buffer))
+            buffer = ""
+        if buffer:
+            logical.append((start_line, buffer))
+        return logical
+
+    @staticmethod
+    def _spring_property_key(line: str) -> Optional[str]:
+        """Extract the unescaped key portion of one Java-properties entry."""
+        stripped = line.lstrip()
+        if not stripped or stripped.startswith(("#", "!")):
+            return None
+        escaped = False
+        boundary = len(stripped)
+        for index, char in enumerate(stripped):
+            if char == "\\":
+                escaped = not escaped
+                continue
+            if not escaped and (char in "=:" or char.isspace()):
+                boundary = index
+                break
+            escaped = False
+        key = stripped[:boundary]
+        for escaped_char in (" ", ":", "=", "#", "!"):
+            key = key.replace(f"\\{escaped_char}", escaped_char)
+        return key or None
+
+    def _parse_spring_properties(
+        self,
+        path: Path,
+        source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Index Spring .properties keys without retaining their values."""
+        text = source.decode("utf-8", errors="replace")
+        file_path = normalize_file_path(path)
+        nodes = [self._spring_config_file_node(path, source, "properties")]
+        emitted: set[str] = set()
+        for line_number, line in self._spring_property_logical_lines(text):
+            raw_key = self._spring_property_key(line)
+            if raw_key is None:
+                continue
+            key = normalize_spring_config_key(raw_key)
+            if not key or key in emitted:
+                continue
+            emitted.add(key)
+            nodes.append(NodeInfo(
+                kind="ConfigProperty",
+                name=key,
+                file_path=file_path,
+                line_start=line_number,
+                line_end=line_number,
+                language="properties",
+                extra={
+                    "raw_key": raw_key,
+                    "source_file": path.name,
+                    "value_type": "scalar",
+                },
+            ))
+        return nodes, []
+
+    # -----------------------------------------------------------------------
+    # Ansible YAML parser
+    # -----------------------------------------------------------------------
+
+    def _parse_ansible(
+        self, path: Path, source: bytes,
+    ) -> tuple[list[NodeInfo], list[EdgeInfo]]:
+        """Parse an Ansible YAML file using PyYAML's compose() node tree.
+
+        Dispatches to sub-parsers based on the file's classified role:
+        playbook, tasks, handlers, meta, or vars (vars emits File node only).
+        """
+        try:
+            root = _yaml.compose(source.decode("utf-8", errors="replace"))
+        except _yaml.YAMLError as exc:
+            logger.debug("Ansible YAML parse error in %s: %s", path, exc)
+            return [], []
+        if root is None:
+            return [], []
+
+        file_path_str = normalize_file_path(path)
+        line_count = source.count(b"\n") + 1
+        nodes: list[NodeInfo] = [NodeInfo(
+            kind="File",
+            name=file_path_str,
+            file_path=file_path_str,
+            line_start=1,
+            line_end=line_count,
+            language="ansible",
+        )]
+        edges: list[EdgeInfo] = []
+
+        file_type = _ansible_file_type(path)
+        if file_type == "vars":
+            return nodes, edges
+
+        # Content-based override: require strong evidence for "playbook" vs "tasks".
+        # hosts: alone is not sufficient — require at least one _ANSIBLE_PLAY_KEYS member
+        # or an import_playbook: key (which is unambiguously Ansible).
+        if file_type in ("unknown", "playbook"):
+            if isinstance(root, _YamlSequence) and root.value:
+                is_pb = any(_ansible_is_play_item(item) for item in root.value)
+                file_type = "playbook" if is_pb else "tasks"
+            else:
+                file_type = "unknown"
+
+        if file_type == "playbook":
+            self._parse_ansible_playbook(root, file_path_str, nodes, edges)
+        elif file_type in ("tasks", "handlers"):
+            self._parse_ansible_tasks(
+                root, file_path_str, nodes, edges,
+                is_handler=(file_type == "handlers"),
+                parent_play=None,
+            )
+        elif file_type == "meta":
+            self._parse_ansible_meta(root, file_path_str, nodes, edges)
+
+        return nodes, self._resolve_ansible_notify_targets(nodes, edges)
+
+    @staticmethod
+    def _ansible_unique_name(
+        nodes: list[NodeInfo],
+        file_path: str,
+        parent_name: Optional[str],
+        requested: str,
+        line: int,
+    ) -> str:
+        """Return a stable node name without collapsing repeated task labels."""
+        used = {
+            node.name
+            for node in nodes
+            if node.file_path == file_path and node.parent_name == parent_name
+        }
+        if requested not in used:
+            return requested
+        candidate = f"{requested}@line{line}"
+        suffix = 2
+        while candidate in used:
+            candidate = f"{requested}@line{line}.{suffix}"
+            suffix += 1
+        return candidate
+
+    def _resolve_ansible_notify_targets(
+        self,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> list[EdgeInfo]:
+        """Qualify notify targets when one same-scope handler matches."""
+        node_by_qn = {
+            self._qualify(node.name, node.file_path, node.parent_name): node
+            for node in nodes
+        }
+        handlers: dict[tuple[Optional[str], str], list[str]] = {}
+        for node in nodes:
+            if node.extra.get("ansible_kind") != "handler":
+                continue
+            qn = self._qualify(node.name, node.file_path, node.parent_name)
+            labels = {
+                node.name,
+                str(node.extra.get("ansible_name") or node.name),
+            }
+            listen = node.extra.get("ansible_listen")
+            if isinstance(listen, str) and listen:
+                labels.add(listen)
+            for label in labels:
+                handlers.setdefault((node.parent_name, label), []).append(qn)
+
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            if edge.extra.get("ansible_kind") != "notify" or "::" in edge.target:
+                resolved.append(edge)
+                continue
+            source = node_by_qn.get(edge.source)
+            scope = source.parent_name if source is not None else None
+            candidates = handlers.get((scope, edge.target), [])
+            if len(candidates) != 1:
+                resolved.append(edge)
+                continue
+            resolved.append(EdgeInfo(
+                kind=edge.kind,
+                source=edge.source,
+                target=candidates[0],
+                file_path=edge.file_path,
+                line=edge.line,
+                extra=edge.extra,
+            ))
+        return resolved
+
+    def _parse_ansible_playbook(
+        self,
+        root: object,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Extract plays and import_playbook references from a top-level SequenceNode."""
+        if not isinstance(root, _YamlSequence):
+            return
+
+        for item in root.value:
+            if not isinstance(item, _YamlMapping):
+                continue
+
+            # import_playbook: is unambiguously Ansible; emit IMPORTS_FROM and skip
+            import_pb_node = _yaml_get_key(item, "import_playbook")
+            if import_pb_node is not None:
+                target = _yaml_scalar(import_pb_node)
+                if target:
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=target,
+                        file_path=file_path,
+                        line=_yaml_line(item),
+                        extra={"ansible_kind": "import_playbook"},
+                    ))
+                continue
+
+            if not _ansible_is_play_item(item):
+                continue
+
+            # Derive play name
+            name_node = _yaml_get_key(item, "name")
+            hosts_node = _yaml_get_key(item, "hosts")
+            if name_node and _yaml_scalar(name_node):
+                play_name = _yaml_scalar(name_node)
+            elif hosts_node and _yaml_scalar(hosts_node):
+                play_name = f"play[{_yaml_scalar(hosts_node)}]"
+            else:
+                play_name = f"play@line{_yaml_line(item)}"
+
+            play_line_start = _yaml_line(item)
+            play_line_end = _yaml_end_line(item)
+            play_name = self._ansible_unique_name(
+                nodes,
+                file_path,
+                None,
+                str(play_name),
+                play_line_start,
+            )
+            play_qn = self._qualify(play_name, file_path, None)
+
+            nodes.append(NodeInfo(
+                kind="Class",
+                name=play_name,
+                file_path=file_path,
+                line_start=play_line_start,
+                line_end=play_line_end,
+                language="ansible",
+                extra={"ansible_kind": "play"},
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=file_path,
+                target=play_qn,
+                file_path=file_path,
+                line=play_line_start,
+            ))
+
+            # vars_files: → IMPORTS_FROM
+            vars_files_node = _yaml_get_key(item, "vars_files")
+            if isinstance(vars_files_node, _YamlSequence):
+                for vf in vars_files_node.value:
+                    vf_path = _yaml_scalar(vf)
+                    if vf_path:
+                        edges.append(EdgeInfo(
+                            kind="IMPORTS_FROM",
+                            source=play_qn,
+                            target=vf_path,
+                            file_path=file_path,
+                            line=_yaml_line(vf),
+                            extra={"ansible_kind": "vars_files"},
+                        ))
+
+            # roles: list → IMPORTS_FROM (roles are not tasks)
+            roles_node = _yaml_get_key(item, "roles")
+            if isinstance(roles_node, _YamlSequence):
+                for role_item in roles_node.value:
+                    role_name = self._ansible_extract_role_name(role_item)
+                    if role_name:
+                        edges.append(EdgeInfo(
+                            kind="IMPORTS_FROM",
+                            source=play_qn,
+                            target=role_name,
+                            file_path=file_path,
+                            line=_yaml_line(role_item),
+                            extra={"ansible_kind": "role_reference"},
+                        ))
+
+            # pre_tasks, tasks, post_tasks, handlers → task extraction
+            for section_key, is_handler in (
+                ("pre_tasks", False),
+                ("tasks", False),
+                ("post_tasks", False),
+                ("handlers", True),
+            ):
+                section_node = _yaml_get_key(item, section_key)
+                if isinstance(section_node, _YamlSequence):
+                    self._parse_ansible_tasks(
+                        section_node, file_path, nodes, edges,
+                        is_handler=is_handler,
+                        parent_play=play_name,
+                    )
+
+    def _parse_ansible_tasks(
+        self,
+        tasks_node: object,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        is_handler: bool,
+        parent_play: Optional[str],
+    ) -> None:
+        """Extract task/handler Function nodes from a SequenceNode of task mappings."""
+        if not isinstance(tasks_node, _YamlSequence):
+            return
+
+        for task_node in tasks_node.value:
+            if not isinstance(task_node, _YamlMapping):
+                continue
+
+            # Find the module key: first key that is not task metadata or a with_* loop
+            module_key: Optional[str] = None
+            module_short: Optional[str] = None
+            module_args_node: Optional[object] = None
+            for k_node, v_node in task_node.value:
+                k_str = _yaml_scalar(k_node)
+                if not k_str:
+                    continue
+                if k_str in _TASK_META_KEYS or k_str.startswith("with_"):
+                    continue
+                module_key = k_str
+                module_short = _ansible_fqcn_short(k_str)
+                module_args_node = v_node
+                break
+
+            # Derive task name with fallback chain
+            name_node = _yaml_get_key(task_node, "name")
+            name_raw = _yaml_scalar(name_node) if name_node is not None else None
+            if name_raw:
+                requested_name = name_raw
+            elif module_short or module_key:
+                requested_name = f"{module_short or module_key}@line{_yaml_line(task_node)}"
+            else:
+                requested_name = f"task@line{_yaml_line(task_node)}"
+
+            task_name = self._ansible_unique_name(
+                nodes,
+                file_path,
+                parent_play,
+                requested_name,
+                _yaml_line(task_node),
+            )
+            task_qn = self._qualify(task_name, file_path, parent_play)
+
+            task_extra: dict = {
+                "ansible_kind": "handler" if is_handler else "task",
+                "ansible_module": module_key or "",
+                "ansible_name": requested_name,
+            }
+
+            # handler listen: alias
+            if is_handler:
+                listen_node = _yaml_get_key(task_node, "listen")
+                listen_val = _yaml_scalar(listen_node) if listen_node is not None else None
+                if listen_val:
+                    task_extra["ansible_listen"] = listen_val
+
+            nodes.append(NodeInfo(
+                kind="Function",
+                name=task_name,
+                file_path=file_path,
+                line_start=_yaml_line(task_node),
+                line_end=_yaml_end_line(task_node),
+                language="ansible",
+                parent_name=parent_play,
+                extra=task_extra,
+            ))
+
+            # CONTAINS edge: parent play → task, or file → task for standalone files
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=(
+                    self._qualify(parent_play, file_path, None)
+                    if parent_play is not None
+                    else file_path
+                ),
+                target=task_qn,
+                file_path=file_path,
+                line=_yaml_line(task_node),
+            ))
+
+            # notify: → CALLS
+            notify_node = _yaml_get_key(task_node, "notify")
+            if notify_node is not None:
+                for handler_name in self._ansible_extract_notify_targets(notify_node):
+                    edges.append(EdgeInfo(
+                        kind="CALLS",
+                        source=task_qn,
+                        target=handler_name,
+                        file_path=file_path,
+                        line=_yaml_line(notify_node),
+                        extra={"ansible_kind": "notify"},
+                    ))
+
+            # include_tasks / import_tasks → IMPORTS_FROM (filename)
+            if module_short in ("include_tasks", "import_tasks"):
+                target_file = self._ansible_module_arg_str(module_args_node)
+                if target_file:
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=task_qn,
+                        target=target_file,
+                        file_path=file_path,
+                        line=_yaml_line(task_node),
+                        extra={"ansible_kind": module_short},
+                    ))
+
+            # include_role / import_role → IMPORTS_FROM (role name)
+            if module_short in ("include_role", "import_role"):
+                role_name = self._ansible_role_from_module_args(module_args_node)
+                if role_name:
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=task_qn,
+                        target=role_name,
+                        file_path=file_path,
+                        line=_yaml_line(task_node),
+                        extra={"ansible_kind": module_short},
+                    ))
+
+            # include_vars → IMPORTS_FROM (file or dir)
+            if module_short == "include_vars":
+                var_target = self._ansible_module_arg_str(module_args_node)
+                if var_target:
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=task_qn,
+                        target=var_target,
+                        file_path=file_path,
+                        line=_yaml_line(task_node),
+                        extra={"ansible_kind": "include_vars"},
+                    ))
+
+            # block / rescue / always → recurse with same parent
+            for block_key in ("block", "rescue", "always"):
+                block_node = _yaml_get_key(task_node, block_key)
+                if block_node is not None:
+                    self._parse_ansible_tasks(
+                        block_node, file_path, nodes, edges,
+                        is_handler=is_handler,
+                        parent_play=parent_play,
+                    )
+
+    def _parse_ansible_meta(
+        self,
+        root: object,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Extract role dependencies from a role meta/main.yml."""
+        if not isinstance(root, _YamlMapping):
+            return
+        deps_node = _yaml_get_key(root, "dependencies")
+        if not isinstance(deps_node, _YamlSequence):
+            return
+        for dep_item in deps_node.value:
+            dep_name = self._ansible_extract_role_name(dep_item)
+            if dep_name:
+                edges.append(EdgeInfo(
+                    kind="DEPENDS_ON",
+                    source=file_path,
+                    target=dep_name,
+                    file_path=file_path,
+                    line=_yaml_line(dep_item),
+                    extra={"ansible_kind": "role_dependency"},
+                ))
+
+    def _ansible_extract_role_name(self, item: object) -> Optional[str]:
+        """Extract a role name from a roles-list item.
+
+        Handles: plain string, ``{role: name}`` dict, ``{name: ns.role}`` dict.
+        """
+        if isinstance(item, _YamlScalar):
+            return item.value or None  # type: ignore[attr-defined]
+        if isinstance(item, _YamlMapping):
+            for key in ("role", "name"):
+                v = _yaml_get_key(item, key)
+                val = _yaml_scalar(v)
+                if val:
+                    return val
+        return None
+
+    def _ansible_extract_notify_targets(self, notify_node: object) -> list[str]:
+        """Extract handler names from a notify: value (scalar or sequence)."""
+        if isinstance(notify_node, _YamlScalar):
+            return [notify_node.value] if notify_node.value else []  # type: ignore[attr-defined]
+        if isinstance(notify_node, _YamlSequence):
+            return [
+                item.value  # type: ignore[attr-defined]
+                for item in notify_node.value  # type: ignore[attr-defined]
+                if isinstance(item, _YamlScalar) and item.value  # type: ignore[attr-defined]
+            ]
+        return []
+
+    def _ansible_module_arg_str(self, args_node: Optional[object]) -> Optional[str]:
+        """Extract a simple string argument from a module args node.
+
+        Handles: bare scalar (``include_tasks: db.yml``) or mapping with ``file:`` key.
+        Jinja2 expressions are returned as-is.
+        """
+        if args_node is None:
+            return None
+        if isinstance(args_node, _YamlScalar):
+            return args_node.value or None  # type: ignore[attr-defined]
+        if isinstance(args_node, _YamlMapping):
+            for key in ("file", "_raw_params"):
+                v = _yaml_get_key(args_node, key)
+                val = _yaml_scalar(v)
+                if val:
+                    return val
+        return None
+
+    def _ansible_role_from_module_args(self, args_node: Optional[object]) -> Optional[str]:
+        """Extract role name from include_role/import_role module args."""
+        if args_node is None:
+            return None
+        if isinstance(args_node, _YamlScalar):
+            return args_node.value or None  # type: ignore[attr-defined]
+        if isinstance(args_node, _YamlMapping):
+            v = _yaml_get_key(args_node, "name")
+            return _yaml_scalar(v)
+        return None
+
+    def _extract_from_tree(
+        self,
+        root,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str] = None,
+        enclosing_func: Optional[str] = None,
+        import_map: Optional[dict[str, str]] = None,
+        defined_names: Optional[set[str]] = None,
+        _depth: int = 0,
+    ) -> None:
+        """Recursively walk the AST and extract nodes/edges."""
+        if _depth > self._MAX_AST_DEPTH:
+            return
+        class_types = set(self._class_types.get(language, []))
+        func_types = set(self._function_types.get(language, []))
+        import_types = set(self._import_types.get(language, []))
+        call_types = set(self._call_types.get(language, []))
+
+        for child in root.children:
+            node_type = child.type
+
+            # --- R-specific constructs ---
+            if language == "r" and self._extract_r_constructs(
+                child, node_type, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names,
+            ):
+                continue
+
+            # --- Lua/Luau-specific constructs ---
+            if language in ("lua", "luau") and self._extract_lua_constructs(
+                child, node_type, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            ):
+                continue
+
+            # --- Zig-specific constructs ---
+            # Zig's grammar emits PascalCase Decl/VarDecl/FnProto/SuffixExpr
+            # nodes that don't fit the generic class/function/import/call
+            # dispatch. _extract_zig_constructs handles top-level Decl and
+            # TestDecl nodes (functions, structs/unions/enums, @import,
+            # test blocks) and walks call sites itself.
+            if language == "zig" and self._extract_zig_constructs(
+                child, node_type, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            ):
+                continue
+
+            # --- Bash-specific constructs ---
+            # ``source ./foo.sh`` and ``. ./foo.sh`` are commands in
+            # tree-sitter-bash; re-interpret them as IMPORTS_FROM edges so
+            # cross-script wiring works the same as in other languages.
+            if language == "bash" and node_type == "command":
+                if self._extract_bash_source_command(
+                    child, file_path, edges,
+                ):
+                    continue
+
+            # --- Elixir-specific constructs ---
+            # Every top-level construct in Elixir is a ``call`` node:
+            # defmodule, def/defp/defmacro, alias/import/require/use, and
+            # ordinary function invocations all share the same node type.
+            # Dispatch via _extract_elixir_constructs so we can tell them
+            # apart by the first-identifier text and still recurse into
+            # bodies with the correct enclosing scope. See: #112
+            if language == "elixir" and node_type == "call":
+                if self._extract_elixir_constructs(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                ):
+                    continue
+
+            # --- Nix-specific constructs ---
+            # Nix bindings (``attrpath = expr;``) are the graph's addressable
+            # things; dispatch via _extract_nix_constructs to flatten dotted
+            # attrpaths into Function nodes and to emit IMPORTS_FROM edges for
+            # flake ``inputs.*.url`` strings and ``import``/``callPackage``
+            # applications. See: #366 follow-up (flake-aware Nix support).
+            if language == "nix" and node_type == "binding":
+                if self._extract_nix_constructs(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                ):
+                    continue
+
+            # --- HCL/Terraform-specific constructs ---
+            # All Terraform top-level constructs are ``block`` nodes whose
+            # first identifier child labels the block type (resource, module,
+            # variable, data, output, locals, provider, terraform).  Dispatch
+            # via _extract_hcl_constructs to produce Class, Function, and
+            # IMPORTS_FROM/REFERENCES edges.  See issue #199.
+            if language == "hcl" and node_type == "block":
+                if self._extract_hcl_constructs(
+                    child, file_path, nodes, edges,
+                ):
+                    continue
+
+            # --- Julia-specific constructs ---
+            # Short-form functions (`f(x) = expr`) parse as ``assignment``,
+            # ``include("file.jl")`` as a call_expression, exports as
+            # ``export_statement``, and macrocalls (including ``@testset``)
+            # need recursion into bodies that may themselves contain
+            # function definitions (e.g. ``@inline function f ... end``).
+            if language == "julia" and self._extract_julia_constructs(
+                child, node_type, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            ):
+                continue
+
+            # --- Verilog/SystemVerilog structural declarations ---
+            if language == "verilog" and self._extract_verilog_constructs(
+                child,
+                node_type,
+                file_path,
+                nodes,
+                edges,
+                enclosing_class,
+                enclosing_func,
+            ):
+                continue
+
+            if language == "rust" and node_type == "impl_item":
+                self._extract_rust_impl(
+                    child,
+                    source,
+                    file_path,
+                    nodes,
+                    edges,
+                    import_map or {},
+                    defined_names or set(),
+                    _depth,
+                )
+                continue
+
+            # --- Dart call detection (see #87) ---
+            # tree-sitter-dart does not wrap calls in a single
+            # ``call_expression`` node; instead the pattern is
+            # ``identifier + selector > argument_part`` as siblings inside
+            # the parent.  Scan child's children here and emit CALLS edges
+            # for any we find; nested calls are handled by the main recursion.
+            if language == "dart":
+                self._extract_dart_calls_from_children(
+                    child, source, file_path, edges,
+                    enclosing_class, enclosing_func,
+                )
+
+            # --- JS/TS static CommonJS and dynamic imports ---
+            # Treat only literal module specifiers as definite dependencies.
+            # Dynamic templates and path.join/path.resolve expressions are
+            # intentionally left unresolved rather than guessed.
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type == "call_expression"
+            ):
+                self._extract_js_module_call(child, file_path, language, edges)
+
+            # --- JS/TS variable-assigned functions (const foo = () => {}) ---
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type in ("lexical_declaration", "variable_declaration")
+                and self._extract_js_var_functions(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                )
+            ):
+                continue
+
+            # --- Classes ---
+            if node_type in class_types and self._extract_classes(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, import_map, defined_names,
+                _depth,
+            ):
+                continue
+
+            # --- JS/TS class field arrow functions (handler = () => {}) ---
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type == "public_field_definition"
+                and self._extract_js_field_function(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                )
+            ):
+                continue
+
+            # --- JS/TS member-assigned functions (app.handle = function () {}) ---
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type == "expression_statement"
+                and self._extract_js_member_functions(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                )
+            ):
+                continue
+
+            # --- Functions ---
+            if node_type in func_types and self._extract_functions(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, import_map, defined_names,
+                _depth, enclosing_func,
+            ):
+                continue
+
+            # --- Imports ---
+            if node_type in import_types:
+                if self._extract_imports(
+                    child, language, source, file_path, edges,
+                ):
+                    continue
+                # Node type is shared between imports and calls (e.g. Ruby
+                # `call` covers both `require` and method invocation). If it
+                # was not an import, fall through to call extraction below
+                # rather than dropping it.
+
+            # --- Calls ---
+            if node_type in call_types:
+                if self._extract_calls(
+                    child, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names, _depth,
+                ):
+                    continue
+
+            # --- JSX component invocations ---
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type in ("jsx_opening_element", "jsx_self_closing_element")
+            ):
+                self._extract_jsx_component_call(
+                    child, language, file_path, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names,
+                )
+
+            # --- TS type-position references ---
+            if language in ("typescript", "tsx") and node_type == "type_identifier":
+                self._extract_ts_type_reference(
+                    child, language, file_path, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names,
+                )
+
+            # --- Value references (function-as-value in maps, arrays, args) ---
+            self._extract_value_references(
+                child, node_type, source, language, file_path, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names,
+            )
+
+            # --- Solidity-specific constructs ---
+            if language == "solidity" and self._extract_solidity_constructs(
+                child, node_type, source, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+            ):
+                continue
+
+            # Recurse for other node types
+            self._extract_from_tree(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class=enclosing_class,
+                enclosing_func=enclosing_func,
+                import_map=import_map, defined_names=defined_names,
+                _depth=_depth + 1,
+            )
+
+    def _elixir_call_identifier(self, node) -> Optional[str]:
+        """Return the leading identifier of an Elixir ``call`` node.
+
+        For ``def add(a, b)`` returns ``"def"``; for ``defmodule Calc``
+        returns ``"defmodule"``; for ``IO.puts(msg)`` returns the dotted
+        path's final identifier (``"puts"``); for ``alias Calculator``
+        returns ``"alias"``.
+        """
+        if not node.children:
+            return None
+        first = node.children[0]
+        if first.type == "identifier":
+            return first.text.decode("utf-8", errors="replace")
+        # Dotted calls: dot > left: alias "IO", right: identifier "puts"
+        if first.type == "dot":
+            for child in reversed(first.children):
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+        return None
+
+    def _elixir_module_name(self, arguments) -> Optional[str]:
+        """Extract a module name from a ``defmodule`` / ``alias`` / etc.
+        arguments node. Supports ``Calc`` (single alias) and ``Foo.Bar``
+        (dotted alias inside a `dot` node).
+        """
+        for child in arguments.children:
+            if child.type == "alias":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "dot":
+                return child.text.decode("utf-8", errors="replace")
+        return None
+
+    def _elixir_function_name_and_params(
+        self, arguments, source: bytes,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Extract the function name and parameter list from a ``def``/
+        ``defp``/``defmacro`` arguments node.
+
+        The ``arguments`` of a ``def`` call wraps another ``call`` whose
+        first child is the function's identifier and whose children
+        (past the parens) are the parameters.
+        """
+        for child in arguments.children:
+            if child.type == "call":
+                name: Optional[str] = None
+                for sub in child.children:
+                    if sub.type == "identifier" and name is None:
+                        name = sub.text.decode("utf-8", errors="replace")
+                # Parameter text is everything between the parens of
+                # the inner call; source slice is simplest.
+                params_text = child.text.decode("utf-8", errors="replace")
+                # Strip the function name off the front.
+                if name and params_text.startswith(name):
+                    params_text = params_text[len(name):]
+                return name, params_text
+            if child.type == "identifier":
+                # Zero-arity def like `def reset, do: ...` has no inner
+                # call; just the identifier.
+                return child.text.decode("utf-8", errors="replace"), None
+        return None, None
+
+    def _extract_elixir_constructs(
+        self,
+        node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle every Elixir ``call`` node by dispatching on the leading
+        identifier. See: #112
+
+        Returns True if the node was fully handled (and the main loop
+        should skip generic recursion); False to let the default dispatch
+        continue (never used here — Elixir has no other node types).
+        """
+        ident = self._elixir_call_identifier(node)
+        if ident is None:
+            return False
+
+        # ---- defmodule Name do ... end ----------------------------------
+        if ident == "defmodule":
+            arguments = None
+            do_block = None
+            for sub in node.children:
+                if sub.type == "arguments":
+                    arguments = sub
+                elif sub.type == "do_block":
+                    do_block = sub
+            if arguments is None:
+                return False
+            mod_name = self._elixir_module_name(arguments)
+            if mod_name is None:
+                return False
+            qualified = self._qualify(mod_name, file_path, None)
+            nodes.append(NodeInfo(
+                kind="Class",
+                name=mod_name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language=language,
+                parent_name=None,
+            ))
+            # CONTAINS file -> module
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=file_path,
+                target=qualified,
+                file_path=file_path,
+                line=node.start_point[0] + 1,
+            ))
+            if do_block is not None:
+                self._extract_from_tree(
+                    do_block, source, language, file_path, nodes, edges,
+                    enclosing_class=mod_name,
+                    enclosing_func=None,
+                    import_map=import_map, defined_names=defined_names,
+                    _depth=_depth + 1,
+                )
+            return True
+
+        # ---- def / defp / defmacro / defmacrop -------------------------
+        if ident in ("def", "defp", "defmacro", "defmacrop"):
+            arguments = None
+            do_block = None
+            for sub in node.children:
+                if sub.type == "arguments":
+                    arguments = sub
+                elif sub.type == "do_block":
+                    do_block = sub
+            if arguments is None:
+                return False
+            fn_name, params = self._elixir_function_name_and_params(
+                arguments, source,
+            )
+            if fn_name is None:
+                return False
+            is_test = _is_test_function(fn_name, file_path)
+            kind = "Test" if is_test else "Function"
+            qualified = self._qualify(fn_name, file_path, enclosing_class)
+            nodes.append(NodeInfo(
+                kind=kind,
+                name=fn_name,
+                file_path=file_path,
+                line_start=node.start_point[0] + 1,
+                line_end=node.end_point[0] + 1,
+                language=language,
+                parent_name=enclosing_class,
+                params=params,
+                is_test=is_test,
+            ))
+            container = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class else file_path
+            )
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=qualified,
+                file_path=file_path,
+                line=node.start_point[0] + 1,
+            ))
+            if do_block is not None:
+                self._extract_from_tree(
+                    do_block, source, language, file_path, nodes, edges,
+                    enclosing_class=enclosing_class,
+                    enclosing_func=fn_name,
+                    import_map=import_map, defined_names=defined_names,
+                    _depth=_depth + 1,
+                )
+            return True
+
+        # ---- alias / import / require / use ----------------------------
+        if ident in ("alias", "import", "require", "use"):
+            for sub in node.children:
+                if sub.type == "arguments":
+                    mod = self._elixir_module_name(sub)
+                    if mod is not None:
+                        edges.append(EdgeInfo(
+                            kind="IMPORTS_FROM",
+                            source=file_path,
+                            target=mod,
+                            file_path=file_path,
+                            line=node.start_point[0] + 1,
+                        ))
+                    break
+            return True
+
+        # ---- Everything else = a regular function/method call ----------
+        # Module-scope calls attribute to the File node (same rule as the
+        # generic _extract_calls path).
+        # For dotted calls like `IO.puts(msg)`, prefer the dotted
+        # identifier; for bare calls use the first identifier.
+        call_name = ident
+        caller = (
+            self._qualify(enclosing_func, file_path, enclosing_class)
+            if enclosing_func
+            else file_path
+        )
+        target = self._resolve_call_target(
+            call_name, file_path, language,
+            import_map or {}, defined_names or set(),
+        )
+        edges.append(EdgeInfo(
+            kind="CALLS",
+            source=caller,
+            target=target,
+            file_path=file_path,
+            line=node.start_point[0] + 1,
+        ))
+        # Recurse into arguments + do_block so nested calls are caught.
+        for sub in node.children:
+            if sub.type in ("arguments", "do_block"):
+                self._extract_from_tree(
+                    sub, source, language, file_path, nodes, edges,
+                    enclosing_class=enclosing_class,
+                    enclosing_func=enclosing_func,
+                    import_map=import_map, defined_names=defined_names,
+                    _depth=_depth + 1,
+                )
+        return True
+
+    @staticmethod
+    def _is_nix_flake_file(file_path: str) -> bool:
+        """Return True for files whose basename is ``flake.nix``."""
+        return Path(file_path).name == "flake.nix"
+
+    def _nix_attrpath_parts(self, attrpath_node) -> list[str]:
+        """Flatten a Nix ``attrpath`` node into a list of identifier parts.
+
+        ``packages.default`` → ``["packages", "default"]``;
+        ``inputs.nixpkgs.url`` → ``["inputs", "nixpkgs", "url"]``. Dotted
+        attrpaths have ``identifier`` children separated by ``.`` tokens.
+        """
+        parts: list[str] = []
+        for child in attrpath_node.children:
+            if child.type == "identifier":
+                parts.append(child.text.decode("utf-8", errors="replace"))
+        return parts
+
+    def _extract_nix_flake_input_urls(
+        self, attrset_node,
+    ) -> list[tuple[str, int]]:
+        """Walk a Nix ``attrset_expression`` looking for ``*.url = "..."``
+        bindings whose RHS is a literal string. Returns ``(url, line)``
+        tuples. Used when the enclosing attrpath is ``inputs`` so that both
+        the nested form
+
+            inputs = { nixpkgs.url = "..."; flake-utils.url = "..."; };
+
+        and the mixed form (an inner input with its own nested attrset)
+        surface the URL strings as IMPORTS_FROM targets.
+        """
+        results: list[tuple[str, int]] = []
+
+        def visit(n) -> None:
+            if n is None:
+                return
+            if n.type == "binding":
+                inner_path = None
+                inner_rhs = None
+                for sub in n.children:
+                    if sub.type == "attrpath":
+                        inner_path = sub
+                    elif sub.type not in ("=", ";") and inner_path is not None:
+                        if inner_rhs is None:
+                            inner_rhs = sub
+                if inner_path is not None and inner_rhs is not None:
+                    parts = self._nix_attrpath_parts(inner_path)
+                    if (
+                        parts
+                        and parts[-1] == "url"
+                        and inner_rhs.type == "string_expression"
+                    ):
+                        for c in inner_rhs.children:
+                            if c.type == "string_fragment":
+                                url = c.text.decode("utf-8", errors="replace")
+                                results.append((url, n.start_point[0] + 1))
+                                break
+                        return  # leaf binding — no children to recurse into
+                    # Non-url binding: still recurse so a deeper url survives
+                    if inner_rhs.type == "attrset_expression":
+                        visit(inner_rhs)
+                        return
+            for c in n.children:
+                visit(c)
+
+        visit(attrset_node)
+        return results
+
+    def _extract_nix_import_targets(self, rhs_node) -> list[tuple[str, int]]:
+        """Walk an expression looking for ``import <path>`` and
+        ``callPackage <path> <args>`` applications. Returns a list of
+        ``(target_path, line)`` tuples for each match.
+
+        Recurses through ``apply_expression`` (so ``import ./x.nix { ... }``
+        and ``pkgs.callPackage ./y.nix { }`` are both caught) and descends
+        into bodies of ``let_expression`` / ``parenthesized_expression`` /
+        ``function_expression`` / ``attrset_expression`` / ``list_expression``
+        so a ``let pkgs = import nixpkgs; in { ... }`` body is scanned too.
+        """
+        results: list[tuple[str, int]] = []
+
+        def head_call_name(apply) -> Optional[str]:
+            """Drill down the left-most side of nested apply_expressions to
+            the callee identifier. ``import ./x`` → ``"import"``;
+            ``pkgs.callPackage ./y { }`` → ``"callPackage"`` (last dotted
+            segment of the select_expression)."""
+            cur = apply
+            while cur is not None and cur.type == "apply_expression":
+                cur = cur.children[0] if cur.children else None
+            if cur is None:
+                return None
+            if cur.type == "variable_expression":
+                for c in cur.children:
+                    if c.type == "identifier":
+                        return c.text.decode("utf-8", errors="replace")
+            if cur.type == "select_expression":
+                # Last identifier in the attrpath portion.
+                last: Optional[str] = None
+                for c in cur.children:
+                    if c.type == "attrpath":
+                        for ac in c.children:
+                            if ac.type == "identifier":
+                                last = ac.text.decode("utf-8", errors="replace")
+                    elif c.type == "identifier":
+                        last = c.text.decode("utf-8", errors="replace")
+                return last
+            if cur.type == "identifier":
+                return cur.text.decode("utf-8", errors="replace")
+            return None
+
+        def first_path_arg(apply) -> Optional[str]:
+            """For nested apply_expressions like ``import ./x.nix { }``, walk
+            down collecting arguments; return the first ``path_expression``
+            we find."""
+            # Descend left spine collecting right-hand args in outer→inner order
+            stack: list = []
+            cur = apply
+            while cur is not None and cur.type == "apply_expression":
+                if len(cur.children) >= 2:
+                    stack.append(cur.children[1])
+                cur = cur.children[0] if cur.children else None
+            # Args closest to the callee come last in stack; try them in
+            # that order (innermost first) so ``import ./x { }`` picks
+            # ``./x`` not ``{ }``.
+            for arg in reversed(stack):
+                if arg.type == "path_expression":
+                    return arg.text.decode("utf-8", errors="replace").strip()
+            return None
+
+        def visit(n) -> None:
+            if n is None:
+                return
+            if n.type == "apply_expression":
+                name = head_call_name(n)
+                if name in ("import", "callPackage"):
+                    path = first_path_arg(n)
+                    if path:
+                        results.append((path, n.start_point[0] + 1))
+                # Still recurse into children so nested imports inside
+                # argument attrsets/lets are caught.
+            for c in n.children:
+                visit(c)
+
+        visit(rhs_node)
+        return results
+
+    def _extract_nix_constructs(
+        self,
+        node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle a Nix ``binding`` node (``attrpath = expr;``).
+
+        - Flattens dotted attrpaths into a single dotted node name
+          (``packages.default``).
+        - In ``flake.nix``, ``inputs.<name>.url = "..."`` bindings emit an
+          ``IMPORTS_FROM`` edge with target = the URL string, and no node.
+        - All other bindings become ``Function`` nodes (matching the
+          Bash/Elixir convention for "the graph's addressable things") with a
+          CONTAINS edge from the File.
+        - The RHS is scanned for ``import <path>`` / ``callPackage <path> ...``
+          applications; each emits an ``IMPORTS_FROM`` edge (relative paths
+          are resolved against the caller's directory when possible).
+        - Recurses into the RHS so nested bindings (e.g. inside
+          ``let ... in { ... }`` or ``outputs = { ... }: { ... }``) are
+          discovered and flattened as their own top-level nodes.
+
+        Returns True (Nix has no other node-type dispatches in the walker).
+        """
+        attrpath_node = None
+        rhs_node = None
+        for sub in node.children:
+            if sub.type == "attrpath":
+                attrpath_node = sub
+            elif sub.type not in ("=", ";") and attrpath_node is not None:
+                # First non-attrpath, non-punctuation child is the RHS.
+                if rhs_node is None:
+                    rhs_node = sub
+        if attrpath_node is None or rhs_node is None:
+            return False
+
+        parts = self._nix_attrpath_parts(attrpath_node)
+        if not parts:
+            return False
+        name = ".".join(parts)
+        line = node.start_point[0] + 1
+
+        # --- Flake input URL: inputs.<name>.url = "..." ------------------
+        # Flat form: ``inputs.nixpkgs.url = "github:...";`` — emit one edge,
+        # skip node creation (this is metadata, not a graph "thing").
+        if (
+            self._is_nix_flake_file(file_path)
+            and len(parts) >= 2
+            and parts[0] == "inputs"
+            and parts[-1] == "url"
+            and rhs_node.type == "string_expression"
+        ):
+            url: Optional[str] = None
+            for c in rhs_node.children:
+                if c.type == "string_fragment":
+                    url = c.text.decode("utf-8", errors="replace")
+                    break
+            if url:
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=url,
+                    file_path=file_path,
+                    line=line,
+                ))
+                return True
+
+        # Nested form: ``inputs = { nixpkgs.url = "..."; ... };`` — emit an
+        # edge per inner url string. Still fall through so the ``inputs``
+        # binding itself becomes a Function node and the default recursion
+        # continues (the recursion won't re-emit these urls as separate
+        # Function nodes because the flat form above short-circuits).
+        if (
+            self._is_nix_flake_file(file_path)
+            and parts == ["inputs"]
+            and rhs_node.type == "attrset_expression"
+        ):
+            for url, uline in self._extract_nix_flake_input_urls(rhs_node):
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=url,
+                    file_path=file_path,
+                    line=uline,
+                ))
+
+        # --- Regular binding → Function node -----------------------------
+        qualified = self._qualify(name, file_path, enclosing_class)
+        nodes.append(NodeInfo(
+            kind="Function",
+            name=name,
+            file_path=file_path,
+            line_start=line,
+            line_end=node.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+        ))
+        container = (
+            self._qualify(enclosing_class, file_path, None)
+            if enclosing_class else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=line,
+        ))
+
+        # --- IMPORTS_FROM edges for import / callPackage inside the RHS --
+        for target, tline in self._extract_nix_import_targets(rhs_node):
+            resolved = self._resolve_module_to_file(target, file_path, "nix")
+            edges.append(EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=file_path,
+                target=resolved if resolved else target,
+                file_path=file_path,
+                line=tline,
+            ))
+
+        # Recurse into the RHS so nested bindings become their own nodes
+        # (e.g. ``outputs = ...: { packages.default = ...; }`` surfaces
+        # ``packages.default`` as a top-level-named Function node too).
+        self._extract_from_tree(
+            rhs_node, source, language, file_path, nodes, edges,
+            enclosing_class=enclosing_class,
+            enclosing_func=enclosing_func,
+            import_map=import_map, defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    # ------------------------------------------------------------------
+    # HCL / Terraform constructs
+    # ------------------------------------------------------------------
+
+    def _extract_hcl_constructs(
+        self,
+        node,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> bool:
+        """Handle an HCL ``block`` node and emit Class/Function/edge data.
+
+        Mapping (see ``_HCL_BLOCK_CFG`` for the dispatch table):
+        - ``resource/data``        → Class  ``resource.type.name`` / ``data.type.name``
+        - ``module``               → Class  ``module.name`` + IMPORTS_FROM (source attr)
+        - ``variable/output/provider`` → Function  ``var|output|provider.name``
+        - ``locals``               → Function ``local.<key>`` per attribute
+        - ``terraform`` / unknown  → skipped
+
+        Returns True unconditionally so the main walker skips the subtree.
+        """
+        children = node.children
+        if not children or children[0].type != "identifier":
+            return False
+
+        block_type = _hcl_text(children[0])
+        labels = [
+            _hcl_text(tmpl)
+            for child in children[1:]
+            if child.type == "string_lit"
+            if (tmpl := _hcl_child(child, "template_literal")) is not None
+        ]
+        body_node = _hcl_child(node, "body")
+        line_start = node.start_point[0] + 1
+
+        if block_type == "locals":
+            return self._emit_hcl_locals(body_node, file_path, nodes, edges)
+
+        cfg = _HCL_BLOCK_CFG.get(block_type)
+        if cfg is None:  # "terraform" and unknown blocks silently skipped
+            return True
+
+        kind, prefix, n_labels, emit_refs = cfg
+        name = _hcl_block_name(prefix, labels, n_labels)
+        if name is None:
+            return True
+
+        qualified = self._qualify(name, file_path, None)
+        nodes.append(NodeInfo(
+            kind=kind, name=name, file_path=file_path,
+            line_start=line_start, line_end=node.end_point[0] + 1,
+            language="hcl", extra={"hcl_type": block_type},
+        ))
+        edges.append(EdgeInfo(
+            kind="CONTAINS", source=file_path, target=qualified,
+            file_path=file_path, line=line_start,
+        ))
+
+        if body_node is None:
+            return True
+
+        if block_type == "module":
+            src = self._hcl_get_attribute_string(body_node, "source")
+            if src:
+                resolved = self._resolve_module_to_file(src, file_path, "hcl")
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM", source=file_path, target=resolved or src,
+                    file_path=file_path, line=line_start,
+                ))
+
+        if emit_refs:
+            self._walk_hcl_expressions(body_node, file_path, edges, name)
+
+        return True
+
+    def _emit_hcl_locals(
+        self,
+        body_node,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> bool:
+        """Emit one Function node per binding in a ``locals { ... }`` block."""
+        if body_node is None:
+            return True
+        for attr in body_node.children:
+            if attr.type != "attribute":
+                continue
+            key = _hcl_child(attr, "identifier")
+            if key is None:
+                continue
+            lname = f"local.{_hcl_text(key)}"
+            lline = attr.start_point[0] + 1
+            nodes.append(NodeInfo(
+                kind="Function", name=lname, file_path=file_path,
+                line_start=lline, line_end=attr.end_point[0] + 1,
+                language="hcl", extra={"hcl_type": "local"},
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS", source=file_path,
+                target=self._qualify(lname, file_path, None),
+                file_path=file_path, line=lline,
+            ))
+            self._walk_hcl_expressions(attr, file_path, edges, lname)
+        return True
+
+    def _hcl_get_attribute_string(self, body_node, attr_name: str) -> Optional[str]:
+        """Return the string value of a named attribute in an HCL body, or None."""
+        for attr in body_node.children:
+            if attr.type != "attribute":
+                continue
+            key = _hcl_child(attr, "identifier")
+            expr = _hcl_child(attr, "expression")
+            if key is None or expr is None or _hcl_text(key) != attr_name:
+                continue
+            # Navigate: expression > literal_value > string_lit > template_literal
+            lit = _hcl_child(expr, "literal_value")
+            if lit is None:
+                continue
+            str_lit = _hcl_child(lit, "string_lit")
+            if str_lit is None:
+                continue
+            tmpl = _hcl_child(str_lit, "template_literal")
+            if tmpl is not None:
+                return _hcl_text(tmpl)
+        return None
+
+    def _walk_hcl_expressions(
+        self,
+        node,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_name: str,
+        local_names: frozenset[str] = frozenset(),
+    ) -> None:
+        """Emit REFERENCES edges for every HCL variable reference under *node*.
+
+        *local_names* accumulates iterator symbols introduced by enclosing
+        ``dynamic`` blocks.  Any reference whose root matches a name in this
+        set is suppressed, preventing spurious ``resource.<iterator>.*``
+        edges from expressions like ``setting.value[...]`` or
+        ``origin_group.key``.
+        """
+        if node.type in ("expression", "body"):
+            for root, attrs, line in _hcl_variable_refs(node):
+                if root in local_names:
+                    continue
+                ref = _hcl_ref_target(root, attrs)
+                if ref:
+                    edges.append(EdgeInfo(
+                        kind="REFERENCES",
+                        source=self._qualify(enclosing_name, file_path, None),
+                        target=self._qualify(ref, file_path, None),
+                        file_path=file_path,
+                        line=line,
+                    ))
+        for child in node.children:
+            if child.type not in _HCL_RECURSE_TYPES:
+                continue
+            child_local_names = local_names
+            if child.type == "block":
+                iter_name = _hcl_dynamic_iterator_name(child)
+                if iter_name:
+                    child_local_names = local_names | {iter_name}
+            elif child.type == "for_expr":
+                child_local_names = (
+                    local_names | _hcl_for_iterator_names(child)
+                )
+            self._walk_hcl_expressions(child, file_path, edges, enclosing_name, child_local_names)
+
+
+    def _extract_bash_source_command(
+        self,
+        node,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> bool:
+        """Detect ``source foo.sh`` / ``. foo.sh`` and emit an IMPORTS_FROM
+        edge. Returns True if handled (so the main loop skips recursing
+        into this command). See: #197
+        """
+        command_name: Optional[str] = None
+        args: list[str] = []
+        for sub in node.children:
+            if sub.type == "command_name":
+                command_name = sub.text.decode("utf-8", errors="replace").strip()
+            elif sub.type in ("word", "string", "raw_string") and command_name:
+                txt = sub.text.decode("utf-8", errors="replace").strip()
+                # Strip surrounding quotes if present
+                if len(txt) >= 2 and txt[0] in ("'", '"') and txt[-1] == txt[0]:
+                    txt = txt[1:-1]
+                if txt:
+                    args.append(txt)
+        if command_name in ("source", ".") and args:
+            target = args[0]
+            # Try to resolve relative paths to real files
+            resolved = self._resolve_module_to_file(target, file_path, "bash")
+            edges.append(EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=file_path,
+                target=resolved if resolved else target,
+                file_path=file_path,
+                line=node.start_point[0] + 1,
+            ))
+            return True
+        return False
+
+    def _extract_dart_calls_from_children(
+        self,
+        parent,
+        source: bytes,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> None:
+        """Detect Dart call sites from a parent node's children (#87 bug 1).
+
+        tree-sitter-dart does not emit a single ``call_expression`` node for
+        Dart calls.  Instead it produces ``identifier`` / method-selector
+        siblings followed by a ``selector`` whose child is ``argument_part``:
+
+            identifier "print"
+            selector
+              argument_part
+
+        And for method calls like ``obj.foo()`` the middle selector is a
+        ``unconditional_assignable_selector`` holding the method name:
+
+            identifier "obj"
+            selector
+              unconditional_assignable_selector "."
+                identifier "foo"
+            selector
+              argument_part
+
+        This walker scans the immediate children of ``parent`` for either
+        shape and emits a ``CALLS`` edge.  Nested calls are picked up as
+        ``_extract_from_tree`` recurses into child nodes.
+        """
+        call_name: Optional[str] = None
+        for sub in parent.children:
+            if sub.type == "identifier":
+                call_name = sub.text.decode("utf-8", errors="replace")
+                continue
+            if sub.type == "selector":
+                # Case A: selector > unconditional_assignable_selector > identifier
+                # (updates call_name to the method name)
+                method_name: Optional[str] = None
+                has_arguments = False
+                for ssub in sub.children:
+                    if ssub.type == "unconditional_assignable_selector":
+                        for ident in ssub.children:
+                            if ident.type == "identifier":
+                                method_name = ident.text.decode(
+                                    "utf-8", errors="replace"
+                                )
+                                break
+                    elif ssub.type == "argument_part":
+                        has_arguments = True
+                if method_name is not None:
+                    call_name = method_name
+                if has_arguments and call_name:
+                    src_qn = (
+                        self._qualify(enclosing_func, file_path, enclosing_class)
+                        if enclosing_func else file_path
+                    )
+                    edges.append(EdgeInfo(
+                        kind="CALLS",
+                        source=src_qn,
+                        target=call_name,
+                        file_path=file_path,
+                        line=parent.start_point[0] + 1,
+                    ))
+                    # After emitting for this call, clear call_name so we
+                    # don't re-emit on any trailing chained selector.
+                    call_name = None
+                continue
+            # Non-identifier, non-selector children don't change the
+            # pending call name (``return``, ``await``, ``yield``, etc.)
+            # but anything unexpected should reset it to avoid spurious
+            # edges across unrelated siblings.
+            if sub.type not in ("return", "await", "yield", "this", "const", "new"):
+                call_name = None
+
+    def _extract_r_constructs(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> bool:
+        """Handle R-specific AST nodes (assignments and class-defining calls).
+
+        Returns True if the child was fully handled and should be skipped
+        by the main loop.
+        """
+        # R: function definitions via assignment
+        if node_type == "binary_operator":
+            handled = self._handle_r_binary_operator(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names,
+            )
+            if handled:
+                return True
+
+        # R: setClass/setRefClass/setGeneric calls and imports
+        if node_type == "call":
+            handled = self._handle_r_call(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names,
+            )
+            if handled:
+                return True
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Julia-specific helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _julia_component_name(node) -> Optional[str]:
+        """Return an identifier or quoted operator component name."""
+        if node.type in ("identifier", "operator"):
+            return node.text.decode("utf-8", errors="replace")
+        if node.type in ("quote_expression", "parenthesized_expression"):
+            for child in node.children:
+                name = CodeParser._julia_component_name(child)
+                if name is not None:
+                    return name
+        return None
+
+    def _julia_field_parts(self, field_expr) -> list[str]:
+        """Flatten the identifier prefix of a Julia field expression."""
+        parts: list[str] = []
+        for child in field_expr.children:
+            if child.type == "field_expression":
+                parts.extend(self._julia_field_parts(child))
+            elif child.type == "identifier":
+                parts.append(
+                    child.text.decode("utf-8", errors="replace"),
+                )
+        return parts
+
+    def _julia_field_info(
+        self, field_expr,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return ``(qualifier, leaf)`` for a Julia field expression."""
+        semantic_children = [
+            child for child in field_expr.children
+            if child.type in (
+                "field_expression",
+                "identifier",
+                "quote_expression",
+            )
+        ]
+        if not semantic_children:
+            return None, None
+        name = self._julia_component_name(semantic_children[-1])
+        qualifier_parts: list[str] = []
+        for child in semantic_children[:-1]:
+            if child.type == "field_expression":
+                qualifier_parts.extend(self._julia_field_parts(child))
+            elif child.type == "identifier":
+                qualifier_parts.append(
+                    child.text.decode("utf-8", errors="replace"),
+                )
+        qualifier = ".".join(qualifier_parts) or None
+        return qualifier, name
+
+    @staticmethod
+    def _julia_scope_join(
+        outer: Optional[str], inner: Optional[str],
+    ) -> Optional[str]:
+        """Join Julia scope paths without repeating an existing prefix."""
+        if not outer:
+            return inner
+        if not inner:
+            return outer
+        if inner == outer or inner.startswith(f"{outer}."):
+            return inner
+        return f"{outer}.{inner}"
+
+    def _julia_signature_call(self, function_node):
+        """Return the outer definition call inside a Julia signature."""
+        signature = next(
+            (
+                child for child in function_node.children
+                if child.type == "signature"
+            ),
+            None,
+        )
+        if signature is None:
+            return None
+        scope = signature
+        for _ in range(4):
+            call = next(
+                (
+                    child for child in scope.children
+                    if child.type == "call_expression"
+                ),
+                None,
+            )
+            if call is not None:
+                return call
+            wrapper = next(
+                (
+                    child for child in scope.children
+                    if child.type in (
+                        "where_expression", "typed_expression",
+                    )
+                ),
+                None,
+            )
+            if wrapper is None:
+                break
+            scope = wrapper
+        return None
+
+    def _julia_signature_callee(self, function_node):
+        """Return the definition target inside a Julia signature."""
+        call = self._julia_signature_call(function_node)
+        if call is not None:
+            return call.children[0] if call.children else None
+        signature = next(
+            (
+                child for child in function_node.children
+                if child.type == "signature"
+            ),
+            None,
+        )
+        if signature is None:
+            return None
+        return next(
+            (
+                child for child in signature.children
+                if child.type in (
+                    "field_expression", "identifier", "operator",
+                )
+            ),
+            None,
+        )
+
+    def _julia_definition_qualifier(
+        self, function_node,
+    ) -> Optional[str]:
+        callee = self._julia_signature_callee(function_node)
+        if callee is None or callee.type != "field_expression":
+            return None
+        qualifier, _ = self._julia_field_info(callee)
+        return qualifier
+
+    def _julia_short_qualifier(self, call_expr) -> Optional[str]:
+        if not call_expr.children:
+            return None
+        callee = call_expr.children[0]
+        if callee.type != "field_expression":
+            return None
+        qualifier, _ = self._julia_field_info(callee)
+        return qualifier
+
+    def _resolve_julia_import_alias(
+        self,
+        alias: str,
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: dict[str, str],
+    ) -> Optional[str]:
+        """Resolve a Julia import alias from the nearest lexical scope."""
+        scope = self._julia_scope_join(enclosing_class, enclosing_func)
+        scope_parts = scope.split(".") if scope else []
+        for size in range(len(scope_parts), -1, -1):
+            prefix = ".".join(scope_parts[:size])
+            key = f"{prefix}.{alias}" if prefix else alias
+            if key in import_map:
+                return import_map[key]
+        return None
+
+    def _julia_call_is_in_signature(self, call_node) -> bool:
+        """Return whether this is the signature's definition call."""
+        parent = call_node.parent
+        while parent is not None:
+            if parent.type in ("function_definition", "macro_definition"):
+                return self._julia_signature_call(parent) == call_node
+            if parent.type == "source_file":
+                break
+            parent = parent.parent
+        return False
+
+    def _julia_short_func_name(self, call_expr) -> Optional[str]:
+        """Extract the name from a ``call_expression`` that is the LHS of
+        a short-form function ``f(x) = expr`` or ``Base.f(x) = expr`` or
+        ``Foo{T}(x) = expr``.
+        """
+        for child in call_expr.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "operator":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "field_expression":
+                _, name = self._julia_field_info(child)
+                return name
+            if child.type == "parametrized_type_expression":
+                for ident in child.children:
+                    if ident.type == "identifier":
+                        return ident.text.decode("utf-8", errors="replace")
+                return None
+        return None
+
+    def _julia_string_arg(self, call_expr) -> Optional[str]:
+        """Return the first string literal argument of a call_expression."""
+        for child in call_expr.children:
+            if child.type != "argument_list":
+                continue
+            for arg in child.children:
+                if arg.type == "string_literal":
+                    for sub in arg.children:
+                        if sub.type == "content":
+                            return sub.text.decode("utf-8", errors="replace")
+                    raw = arg.text.decode("utf-8", errors="replace")
+                    return raw.strip('"').strip("'")
+        return None
+
+    def _julia_call_first_identifier(self, call_expr) -> Optional[str]:
+        """First identifier of a ``call_expression`` (the function being
+        called). Used to detect ``include("...")``.
+        """
+        for child in call_expr.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+        return None
+
+    def _extract_julia_constructs(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle Julia-specific constructs the type tables can't cover.
+
+        Returns True if the child was fully handled and should be skipped
+        by the main dispatch loop.
+        """
+        # Parameterized const aliases are type declarations. Ordinary value
+        # constants stay on the generic path.
+        if node_type == "const_statement":
+            assignment = next(
+                (
+                    sub for sub in child.children
+                    if sub.type == "assignment"
+                ),
+                None,
+            )
+            if assignment is not None and len(assignment.children) >= 3:
+                name_node = assignment.children[0]
+                value_node = assignment.children[-1]
+                if (
+                    name_node.type == "identifier"
+                    and value_node.type in (
+                        "parametrized_type_expression",
+                        "curly_expression",
+                    )
+                ):
+                    name = name_node.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                    qualified = self._qualify(
+                        name, file_path, enclosing_class,
+                    )
+                    nodes.append(NodeInfo(
+                        kind="Type",
+                        name=name,
+                        file_path=file_path,
+                        line_start=child.start_point[0] + 1,
+                        line_end=child.end_point[0] + 1,
+                        language=language,
+                        parent_name=enclosing_class,
+                    ))
+                    container = (
+                        self._qualify(enclosing_class, file_path, None)
+                        if enclosing_class
+                        else file_path
+                    )
+                    edges.append(EdgeInfo(
+                        kind="CONTAINS",
+                        source=container,
+                        target=qualified,
+                        file_path=file_path,
+                        line=child.start_point[0] + 1,
+                    ))
+                    return True
+
+        # --- Short-form function: assignment with call_expression LHS ---
+        # ``f(x) = expr`` or ``Base.f(x) = expr``.  Anything else with an
+        # ``=`` (plain variable, const) is left to the generic path.
+        if node_type == "assignment":
+            lhs = child.children[0] if child.children else None
+            # Unwrap typed LHS: ``f(x)::RetT = expr`` parses as
+            # ``assignment > typed_expression > call_expression``.
+            if lhs is not None and lhs.type == "typed_expression":
+                for sub in lhs.children:
+                    if sub.type == "call_expression":
+                        lhs = sub
+                        break
+            if lhs is not None and lhs.type == "call_expression":
+                name = self._julia_short_func_name(lhs)
+                if name:
+                    is_test = _is_test_function(name, file_path, ())
+                    kind = "Test" if is_test else "Function"
+                    lexical_parent = self._julia_scope_join(
+                        enclosing_class, enclosing_func,
+                    )
+                    qualifier = self._julia_short_qualifier(lhs)
+                    identity_parent = self._julia_scope_join(
+                        lexical_parent, qualifier,
+                    )
+                    qualified = self._qualify(
+                        name, file_path, identity_parent,
+                    )
+                    extra = {}
+                    if qualifier:
+                        extra["julia_module_qualifier"] = qualifier
+                    nodes.append(NodeInfo(
+                        kind=kind,
+                        name=name,
+                        file_path=file_path,
+                        line_start=child.start_point[0] + 1,
+                        line_end=child.end_point[0] + 1,
+                        language=language,
+                        parent_name=identity_parent,
+                        is_test=is_test,
+                        extra=extra,
+                    ))
+                    container = (
+                        self._qualify(lexical_parent, file_path, None)
+                        if lexical_parent
+                        else file_path
+                    )
+                    edges.append(EdgeInfo(
+                        kind="CONTAINS",
+                        source=container,
+                        target=qualified,
+                        file_path=file_path,
+                        line=child.start_point[0] + 1,
+                    ))
+                    if qualifier:
+                        edges.append(EdgeInfo(
+                            kind="REFERENCES",
+                            source=qualified,
+                            target=qualifier,
+                            file_path=file_path,
+                            line=child.start_point[0] + 1,
+                            extra={"julia_qualified_def": True},
+                        ))
+                    # Recurse into the RHS only (children after the ``=``
+                    # operator) with this function as the enclosing scope
+                    # so internal calls wire up correctly. Visiting the
+                    # whole assignment would re-treat the LHS
+                    # ``call_expression`` as a self-call.
+                    call_types = set(_CALL_TYPES.get(language, []))
+                    seen_op = False
+                    for sub in child.children:
+                        if not seen_op:
+                            if sub.type == "operator":
+                                seen_op = True
+                            continue
+                        # The RHS call itself sits at this level, while the
+                        # generic walker only visits a node's children.
+                        if sub.type in call_types:
+                            self._extract_calls(
+                                sub, source, language, file_path,
+                                nodes, edges, identity_parent, name,
+                                import_map, defined_names, _depth + 1,
+                            )
+                        self._extract_from_tree(
+                            sub, source, language, file_path, nodes, edges,
+                            enclosing_class=identity_parent,
+                            enclosing_func=name,
+                            import_map=import_map,
+                            defined_names=defined_names,
+                            _depth=_depth + 1,
+                        )
+                    return True
+
+        # --- Skip call_expression nodes that are actually function
+        # signatures (``function foo(x) ... end`` has a ``signature >
+        # call_expression`` that describes the definition, not a call).
+        if (
+            node_type == "call_expression"
+            and self._julia_call_is_in_signature(child)
+        ):
+            return True
+
+        # --- include("file.jl") -> IMPORTS_FROM edge ---
+        if node_type == "call_expression":
+            if self._julia_call_first_identifier(child) == "include":
+                path_arg = self._julia_string_arg(child)
+                if path_arg:
+                    resolved = self._resolve_module_to_file(
+                        path_arg, file_path, language,
+                    )
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=resolved if resolved else path_arg,
+                        file_path=file_path,
+                        line=child.start_point[0] + 1,
+                    ))
+                    # Fall through - let generic call dispatch also record
+                    # the CALLS edge and recurse for nested calls.
+                    return False
+
+        # --- export_statement / public_statement -> REFERENCES edges ---
+        # ``public`` (1.11+) is a softer variant of ``export`` — symbols
+        # are part of the public API but not brought into scope by
+        # ``using``. Track both so review tools can answer "what's the
+        # public surface of this module?".
+        if node_type in ("export_statement", "public_statement"):
+            source_qual = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class
+                else file_path
+            )
+            marker = (
+                "julia_export"
+                if node_type == "export_statement"
+                else "julia_public"
+            )
+            for sub in child.children:
+                if sub.type == "identifier":
+                    name = sub.text.decode("utf-8", errors="replace")
+                    edges.append(EdgeInfo(
+                        kind="REFERENCES",
+                        source=source_qual,
+                        target=name,
+                        file_path=file_path,
+                        line=child.start_point[0] + 1,
+                        extra={marker: True},
+                    ))
+            return True
+
+        # --- macrocall_expression ---
+        if node_type == "macrocall_expression":
+            macro_name = None
+            for sub in child.children:
+                if sub.type == "macro_identifier":
+                    for ident in sub.children:
+                        if ident.type == "identifier":
+                            macro_name = ident.text.decode(
+                                "utf-8", errors="replace",
+                            )
+                            break
+                    break
+
+            if macro_name == "enum":
+                # @enum Color RED BLUE GREEN
+                # First argument is the enum type name; the rest are
+                # variant names. Model the type as a Class and each
+                # variant as a Function child, so callers referencing a
+                # variant resolve to something in the graph.
+                type_name: Optional[str] = None
+                variant_identifiers: list = []
+                for sub in child.children:
+                    if sub.type != "macro_argument_list":
+                        continue
+                    for arg in sub.children:
+                        if arg.type != "identifier":
+                            continue
+                        if type_name is None:
+                            type_name = arg.text.decode(
+                                "utf-8", errors="replace",
+                            )
+                        else:
+                            variant_identifiers.append(arg)
+                    break
+                if type_name:
+                    line_start = child.start_point[0] + 1
+                    line_end = child.end_point[0] + 1
+                    qualified_type = self._qualify(
+                        type_name, file_path, enclosing_class,
+                    )
+                    nodes.append(NodeInfo(
+                        kind="Class",
+                        name=type_name,
+                        file_path=file_path,
+                        line_start=line_start,
+                        line_end=line_end,
+                        language=language,
+                        parent_name=enclosing_class,
+                        extra={"julia_kind": "enum"},
+                    ))
+                    container = (
+                        self._qualify(enclosing_class, file_path, None)
+                        if enclosing_class
+                        else file_path
+                    )
+                    edges.append(EdgeInfo(
+                        kind="CONTAINS",
+                        source=container,
+                        target=qualified_type,
+                        file_path=file_path,
+                        line=line_start,
+                    ))
+                    for variant in variant_identifiers:
+                        vname = variant.text.decode(
+                            "utf-8", errors="replace",
+                        )
+                        variant_parent = self._julia_scope_join(
+                            enclosing_class, type_name,
+                        )
+                        qualified_v = self._qualify(
+                            vname, file_path, variant_parent,
+                        )
+                        nodes.append(NodeInfo(
+                            kind="Function",
+                            name=vname,
+                            file_path=file_path,
+                            line_start=variant.start_point[0] + 1,
+                            line_end=variant.end_point[0] + 1,
+                            language=language,
+                            parent_name=variant_parent,
+                            extra={"julia_kind": "enum_variant"},
+                        ))
+                        edges.append(EdgeInfo(
+                            kind="CONTAINS",
+                            source=qualified_type,
+                            target=qualified_v,
+                            file_path=file_path,
+                            line=variant.start_point[0] + 1,
+                        ))
+                return True
+
+            if macro_name == "testset":
+                # @testset "desc" begin ... end
+                desc = None
+                body_parent = None
+                for sub in child.children:
+                    if sub.type != "macro_argument_list":
+                        continue
+                    body_parent = sub
+                    for arg in sub.children:
+                        if arg.type == "string_literal":
+                            for c in arg.children:
+                                if c.type == "content":
+                                    desc = c.text.decode(
+                                        "utf-8", errors="replace",
+                                    )
+                                    break
+                            break
+                line_no = child.start_point[0] + 1
+                synth_base = f"testset:{desc}" if desc else "testset"
+                synth_name = f"{synth_base}@L{line_no}"
+                lexical_parent = self._julia_scope_join(
+                    enclosing_class, enclosing_func,
+                )
+                qualified = self._qualify(
+                    synth_name, file_path, lexical_parent,
+                )
+                nodes.append(NodeInfo(
+                    kind="Test",
+                    name=synth_name,
+                    file_path=file_path,
+                    line_start=child.start_point[0] + 1,
+                    line_end=child.end_point[0] + 1,
+                    language=language,
+                    parent_name=lexical_parent,
+                    is_test=True,
+                ))
+                container = (
+                    self._qualify(lexical_parent, file_path, None)
+                    if lexical_parent
+                    else file_path
+                )
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=container,
+                    target=qualified,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+                if body_parent is not None:
+                    self._extract_from_tree(
+                        body_parent, source, language, file_path, nodes, edges,
+                        enclosing_class=lexical_parent,
+                        enclosing_func=synth_name,
+                        import_map=import_map, defined_names=defined_names,
+                        _depth=_depth + 1,
+                    )
+                return True
+
+            # Other macrocalls: let the generic CALLS path emit the edge,
+            # but also recurse into the macro_argument_list so that any
+            # function defs nested under @inline / @generated / etc. get
+            # captured. We return False so the generic dispatcher still
+            # runs for the CALLS edge.
+            return False
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Lua-specific helpers
+    # ------------------------------------------------------------------
+
+    def _extract_lua_constructs(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle Lua-specific AST constructs.
+
+        Returns True if the child was fully handled and should be skipped
+        by the main loop.
+
+        Handles:
+        - variable_declaration with require() -> IMPORTS_FROM edge
+        - variable_declaration with function_definition -> named Function node
+        - function_declaration with dot/method name -> Function with table parent
+        - top-level require() call -> IMPORTS_FROM edge
+        """
+        # --- variable_declaration: require() or anonymous function ---
+        if node_type == "variable_declaration":
+            return self._handle_lua_variable_declaration(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            )
+
+        # --- function_declaration with dot/method table name ---
+        if node_type == "function_declaration":
+            return self._handle_lua_table_function(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            )
+
+        # --- Top-level require() not wrapped in variable_declaration ---
+        if node_type == "function_call" and not enclosing_func:
+            req_target = self._lua_get_require_target(child)
+            if req_target is not None:
+                resolved = self._resolve_module_to_file(
+                    req_target, file_path, language,
+                )
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=resolved if resolved else req_target,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+                return True
+
+        return False
+
+    def _handle_lua_variable_declaration(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle Lua variable declarations that contain require() or
+        anonymous function definitions.
+
+        ``local json = require("json")``  -> IMPORTS_FROM edge
+        ``local fn = function(x) ... end`` -> Function node named "fn"
+        """
+        # Walk into: variable_declaration > assignment_statement
+        assign = None
+        for sub in child.children:
+            if sub.type == "assignment_statement":
+                assign = sub
+                break
+        if not assign:
+            return False
+
+        # Get variable name from variable_list
+        var_name = None
+        for sub in assign.children:
+            if sub.type == "variable_list":
+                for ident in sub.children:
+                    if ident.type == "identifier":
+                        var_name = ident.text.decode("utf-8", errors="replace")
+                        break
+                break
+
+        # Get value from expression_list
+        expr_list = None
+        for sub in assign.children:
+            if sub.type == "expression_list":
+                expr_list = sub
+                break
+
+        if not var_name or not expr_list:
+            return False
+
+        # Check for require() call
+        for expr in expr_list.children:
+            if expr.type == "function_call":
+                req_target = self._lua_get_require_target(expr)
+                if req_target is not None:
+                    resolved = self._resolve_module_to_file(
+                        req_target, file_path, language,
+                    )
+                    edges.append(EdgeInfo(
+                        kind="IMPORTS_FROM",
+                        source=file_path,
+                        target=resolved if resolved else req_target,
+                        file_path=file_path,
+                        line=child.start_point[0] + 1,
+                    ))
+                    return True
+
+        # Check for anonymous function: local foo = function(...) end
+        for expr in expr_list.children:
+            if expr.type == "function_definition":
+                is_test = _is_test_function(var_name, file_path)
+                kind = "Test" if is_test else "Function"
+                qualified = self._qualify(var_name, file_path, enclosing_class)
+                params = self._get_params(expr, language, source)
+
+                nodes.append(NodeInfo(
+                    kind=kind,
+                    name=var_name,
+                    file_path=file_path,
+                    line_start=child.start_point[0] + 1,
+                    line_end=child.end_point[0] + 1,
+                    language=language,
+                    parent_name=enclosing_class,
+                    params=params,
+                    is_test=is_test,
+                ))
+                container = (
+                    self._qualify(enclosing_class, file_path, None)
+                    if enclosing_class else file_path
+                )
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=container,
+                    target=qualified,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+                # Recurse into the function body for calls
+                self._extract_from_tree(
+                    expr, source, language, file_path, nodes, edges,
+                    enclosing_class=enclosing_class,
+                    enclosing_func=var_name,
+                    import_map=import_map,
+                    defined_names=defined_names,
+                    _depth=_depth + 1,
+                )
+                return True
+
+        return False
+
+    def _handle_lua_table_function(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle Lua function declarations with table-qualified names.
+
+        ``function Animal.new(name)``  -> Function "new", parent "Animal"
+        ``function Animal:speak()``    -> Function "speak", parent "Animal"
+
+        Plain ``function foo()`` is NOT handled here (returns False).
+        """
+        table_name = None
+        method_name = None
+
+        for sub in child.children:
+            if sub.type in ("dot_index_expression", "method_index_expression"):
+                identifiers = [
+                    c for c in sub.children if c.type == "identifier"
+                ]
+                if len(identifiers) >= 2:
+                    table_name = identifiers[0].text.decode(
+                        "utf-8", errors="replace",
+                    )
+                    method_name = identifiers[-1].text.decode(
+                        "utf-8", errors="replace",
+                    )
+                break
+
+        if not table_name or not method_name:
+            return False
+
+        is_test = _is_test_function(method_name, file_path)
+        kind = "Test" if is_test else "Function"
+        qualified = self._qualify(method_name, file_path, table_name)
+        params = self._get_params(child, language, source)
+
+        nodes.append(NodeInfo(
+            kind=kind,
+            name=method_name,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=table_name,
+            params=params,
+            is_test=is_test,
+        ))
+        # CONTAINS: table -> method
+        container = self._qualify(table_name, file_path, None)
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+        # Recurse into function body for calls
+        self._extract_from_tree(
+            child, source, language, file_path, nodes, edges,
+            enclosing_class=table_name,
+            enclosing_func=method_name,
+            import_map=import_map,
+            defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    @staticmethod
+    def _lua_get_require_target(call_node) -> Optional[str]:
+        """Extract the module path from a Lua require() call.
+
+        Returns the string argument or None if this is not a require() call.
+        """
+        # Structure: function_call > identifier("require") > arguments > string
+        first_child = call_node.children[0] if call_node.children else None
+        if (
+            not first_child
+            or first_child.type != "identifier"
+            or first_child.text != b"require"
+        ):
+            return None
+        for child in call_node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type == "string":
+                        # String node has string_content child
+                        for sub in arg.children:
+                            if sub.type == "string_content":
+                                return sub.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                        # Fallback: strip quotes from full text
+                        raw = arg.text.decode("utf-8", errors="replace")
+                        return raw.strip("'\"")
+        return None
+
+    # ------------------------------------------------------------------
+    # Zig-specific helpers
+    # ------------------------------------------------------------------
+
+    _ZIG_CONTAINER_KINDS = frozenset({"struct", "union", "enum", "opaque"})
+
+    def _extract_zig_constructs(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle Zig's PascalCase AST shapes.
+
+        Top-level forms recognised:
+          - ``Decl > FnProto + Block``         -> Function/Test node
+          - ``Decl > VarDecl`` with ``@import`` -> IMPORTS_FROM edge
+          - ``Decl > VarDecl`` with ``ContainerDecl`` (struct/union/enum/
+            opaque) -> Class node, recurse for nested methods
+          - ``TestDecl``                        -> Test node
+
+        Returns True if the construct was fully handled and the main loop
+        should skip generic recursion. Returns False to let generic
+        recursion continue (e.g. unknown / line_comment children).
+        """
+        if node_type == "TestDecl":
+            return self._handle_zig_test_decl(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            )
+
+        if node_type != "Decl":
+            return False
+
+        fn_proto = None
+        body_block = None
+        var_decl = None
+        for sub in child.children:
+            t = sub.type
+            if t == "FnProto" and fn_proto is None:
+                fn_proto = sub
+            elif t == "Block" and fn_proto is not None and body_block is None:
+                body_block = sub
+            elif t == "VarDecl" and var_decl is None:
+                var_decl = sub
+
+        if fn_proto is not None:
+            return self._handle_zig_fn_decl(
+                child, fn_proto, body_block, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            )
+
+        if var_decl is not None:
+            return self._handle_zig_var_decl(
+                child, var_decl, source, language, file_path,
+                nodes, edges, enclosing_class, enclosing_func,
+                import_map, defined_names, _depth,
+            )
+
+        return False
+
+    def _handle_zig_fn_decl(
+        self,
+        decl,
+        fn_proto,
+        body_block,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Emit a Function/Test node for ``fn name(...) ReturnType { body }``."""
+        name: Optional[str] = None
+        for sub in fn_proto.children:
+            if sub.type == "IDENTIFIER":
+                name = sub.text.decode("utf-8", errors="replace")
+                break
+        if not name:
+            return False
+
+        is_test = _is_test_function(name, file_path)
+        kind = "Test" if is_test else "Function"
+        qualified = self._qualify(name, file_path, enclosing_class)
+
+        nodes.append(NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=decl.start_point[0] + 1,
+            line_end=decl.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+            is_test=is_test,
+        ))
+        container = (
+            self._qualify(enclosing_class, file_path, None)
+            if enclosing_class
+            else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=decl.start_point[0] + 1,
+        ))
+
+        if body_block is not None:
+            self._extract_zig_calls_in_subtree(
+                body_block, file_path, edges, enclosing_class, name,
+            )
+        return True
+
+    def _handle_zig_var_decl(
+        self,
+        decl,
+        var_decl,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle ``const Name = <expr>;`` decls.
+
+        Recognises @import (-> IMPORTS_FROM) and struct/union/enum/opaque
+        ContainerDecl (-> Class node + recurse). For other expressions,
+        scans the RHS for nested call sites so call edges aren't lost.
+        """
+        var_name: Optional[str] = None
+        rhs_suffix = None
+        for sub in var_decl.children:
+            t = sub.type
+            if t == "IDENTIFIER" and var_name is None:
+                var_name = sub.text.decode("utf-8", errors="replace")
+            elif t == "ErrorUnionExpr" and rhs_suffix is None:
+                for inner in sub.children:
+                    if inner.type == "SuffixExpr":
+                        rhs_suffix = inner
+                        break
+
+        if not var_name or rhs_suffix is None:
+            return False
+
+        suffix_children = list(rhs_suffix.children)
+
+        # @import("path") -> IMPORTS_FROM edge
+        if (
+            len(suffix_children) >= 2
+            and suffix_children[0].type == "BUILTINIDENTIFIER"
+            and suffix_children[0].text == b"@import"
+            and suffix_children[1].type == "FnCallArguments"
+        ):
+            target = self._zig_extract_import_target(suffix_children[1])
+            if target is not None:
+                resolved = self._resolve_module_to_file(
+                    target, file_path, language,
+                )
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=resolved if resolved else target,
+                    file_path=file_path,
+                    line=decl.start_point[0] + 1,
+                ))
+                return True
+
+        # struct / union / enum / opaque -> Class node
+        container_decl = None
+        for inner in suffix_children:
+            if inner.type == "ContainerDecl":
+                container_decl = inner
+                break
+
+        if container_decl is not None:
+            kind_label = "struct"
+            for cd in container_decl.children:
+                if cd.type == "ContainerDeclType":
+                    for kw in cd.children:
+                        txt = kw.text.decode("utf-8", errors="replace")
+                        if txt in self._ZIG_CONTAINER_KINDS:
+                            kind_label = txt
+                            break
+                    break
+
+            nodes.append(NodeInfo(
+                kind="Class",
+                name=var_name,
+                file_path=file_path,
+                line_start=decl.start_point[0] + 1,
+                line_end=decl.end_point[0] + 1,
+                language=language,
+                parent_name=enclosing_class,
+                extra={"zig_kind": kind_label},
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=(
+                    self._qualify(enclosing_class, file_path, None)
+                    if enclosing_class
+                    else file_path
+                ),
+                target=self._qualify(var_name, file_path, enclosing_class),
+                file_path=file_path,
+                line=decl.start_point[0] + 1,
+            ))
+            self._extract_from_tree(
+                container_decl, source, language, file_path, nodes, edges,
+                enclosing_class=var_name,
+                enclosing_func=enclosing_func,
+                import_map=import_map,
+                defined_names=defined_names,
+                _depth=_depth + 1,
+            )
+            return True
+
+        # Plain ``const x = expr;`` — still scan RHS for call sites so
+        # call edges aren't lost when calls appear at module scope.
+        self._extract_zig_calls_in_subtree(
+            rhs_suffix, file_path, edges,
+            enclosing_class, enclosing_func,
+        )
+        return True
+
+    def _handle_zig_test_decl(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle ``test "label" { ... }`` blocks."""
+        label: Optional[str] = None
+        body_block = None
+        for sub in child.children:
+            if sub.type == "STRINGLITERALSINGLE":
+                raw = sub.text.decode("utf-8", errors="replace")
+                stripped = raw.strip().strip('"').strip("'")
+                if stripped:
+                    label = stripped
+            elif sub.type == "Block":
+                body_block = sub
+
+        line_no = child.start_point[0] + 1
+        base = f"test:{label}" if label else "test"
+        synthetic = f"{base}@L{line_no}"
+        qualified = self._qualify(synthetic, file_path, enclosing_class)
+
+        nodes.append(NodeInfo(
+            kind="Test",
+            name=synthetic,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+            is_test=True,
+        ))
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=(
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class
+                else file_path
+            ),
+            target=qualified,
+            file_path=file_path,
+            line=line_no,
+        ))
+
+        if body_block is not None:
+            self._extract_zig_calls_in_subtree(
+                body_block, file_path, edges, enclosing_class, synthetic,
+            )
+        return True
+
+    @staticmethod
+    def _zig_extract_import_target(args_node) -> Optional[str]:
+        """Pull the string argument out of ``@import("path")``.
+
+        Walks FnCallArguments > ErrorUnionExpr > SuffixExpr >
+        STRINGLITERALSINGLE. Returns the unquoted contents or None.
+        """
+        for arg in args_node.children:
+            if arg.type != "ErrorUnionExpr":
+                continue
+            for sub in arg.children:
+                if sub.type != "SuffixExpr":
+                    continue
+                for s in sub.children:
+                    if s.type == "STRINGLITERALSINGLE":
+                        raw = s.text.decode("utf-8", errors="replace")
+                        return raw.strip().strip('"').strip("'")
+        return None
+
+    def _extract_zig_calls_in_subtree(
+        self,
+        root,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> None:
+        """Walk a subtree and emit a CALLS edge for each call site.
+
+        A call site is a ``SuffixExpr`` or ``FieldOrFnCall`` node whose
+        direct children include a ``FnCallArguments``; the callee is the
+        IDENTIFIER (or BUILTINIDENTIFIER) immediately preceding it. The
+        builtin ``@import`` is skipped here because it's already modelled
+        as IMPORTS_FROM by _handle_zig_var_decl.
+        """
+        src_qn = (
+            self._qualify(enclosing_func, file_path, enclosing_class)
+            if enclosing_func
+            else file_path
+        )
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node.type in ("SuffixExpr", "FieldOrFnCall"):
+                children = node.children
+                for i, ch in enumerate(children):
+                    if ch.type != "FnCallArguments" or i == 0:
+                        continue
+                    prev = children[i - 1]
+                    callee: Optional[str] = None
+                    if prev.type == "IDENTIFIER":
+                        callee = prev.text.decode("utf-8", errors="replace")
+                    elif prev.type == "BUILTINIDENTIFIER":
+                        txt = prev.text.decode("utf-8", errors="replace")
+                        if txt != "@import":
+                            callee = txt
+                    if callee:
+                        edges.append(EdgeInfo(
+                            kind="CALLS",
+                            source=src_qn,
+                            target=callee,
+                            file_path=file_path,
+                            line=node.start_point[0] + 1,
+                        ))
+                    break
+            for ch in node.children:
+                stack.append(ch)
+
+    # ------------------------------------------------------------------
+    # JS/TS: variable-assigned functions  (const foo = () => {})
+    # ------------------------------------------------------------------
+
+    _JS_FUNC_VALUE_TYPES = frozenset(
+        {"arrow_function", "function_expression", "function"},
+    )
+
+    def _extract_js_var_functions(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle JS/TS variable declarations that assign functions.
+
+        Patterns handled:
+          const foo = () => {}
+          let bar = function() {}
+          export const baz = (x: number): string => x.toString()
+
+        Returns True if at least one function was extracted from the
+        declaration, so the caller can skip generic recursion.
+        """
+        handled = False
+        for declarator in child.children:
+            if declarator.type != "variable_declarator":
+                continue
+
+            # Find identifier and function value
+            var_name = None
+            func_node = None
+            for sub in declarator.children:
+                if sub.type == "identifier" and var_name is None:
+                    var_name = sub.text.decode("utf-8", errors="replace")
+                elif sub.type in self._JS_FUNC_VALUE_TYPES:
+                    func_node = sub
+
+            if not var_name or not func_node:
+                continue
+
+            is_test = _is_test_function(var_name, file_path)
+            kind = "Test" if is_test else "Function"
+            qualified = self._qualify(var_name, file_path, enclosing_class)
+            params = self._get_params(func_node, language, source)
+            ret_type = self._get_return_type(func_node, language, source)
+
+            nodes.append(NodeInfo(
+                kind=kind,
+                name=var_name,
+                file_path=file_path,
+                line_start=child.start_point[0] + 1,
+                line_end=child.end_point[0] + 1,
+                language=language,
+                parent_name=enclosing_class,
+                params=params,
+                return_type=ret_type,
+                is_test=is_test,
+            ))
+            container = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class else file_path
+            )
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=qualified,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+            ))
+
+            # Recurse into the function body for calls
+            self._extract_from_tree(
+                func_node, source, language, file_path, nodes, edges,
+                enclosing_class=enclosing_class,
+                enclosing_func=var_name,
+                import_map=import_map,
+                defined_names=defined_names,
+                _depth=_depth + 1,
+            )
+            handled = True
+
+        if not handled:
+            # Not a function assignment — let generic recursion handle it
+            return False
+        return True
+
+    def _extract_js_field_function(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle class field arrow functions: handler = (e) => { ... }"""
+        prop_name = None
+        func_node = None
+        for sub in child.children:
+            if sub.type == "property_identifier" and prop_name is None:
+                prop_name = sub.text.decode("utf-8", errors="replace")
+            elif sub.type in self._JS_FUNC_VALUE_TYPES:
+                func_node = sub
+
+        if not prop_name or not func_node:
+            return False
+
+        is_test = _is_test_function(prop_name, file_path)
+        kind = "Test" if is_test else "Function"
+        qualified = self._qualify(prop_name, file_path, enclosing_class)
+        params = self._get_params(func_node, language, source)
+
+        nodes.append(NodeInfo(
+            kind=kind,
+            name=prop_name,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+            params=params,
+            is_test=is_test,
+        ))
+        container = (
+            self._qualify(enclosing_class, file_path, None)
+            if enclosing_class else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+
+        self._extract_from_tree(
+            func_node, source, language, file_path, nodes, edges,
+            enclosing_class=enclosing_class,
+            enclosing_func=prop_name,
+            import_map=import_map,
+            defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    def _extract_js_member_functions(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Handle JS/TS member-assigned functions.
+
+        Patterns handled (LHS is a ``member_expression``, RHS is a function):
+          app.handle = function handle(req, res) {}
+          Router.prototype.dispatch = (req) => {}
+          exports.render = function () {}
+
+        These prototype- and module-augmentation patterns carry the entire
+        public API of Express, Koa and many older JS modules, but were
+        previously invisible to the graph: only ``const x = fn``
+        (:func:`_extract_js_var_functions`) and class fields
+        (:func:`_extract_js_field_function`) produced Function nodes. The node
+        is qualified by its full member path (``file::app.handle``), matching
+        the ``file::Class.method`` shape used elsewhere.
+
+        Returns True if a function was extracted, so the caller can skip
+        generic recursion.
+        """
+        # ``child`` is the expression_statement wrapping the assignment.
+        assign = None
+        if child.type == "assignment_expression":
+            assign = child
+        else:
+            for sub in child.children:
+                if sub.type == "assignment_expression":
+                    assign = sub
+                    break
+        if assign is None:
+            return False
+
+        left = assign.child_by_field_name("left")
+        right = assign.child_by_field_name("right")
+        if left is None or right is None:
+            return False
+        if left.type != "member_expression":
+            return False
+        if right.type not in self._JS_FUNC_VALUE_TYPES:
+            return False
+
+        # An assignment nested in a function belongs to that function's
+        # runtime scope, not to the module-level object namespace.  Without
+        # lexical scope in the member name, identical assignments in sibling
+        # functions would both become ``file::obj.method`` and produce
+        # duplicate CONTAINS targets. Top-level lexical blocks have the same
+        # problem, so only direct program statements have a stable identity.
+        if (
+            enclosing_func
+            or child.parent is None
+            or child.parent.type != "program"
+        ):
+            return False
+
+        member_name = self._get_js_static_member_path(left)
+        if member_name is None:
+            return False
+
+        is_test = _is_test_function(member_name, file_path)
+        kind = "Test" if is_test else "Function"
+        qualified = self._qualify(member_name, file_path, enclosing_class)
+        params = self._get_params(right, language, source)
+        ret_type = self._get_return_type(right, language, source)
+
+        nodes.append(NodeInfo(
+            kind=kind,
+            name=member_name,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+            params=params,
+            return_type=ret_type,
+            is_test=is_test,
+        ))
+        container = (
+            self._qualify(enclosing_class, file_path, None)
+            if enclosing_class else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+
+        # Recurse into the function body for calls, attributing them to the
+        # member function.
+        self._extract_from_tree(
+            right, source, language, file_path, nodes, edges,
+            enclosing_class=enclosing_class,
+            enclosing_func=member_name,
+            import_map=import_map,
+            defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    @staticmethod
+    def _get_js_static_member_path(node) -> Optional[str]:
+        """Return a stable identifier-only JS/TS member path."""
+        if node.type != "member_expression":
+            return None
+        text = node.text.decode("utf-8", errors="replace")
+        if not text or "[" in text or "\n" in text:
+            return None
+
+        parts: list[str] = []
+        current = node
+        while current.type == "member_expression":
+            object_node = current.child_by_field_name("object")
+            property_node = current.child_by_field_name("property")
+            if (
+                object_node is None
+                or property_node is None
+                or property_node.type not in ("identifier", "property_identifier")
+            ):
+                return None
+            parts.append(
+                property_node.text.decode("utf-8", errors="replace"),
+            )
+            current = object_node
+
+        if current.type not in ("identifier", "this"):
+            return None
+        parts.append(current.text.decode("utf-8", errors="replace"))
+        return ".".join(reversed(parts))
+
+    @staticmethod
+    def _get_java_annotations(class_node) -> list[str]:
+        """Return annotation names from the modifiers child of a Java class/method node."""
+        names: list[str] = []
+        for child in class_node.children:
+            if child.type != "modifiers":
+                continue
+            for mod in child.children:
+                if mod.type in ("marker_annotation", "annotation"):
+                    for sub in mod.children:
+                        if sub.type == "identifier":
+                            names.append(sub.text.decode("utf-8", errors="replace"))
+                            break
+        return names
+
+    @staticmethod
+    def _spring_config_annotation_name(annotation_node) -> Optional[str]:
+        """Return the simple name of a Java annotation node."""
+        for child in annotation_node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type in ("scoped_identifier", "qualified_name"):
+                return child.text.decode("utf-8", errors="replace").rsplit(".", 1)[-1]
+        return None
+
+    @staticmethod
+    def _spring_config_string_literals(node) -> list[str]:
+        values: list[str] = []
+        if node.type == "string_literal":
+            text = node.text.decode("utf-8", errors="replace")
+            if len(text) >= 2:
+                values.append(text[1:-1])
+            return values
+        for child in node.children:
+            values.extend(CodeParser._spring_config_string_literals(child))
+        return values
+
+    def _spring_config_annotation_values(
+        self,
+        annotation_node,
+        accepted_keys: frozenset[str],
+    ) -> list[str]:
+        """Read selected string arguments from a parsed Java annotation."""
+        values: list[str] = []
+        for child in annotation_node.children:
+            if child.type != "annotation_argument_list":
+                continue
+            for argument in child.children:
+                if argument.type == "element_value_pair":
+                    named = [part for part in argument.children if part.is_named]
+                    if len(named) < 2:
+                        continue
+                    key = named[0].text.decode("utf-8", errors="replace")
+                    if key in accepted_keys:
+                        values.extend(self._spring_config_string_literals(named[-1]))
+                elif argument.is_named and "value" in accepted_keys:
+                    values.extend(self._spring_config_string_literals(argument))
+        return values
+
+    def _emit_spring_config_edges(
+        self,
+        class_node,
+        class_name: str,
+        enclosing_class: Optional[str],
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit Spring config dependencies while retaining no literal values."""
+        source = self._qualify(class_name, file_path, enclosing_class)
+
+        for child in class_node.children:
+            if child.type != "modifiers":
+                continue
+            for annotation in child.children:
+                if self._spring_config_annotation_name(annotation) != "ConfigurationProperties":
+                    continue
+                prefixes = self._spring_config_annotation_values(
+                    annotation,
+                    frozenset({"prefix", "value"}),
+                )
+                for prefix in prefixes:
+                    key = normalize_spring_config_key(prefix)
+                    if not key:
+                        continue
+                    edges.append(EdgeInfo(
+                        kind="DEPENDS_ON_CONFIG",
+                        source=source,
+                        target=f"config:{key}.*",
+                        file_path=file_path,
+                        line=annotation.start_point[0] + 1,
+                        extra={
+                            "config_key": key,
+                            "resolution": "configuration_properties",
+                        },
+                    ))
+
+        for child in class_node.children:
+            if child.type != "class_body":
+                continue
+            for member in child.children:
+                if member.type != "field_declaration":
+                    continue
+                for modifiers in member.children:
+                    if modifiers.type != "modifiers":
+                        continue
+                    for annotation in modifiers.children:
+                        if self._spring_config_annotation_name(annotation) != "Value":
+                            continue
+                        expressions = self._spring_config_annotation_values(
+                            annotation,
+                            frozenset({"value"}),
+                        )
+                        for expression in expressions:
+                            for match in _SPRING_PLACEHOLDER_RE.finditer(expression):
+                                raw_key = match.group(1).split(":", 1)[0].strip()
+                                key = normalize_spring_config_key(raw_key)
+                                if not key:
+                                    continue
+                                edges.append(EdgeInfo(
+                                    kind="DEPENDS_ON_CONFIG",
+                                    source=source,
+                                    target=f"config:{key}",
+                                    file_path=file_path,
+                                    line=annotation.start_point[0] + 1,
+                                    extra={
+                                        "config_key": key,
+                                        "resolution": "value_annotation",
+                                    },
+                                ))
+
+    def _emit_spring_injections(
+        self,
+        class_node,
+        class_name: str,
+        class_annotations: list[str],
+        language: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit INJECTS edges for Spring DI injection points in a Java class.
+
+        Handles four patterns:
+        - @Autowired / @Inject / @Resource field injection
+        - @Autowired constructor injection
+        - Lombok @RequiredArgsConstructor with uninitialized final / @NonNull fields
+        - Lombok @AllArgsConstructor with every non-static field
+        """
+        if language != "java":
+            return
+
+        has_required_args = "RequiredArgsConstructor" in class_annotations
+        has_all_args = "AllArgsConstructor" in class_annotations
+        qualified_source = self._qualify(class_name, file_path, None)
+
+        # Find the class body
+        for node in class_node.children:
+            if node.type != "class_body":
+                continue
+            for member in node.children:
+                if member.type == "field_declaration":
+                    self._emit_spring_field_injection(
+                        member, qualified_source, file_path,
+                        edges, has_required_args, has_all_args,
+                    )
+                elif member.type == "constructor_declaration":
+                    self._emit_spring_constructor_injection(
+                        member, qualified_source, file_path, edges,
+                    )
+
+    def _emit_spring_field_injection(
+        self,
+        field_node,
+        qualified_source: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+        has_required_args: bool,
+        has_all_args: bool,
+    ) -> None:
+        """Emit one INJECTS edge per field selected by Spring/Lombok."""
+        field_annotations: list[str] = []
+        has_final = False
+        has_static = False
+        field_type: Optional[str] = None
+        declarators: list[tuple[str, bool]] = []
+
+        for child in field_node.children:
+            if child.type == "modifiers":
+                for mod in child.children:
+                    text = mod.text.decode("utf-8", errors="replace")
+                    if text == "final":
+                        has_final = True
+                    elif text == "static":
+                        has_static = True
+                    elif mod.type in ("marker_annotation", "annotation"):
+                        for sub in mod.children:
+                            if sub.type == "identifier":
+                                field_annotations.append(
+                                    sub.text.decode("utf-8", errors="replace")
+                                )
+                                break
+            elif child.type in ("type_identifier", "generic_type", "array_type"):
+                # Use outermost type name for generic types like List<Foo>
+                if child.type == "type_identifier":
+                    field_type = child.text.decode("utf-8", errors="replace")
+                elif child.type == "generic_type":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            field_type = sub.text.decode("utf-8", errors="replace")
+                            break
+                elif child.type == "array_type":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            field_type = sub.text.decode("utf-8", errors="replace")
+                            break
+            elif child.type == "variable_declarator":
+                field_name: Optional[str] = None
+                for sub in child.children:
+                    if sub.type == "identifier":
+                        field_name = sub.text.decode("utf-8", errors="replace")
+                        break
+                if field_name:
+                    has_initializer = child.child_by_field_name("value") is not None
+                    declarators.append((field_name, has_initializer))
+
+        if not field_type or has_static or not declarators:
+            return
+
+        has_inject_annotation = any(a in _SPRING_INJECT_ANNOTATIONS for a in field_annotations)
+        has_non_null = "NonNull" in field_annotations
+
+        for field_name, has_initializer in declarators:
+            if has_inject_annotation:
+                injection_type = "field"
+            elif has_all_args:
+                injection_type = "constructor_lombok_all"
+            elif has_required_args and not has_initializer and (has_final or has_non_null):
+                injection_type = "constructor_lombok"
+            else:
+                continue
+
+            edges.append(EdgeInfo(
+                kind="INJECTS",
+                source=qualified_source,
+                target=field_type,
+                file_path=file_path,
+                line=field_node.start_point[0] + 1,
+                extra={
+                    "injection_type": injection_type,
+                    "field_name": field_name,
+                },
+            ))
+
+    def _emit_spring_constructor_injection(
+        self,
+        ctor_node,
+        qualified_source: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit INJECTS edges for @Autowired constructor parameters."""
+        ctor_annotations = self._get_java_annotations(ctor_node)
+        if not any(a in _SPRING_INJECT_ANNOTATIONS for a in ctor_annotations):
+            return
+
+        for child in ctor_node.children:
+            if child.type != "formal_parameters":
+                continue
+            for param in child.children:
+                if param.type != "formal_parameter":
+                    continue
+                param_type: Optional[str] = None
+                param_name: Optional[str] = None
+                for sub in param.children:
+                    if sub.type == "type_identifier" and param_type is None:
+                        param_type = sub.text.decode("utf-8", errors="replace")
+                    elif sub.type == "identifier":
+                        param_name = sub.text.decode("utf-8", errors="replace")
+                if param_type:
+                    extra: dict = {"injection_type": "constructor"}
+                    if param_name:
+                        extra["field_name"] = param_name
+                    edges.append(EdgeInfo(
+                        kind="INJECTS",
+                        source=qualified_source,
+                        target=param_type,
+                        file_path=file_path,
+                        line=param.start_point[0] + 1,
+                        extra=extra,
+                    ))
+
+    @staticmethod
+    def _java_annotation_name(annotation_node) -> Optional[str]:
+        """Return the simple name of a Java annotation AST node."""
+        for child in annotation_node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type in ("scoped_identifier", "qualified_name"):
+                return child.text.decode("utf-8", errors="replace").rsplit(".", 1)[-1]
+        return None
+
+    def _scheduled_annotations(self, method_node) -> list:
+        """Collect direct and ``@Schedules``-contained ``@Scheduled`` nodes."""
+        found: list = []
+
+        def visit(node) -> None:
+            if node.type == "annotation":
+                name = self._java_annotation_name(node)
+                if name == "Scheduled":
+                    found.append(node)
+                    return
+                if name != "Schedules":
+                    return
+            for child in node.children:
+                visit(child)
+
+        for child in method_node.children:
+            if child.type == "modifiers":
+                visit(child)
+        return found
+
+    @staticmethod
+    def _java_annotation_attributes(annotation_node) -> dict[str, str]:
+        """Extract named Java annotation arguments without evaluating them."""
+        attributes: dict[str, str] = {}
+        for child in annotation_node.children:
+            if child.type != "annotation_argument_list":
+                continue
+            for pair in child.children:
+                if pair.type != "element_value_pair":
+                    continue
+                named = [part for part in pair.children if part.is_named]
+                if len(named) < 2 or named[0].type != "identifier":
+                    continue
+                key = named[0].text.decode("utf-8", errors="replace")
+                value_node = named[-1]
+                value = value_node.text.decode("utf-8", errors="replace")
+                if value_node.type == "string_literal" and len(value) >= 2:
+                    value = value[1:-1]
+                attributes[key] = value
+        return attributes
+
+    @staticmethod
+    def _java_string_literal_values(node) -> list[str]:
+        """Return string values nested below one Java annotation argument."""
+        values: list[str] = []
+        if node.type == "string_literal":
+            value = node.text.decode("utf-8", errors="replace")
+            if len(value) >= 2:
+                values.append(value[1:-1])
+            return values
+        for child in node.children:
+            values.extend(CodeParser._java_string_literal_values(child))
+        return values
+
+    def _spring_mapping_paths(self, annotation_node) -> list[str]:
+        """Extract only ``value``/``path`` route arguments from a mapping."""
+        paths: list[str] = []
+        for child in annotation_node.children:
+            if child.type != "annotation_argument_list":
+                continue
+            for argument in child.children:
+                if argument.type == "element_value_pair":
+                    named = [part for part in argument.children if part.is_named]
+                    if len(named) < 2:
+                        continue
+                    key = named[0].text.decode("utf-8", errors="replace")
+                    if key not in ("path", "value"):
+                        continue
+                    paths.extend(self._java_string_literal_values(named[-1]))
+                elif argument.is_named:
+                    paths.extend(self._java_string_literal_values(argument))
+        return paths or [""]
+
+    def _spring_mapping_methods(self, annotation_node, name: str) -> list[str]:
+        """Extract HTTP verbs from composed mappings or RequestMethod values."""
+        composed = _SPRING_REQUEST_MAPPINGS[name]
+        if composed:
+            return list(composed)
+
+        methods: list[str] = []
+        for child in annotation_node.children:
+            if child.type != "annotation_argument_list":
+                continue
+            for argument in child.children:
+                if argument.type != "element_value_pair":
+                    continue
+                named = [part for part in argument.children if part.is_named]
+                if len(named) < 2:
+                    continue
+                key = named[0].text.decode("utf-8", errors="replace")
+                if key != "method":
+                    continue
+                value_node = named[-1]
+                for value in self._descendants_of_type(value_node, "identifier"):
+                    method = value.text.decode("utf-8", errors="replace")
+                    if method in _HTTP_REQUEST_METHODS and method not in methods:
+                        methods.append(method)
+        return methods or ["ANY"]
+
+    @staticmethod
+    def _join_spring_route(prefix: str, path: str) -> str:
+        """Join class and method mappings into one normalized route."""
+        parts = [part.strip("/") for part in (prefix, path) if part.strip("/")]
+        return "/" + "/".join(parts) if parts else "/"
+
+    def _emit_spring_endpoint_nodes(
+        self,
+        method_node,
+        method_name: str,
+        class_name: Optional[str],
+        file_path: str,
+        import_map: dict[str, str],
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> int:
+        """Emit addressable endpoints and HANDLES edges for Spring mappings."""
+        annotations = self._java_annotations_named(
+            method_node,
+            frozenset(_SPRING_REQUEST_MAPPINGS),
+        )
+        if not annotations:
+            return 0
+
+        prefixes = [""]
+        encoded_prefixes = import_map.get(
+            f"{_SPRING_REQUEST_PREFIX_KEY}{class_name or ''}",
+        )
+        if encoded_prefixes:
+            try:
+                parsed_prefixes = json.loads(encoded_prefixes)
+            except (TypeError, ValueError):
+                parsed_prefixes = None
+            if isinstance(parsed_prefixes, list) and all(
+                isinstance(prefix, str) for prefix in parsed_prefixes
+            ):
+                prefixes = parsed_prefixes or [""]
+
+        source = self._qualify(method_name, file_path, class_name)
+        emitted = 0
+        for annotation_index, annotation in enumerate(annotations):
+            annotation_name = self._java_annotation_name(annotation)
+            if annotation_name is None:
+                continue
+            paths = self._spring_mapping_paths(annotation)
+            methods = self._spring_mapping_methods(annotation, annotation_name)
+            for prefix in prefixes:
+                for path in paths:
+                    route = self._join_spring_route(prefix, path)
+                    for method in methods:
+                        endpoint_name = (
+                            f"{method_name}@{annotation_name}"
+                            f"[{annotation_index}:{emitted}] {method} {route}"
+                        )
+                        metadata = {
+                            "annotation": annotation_name,
+                            "handler": method_name,
+                            "http_method": method,
+                            "route": route,
+                        }
+                        nodes.append(NodeInfo(
+                            kind="Endpoint",
+                            name=endpoint_name,
+                            file_path=file_path,
+                            line_start=annotation.start_point[0] + 1,
+                            line_end=annotation.end_point[0] + 1,
+                            language="java",
+                            parent_name=class_name,
+                            extra=metadata,
+                        ))
+                        edges.append(EdgeInfo(
+                            kind="HANDLES",
+                            source=source,
+                            target=self._qualify(endpoint_name, file_path, class_name),
+                            file_path=file_path,
+                            line=annotation.start_point[0] + 1,
+                            extra=metadata,
+                        ))
+                        emitted += 1
+        return emitted
+
+    def _java_invocation_chain_has_route(self, invocation) -> bool:
+        """Return whether a fluent Java invocation is rooted at ``route()``."""
+        current = invocation
+        for _ in range(32):
+            if current.type != "method_invocation":
+                return False
+            method, _ = self._get_java_method_and_receiver(current)
+            if method == "route":
+                return True
+            current = next(
+                (
+                    child for child in current.children
+                    if child.type == "method_invocation"
+                ),
+                None,
+            )
+            if current is None:
+                return False
+        return False
+
+    @staticmethod
+    def _webflux_route_arguments(invocation) -> tuple[Optional[str], Optional[object]]:
+        """Return a literal route and method-reference handler from one call."""
+        arguments = next(
+            (
+                child for child in invocation.children
+                if child.type == "argument_list"
+            ),
+            None,
+        )
+        if arguments is None:
+            return None, None
+        named = [child for child in arguments.children if child.is_named]
+        if len(named) < 2 or named[0].type != "string_literal":
+            return None, None
+        route_literal = named[0].text.decode("utf-8", errors="replace")
+        if len(route_literal) < 2:
+            return None, None
+        route = route_literal[1:-1]
+        if not route.startswith("/"):
+            return None, None
+        handler = next(
+            (child for child in named[1:] if child.type == "method_reference"),
+            None,
+        )
+        return route, handler
+
+    def _resolve_java_method_reference_target(
+        self,
+        reference,
+        file_path: str,
+        enclosing_class: Optional[str],
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> Optional[str]:
+        """Resolve a WebFlux handler reference from lexical Java type evidence."""
+        receiver, method = self._get_member_call_receiver_method(reference, "java")
+        if not receiver or not method:
+            return None
+        if receiver == "this" and enclosing_class:
+            return self._qualify(method, file_path, enclosing_class)
+
+        function_types = set(self._function_types.get("java", []))
+        class_types = set(self._class_types.get("java", []))
+        bindings: dict[str, str] = {}
+        function_node = None
+        class_node = None
+        ancestor = reference.parent
+        while ancestor is not None:
+            if function_node is None and ancestor.type in function_types:
+                function_node = ancestor
+            if ancestor.type in class_types:
+                class_node = ancestor
+                break
+            ancestor = ancestor.parent
+        if function_node is not None:
+            bindings.update(
+                self._collect_function_typed_parameters(function_node, "java"),
+            )
+        if class_node is not None:
+            bindings.update(
+                self._collect_class_typed_fields(
+                    class_node,
+                    "java",
+                    function_types,
+                    class_types,
+                ),
+            )
+
+        type_name = bindings.get(receiver)
+        if type_name is None and receiver[:1].isupper():
+            if receiver in import_map or receiver in defined_names:
+                type_name = receiver
+        if type_name is None:
+            return None
+        return self._resolve_typed_method_target(
+            type_name,
+            method,
+            file_path,
+            "java",
+            import_map,
+            defined_names,
+        )
+
+    def _emit_spring_webflux_endpoint(
+        self,
+        invocation,
+        source: bytes,
+        method: str,
+        file_path: str,
+        enclosing_class: Optional[str],
+        import_map: dict[str, str],
+        defined_names: set[str],
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> bool:
+        """Link a direct functional WebFlux route to its actual handler."""
+        if (
+            method not in _SPRING_WEBFLUX_HTTP_VERBS
+            or b"org.springframework.web.reactive.function.server" not in source
+            or not self._java_invocation_chain_has_route(invocation)
+        ):
+            return False
+
+        ancestor = invocation.parent
+        while ancestor is not None and ancestor.type not in self._function_types.get(
+            "java", []
+        ):
+            if ancestor.type == "lambda_expression":
+                return False
+            ancestor = ancestor.parent
+
+        route, handler_reference = self._webflux_route_arguments(invocation)
+        if route is None or handler_reference is None:
+            return False
+        handler_target = self._resolve_java_method_reference_target(
+            handler_reference,
+            file_path,
+            enclosing_class,
+            import_map,
+            defined_names,
+        )
+        if handler_target is None:
+            return False
+        _, handler_method = self._get_member_call_receiver_method(
+            handler_reference,
+            "java",
+        )
+        if handler_method is None:
+            return False
+
+        line = invocation.start_point[0] + 1
+        endpoint_name = f"{handler_method}@WebFlux[{line}] {method} {route}"
+        endpoint_target = self._qualify(endpoint_name, file_path, enclosing_class)
+        metadata = {
+            "handler": handler_method,
+            "handler_qualified": handler_target,
+            "http_method": method,
+            "mapping_style": "webflux_functional",
+            "route": route,
+        }
+        nodes.append(NodeInfo(
+            kind="Endpoint",
+            name=endpoint_name,
+            file_path=file_path,
+            line_start=line,
+            line_end=invocation.end_point[0] + 1,
+            language="java",
+            parent_name=enclosing_class,
+            extra=metadata,
+        ))
+        edges.append(EdgeInfo(
+            kind="HANDLES",
+            source=handler_target,
+            target=endpoint_target,
+            file_path=file_path,
+            line=line,
+            extra=metadata,
+        ))
+        return True
+
+    @staticmethod
+    def _spring_schedule_kind(attributes: dict[str, str]) -> str:
+        """Classify one Spring schedule by the trigger attribute it uses."""
+        for key, kind in (
+            ("cron", "cron"),
+            ("fixedRate", "fixedRate"),
+            ("fixedRateString", "fixedRate"),
+            ("fixedDelay", "fixedDelay"),
+            ("fixedDelayString", "fixedDelay"),
+            ("initialDelay", "initialDelay"),
+            ("initialDelayString", "initialDelay"),
+        ):
+            if key in attributes:
+                return kind
+        return "scheduled"
+
+    def _emit_scheduled_nodes_from_method(
+        self,
+        method_node,
+        method_name: str,
+        class_name: Optional[str],
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+    ) -> int:
+        """Emit one addressable Scheduler node and TRIGGERS edge per schedule."""
+        annotations = self._scheduled_annotations(method_node)
+        target = self._qualify(method_name, file_path, class_name)
+        for index, annotation in enumerate(annotations):
+            attributes = self._java_annotation_attributes(annotation)
+            schedule_kind = self._spring_schedule_kind(attributes)
+            schedule_name = f"{method_name}@Scheduled[{index}]:{schedule_kind}"
+            metadata = {
+                "annotation": "Scheduled",
+                "schedule_kind": schedule_kind,
+                **attributes,
+            }
+            nodes.append(NodeInfo(
+                kind="Scheduler",
+                name=schedule_name,
+                file_path=file_path,
+                line_start=annotation.start_point[0] + 1,
+                line_end=annotation.end_point[0] + 1,
+                language="java",
+                parent_name=class_name,
+                extra=metadata,
+            ))
+            edges.append(EdgeInfo(
+                kind="TRIGGERS",
+                source=self._qualify(schedule_name, file_path, class_name),
+                target=target,
+                file_path=file_path,
+                line=annotation.start_point[0] + 1,
+                extra=metadata,
+            ))
+        return len(annotations)
+
+    def _java_annotations_named(self, method_node, names: frozenset[str]) -> list:
+        """Return direct Java method annotations whose simple names match."""
+        matches: list = []
+        for child in method_node.children:
+            if child.type != "modifiers":
+                continue
+            for annotation in child.children:
+                if annotation.type not in ("annotation", "marker_annotation"):
+                    continue
+                if self._java_annotation_name(annotation) in names:
+                    matches.append(annotation)
+        return matches
+
+    @staticmethod
+    def _java_type_name(node) -> Optional[str]:
+        """Extract the outer Java reference type from a type-bearing AST node."""
+        if node.type in ("type_identifier", "scoped_type_identifier"):
+            return node.text.decode("utf-8", errors="replace")
+        for child in node.children:
+            found = CodeParser._java_type_name(child)
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def _resolve_java_type_identity(
+        type_name: str,
+        import_map: dict[str, str],
+    ) -> str:
+        """Resolve a Java type to a stable package-qualified identity."""
+        normalized = type_name.strip()
+        if not normalized:
+            return normalized
+        head, separator, tail = normalized.partition(".")
+        imported = import_map.get(head)
+        if imported:
+            return f"{imported}.{tail}" if separator else imported
+        if separator and head[:1].islower():
+            return normalized
+        package = import_map.get(_JAVA_PACKAGE_KEY, "")
+        return f"{package}.{normalized}" if package else normalized
+
+    @staticmethod
+    def _descendants_of_type(node, node_type: str) -> list:
+        matches: list = []
+        if node.type == node_type:
+            matches.append(node)
+        for child in node.children:
+            matches.extend(CodeParser._descendants_of_type(child, node_type))
+        return matches
+
+    def _emit_spring_event_listener_edges(
+        self,
+        method_node,
+        method_name: str,
+        class_name: Optional[str],
+        file_path: str,
+        import_map: dict[str, str],
+        edges: list[EdgeInfo],
+    ) -> int:
+        """Emit package-qualified HANDLES edges for ``@EventListener``."""
+        emitted = 0
+        source = self._qualify(method_name, file_path, class_name)
+        for annotation in self._java_annotations_named(
+            method_node,
+            _SPRING_EVENT_LISTENER_ANNOTATIONS,
+        ):
+            type_names: list[str] = []
+            for class_literal in self._descendants_of_type(annotation, "class_literal"):
+                type_name = self._java_type_name(class_literal)
+                if type_name:
+                    type_names.append(type_name)
+
+            if not type_names:
+                parameters = next(
+                    (
+                        child for child in method_node.children
+                        if child.type == "formal_parameters"
+                    ),
+                    None,
+                )
+                if parameters is not None:
+                    parameter = next(
+                        (
+                            child for child in parameters.children
+                            if child.type == "formal_parameter"
+                        ),
+                        None,
+                    )
+                    if parameter is not None:
+                        type_name = self._java_type_name(parameter)
+                        if type_name:
+                            type_names.append(type_name)
+
+            attributes = self._java_annotation_attributes(annotation)
+            seen: set[str] = set()
+            for type_name in type_names:
+                identity = self._resolve_java_type_identity(type_name, import_map)
+                if not identity or identity in seen:
+                    continue
+                seen.add(identity)
+                extra = {
+                    "event_type": identity,
+                    "resolution": "spring_event_listener",
+                }
+                for key in ("condition", "id", "defaultExecution"):
+                    if key in attributes:
+                        extra[key] = attributes[key]
+                edges.append(EdgeInfo(
+                    kind="HANDLES",
+                    source=source,
+                    target=f"event::{identity}",
+                    file_path=file_path,
+                    line=annotation.start_point[0] + 1,
+                    extra=extra,
+                ))
+                emitted += 1
+        return emitted
+
+    def _emit_spring_event_publish_edges(
+        self,
+        method_node,
+        method_name: str,
+        class_name: Optional[str],
+        file_path: str,
+        import_map: dict[str, str],
+        edges: list[EdgeInfo],
+    ) -> int:
+        """Emit PUBLISHES edges for direct ``publishEvent(new Event())`` calls."""
+        source = self._qualify(method_name, file_path, class_name)
+        emitted = 0
+
+        def visit(node) -> None:
+            nonlocal emitted
+            if node.type == "method_invocation":
+                receiver, invoked = self._get_member_call_receiver_method(node, "java")
+                if invoked in _SPRING_EVENT_PUBLISH_METHODS:
+                    arguments = next(
+                        (
+                            child for child in node.children
+                            if child.type == "argument_list"
+                        ),
+                        None,
+                    )
+                    if arguments is not None:
+                        for argument in arguments.children:
+                            if argument.type != "object_creation_expression":
+                                continue
+                            type_name = self._java_type_name(argument)
+                            if not type_name:
+                                continue
+                            identity = self._resolve_java_type_identity(
+                                type_name,
+                                import_map,
+                            )
+                            extra = {
+                                "event_type": identity,
+                                "resolution": "spring_publish_event",
+                            }
+                            if receiver:
+                                extra["receiver"] = receiver
+                            edges.append(EdgeInfo(
+                                kind="PUBLISHES",
+                                source=source,
+                                target=f"event::{identity}",
+                                file_path=file_path,
+                                line=node.start_point[0] + 1,
+                                extra=extra,
+                            ))
+                            emitted += 1
+            for child in node.children:
+                visit(child)
+
+        body = next(
+            (child for child in method_node.children if child.type == "block"),
+            None,
+        )
+        if body is not None:
+            visit(body)
+        return emitted
+
+    def _emit_temporal_stub_fields(
+        self,
+        class_node,
+        class_name: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit TEMPORAL_STUB edges for Temporal activity/workflow stub fields.
+
+        Detects fields whose type name ends with 'Activity' or 'Workflow' —
+        the universal naming convention for Temporal interfaces. The temporal
+        resolver validates these against nodes that have temporal_role in extra.
+        Static fields are skipped (e.g. logger, constants).
+        """
+        qualified_source = self._qualify(class_name, file_path, None)
+
+        for node in class_node.children:
+            if node.type != "class_body":
+                continue
+            for member in node.children:
+                if member.type != "field_declaration":
+                    continue
+                has_static = False
+                field_type: Optional[str] = None
+                field_name: Optional[str] = None
+
+                for ch in member.children:
+                    if ch.type == "modifiers":
+                        for mod in ch.children:
+                            if mod.text and mod.text.decode("utf-8", errors="replace") == "static":
+                                has_static = True
+                    elif ch.type == "type_identifier":
+                        field_type = ch.text.decode("utf-8", errors="replace")
+                    elif ch.type == "variable_declarator":
+                        for sub in ch.children:
+                            if sub.type == "identifier":
+                                field_name = sub.text.decode("utf-8", errors="replace")
+                                break
+
+                if has_static or not field_type or not field_name:
+                    continue
+
+                # Only emit for types following the Temporal naming convention
+                if not (field_type.endswith("Activity") or field_type.endswith("Workflow")):
+                    continue
+
+                edges.append(EdgeInfo(
+                    kind="TEMPORAL_STUB",
+                    source=qualified_source,
+                    target=field_type,
+                    file_path=file_path,
+                    line=member.start_point[0] + 1,
+                    extra={"field_name": field_name, "stub_type": (
+                        "activity" if field_type.endswith("Activity") else "workflow"
+                    )},
+                ))
+
+    @staticmethod
+    def _get_kafka_annotation_topics(annotation_node) -> list[str]:
+        """Extract topic strings from @KafkaListener(topics = "...") or topics = {"a","b"}."""
+        topics: list[str] = []
+        for child in annotation_node.children:
+            if child.type != "annotation_argument_list":
+                continue
+            for pair in child.children:
+                if pair.type != "element_value_pair":
+                    continue
+                key_node = next((c for c in pair.children if c.type == "identifier"), None)
+                if key_node is None:
+                    continue
+                key = key_node.text.decode("utf-8", errors="replace")
+                if key not in ("topics", "topicPattern", "value"):
+                    continue
+                # value can be string_literal or element_value_array_initializer
+                for val in pair.children:
+                    if val.type == "string_literal":
+                        raw = val.text.decode("utf-8", errors="replace").strip('"').strip("'")
+                        if raw:
+                            topics.append(raw)
+                    elif val.type in ("array_initializer", "element_value_array_initializer"):
+                        for item in val.children:
+                            if item.type == "string_literal":
+                                txt = item.text.decode("utf-8", errors="replace")
+                                raw = txt.strip('"').strip("'")
+                                if raw:
+                                    topics.append(raw)
+        return topics
+
+    def _emit_kafka_edges_from_class(
+        self,
+        class_node,
+        class_name: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit CONSUMES/PRODUCES edges for Kafka field declarations.
+
+        Handles:
+        - KafkaReceiver / ReactiveKafkaConsumerTemplate → CONSUMES
+        - KafkaTemplate / KafkaOperations / ReactiveKafkaProducerTemplate → PRODUCES
+        Generic value type (e.g. KafkaReceiver<String, EquipmentMove>) is
+        stored in extra.message_type for traceability.
+        """
+        qualified_source = self._qualify(class_name, file_path, None)
+
+        for node in class_node.children:
+            if node.type != "class_body":
+                continue
+            for member in node.children:
+                if member.type != "field_declaration":
+                    continue
+                has_static = False
+                outer_type: Optional[str] = None
+                value_type: Optional[str] = None   # second generic param
+                field_name: Optional[str] = None
+
+                for ch in member.children:
+                    if ch.type == "modifiers":
+                        for mod in ch.children:
+                            if mod.text and mod.text.decode("utf-8", errors="replace") == "static":
+                                has_static = True
+                    elif ch.type == "type_identifier":
+                        outer_type = ch.text.decode("utf-8", errors="replace")
+                    elif ch.type == "generic_type":
+                        # KafkaReceiver<String, EquipmentMove>
+                        type_args: list[str] = []
+                        for sub in ch.children:
+                            if sub.type == "type_identifier":
+                                if outer_type is None:
+                                    outer_type = sub.text.decode("utf-8", errors="replace")
+                            elif sub.type == "type_arguments":
+                                for arg in sub.children:
+                                    if arg.type == "type_identifier":
+                                        type_args.append(arg.text.decode("utf-8", errors="replace"))
+                        if len(type_args) >= 2:
+                            value_type = type_args[-1]  # last param is the value/message type
+                    elif ch.type == "variable_declarator":
+                        for sub in ch.children:
+                            if sub.type == "identifier":
+                                field_name = sub.text.decode("utf-8", errors="replace")
+                                break
+
+                if has_static or not outer_type or not field_name:
+                    continue
+
+                extra: dict = {"field_name": field_name}
+                if value_type:
+                    extra["message_type"] = value_type
+
+                if outer_type in _KAFKA_CONSUMER_TYPES:
+                    extra["kafka_type"] = outer_type
+                    edges.append(EdgeInfo(
+                        kind="CONSUMES",
+                        source=qualified_source,
+                        target="kafka:config",
+                        file_path=file_path,
+                        line=member.start_point[0] + 1,
+                        extra=extra,
+                    ))
+                elif outer_type in _KAFKA_PRODUCER_TYPES:
+                    extra["kafka_type"] = outer_type
+                    edges.append(EdgeInfo(
+                        kind="PRODUCES",
+                        source=qualified_source,
+                        target="kafka:config",
+                        file_path=file_path,
+                        line=member.start_point[0] + 1,
+                        extra=extra,
+                    ))
+
+    def _emit_kafka_edges_from_method(
+        self,
+        method_node,
+        method_name: str,
+        class_name: Optional[str],
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit CONSUMES edges for @KafkaListener / @KafkaHandler annotated methods."""
+        qualified_source = self._qualify(method_name, file_path, class_name)
+
+        for child in method_node.children:
+            if child.type != "modifiers":
+                continue
+            for mod in child.children:
+                if mod.type not in ("annotation", "marker_annotation"):
+                    continue
+                ann_name: Optional[str] = None
+                for sub in mod.children:
+                    if sub.type == "identifier":
+                        ann_name = sub.text.decode("utf-8", errors="replace")
+                        break
+                if ann_name not in _KAFKA_LISTENER_ANNOTATIONS:
+                    continue
+                # Extract topics from annotation arguments
+                topics = self._get_kafka_annotation_topics(mod)
+                if topics:
+                    for topic in topics:
+                        edges.append(EdgeInfo(
+                            kind="CONSUMES",
+                            source=qualified_source,
+                            target=f"kafka:{topic}",
+                            file_path=file_path,
+                            line=method_node.start_point[0] + 1,
+                            extra={"topic": topic, "kafka_type": "KafkaListener"},
+                        ))
+                else:
+                    # @KafkaListener without resolvable topic (config placeholder)
+                    edges.append(EdgeInfo(
+                        kind="CONSUMES",
+                        source=qualified_source,
+                        target="kafka:config",
+                        file_path=file_path,
+                        line=method_node.start_point[0] + 1,
+                        extra={"kafka_type": ann_name},
+                    ))
+
+    def _get_docstring_summary(self, node, language: str) -> Optional[str]:
+        """Extract a bounded documentation summary for a definition node."""
+        if language == "python":
+            raw = self._python_docstring_value(node)
+        else:
+            raw = self._preceding_doc_comment(node, language)
+        if not raw:
+            return None
+        return _clean_docstring_summary(raw, language) or None
+
+    @staticmethod
+    def _python_docstring_value(node) -> Optional[str]:
+        """Return Python's actual string value for the first body statement.
+
+        ``ast.literal_eval`` gives us CPython-compatible escape handling and
+        implicit literal concatenation while naturally rejecting f-strings.
+        A bytes literal evaluates successfully but is rejected by the final
+        type check, matching ``__doc__`` semantics.
+        """
+        body = node.child_by_field_name("body")
+        if body is None:
+            return None
+        statement = next(
+            (child for child in body.named_children if child.type != "comment"),
+            None,
+        )
+        if statement is None:
+            return None
+        expression = statement
+        if expression.type == "expression_statement":
+            named = expression.named_children
+            if len(named) != 1:
+                return None
+            expression = named[0]
+        if expression.type not in (
+            "string",
+            "concatenated_string",
+            "parenthesized_expression",
+        ):
+            return None
+        try:
+            value = ast.literal_eval(
+                expression.text.decode("utf-8", errors="strict"),
+            )
+        except (SyntaxError, ValueError, UnicodeDecodeError):
+            return None
+        return value if isinstance(value, str) else None
+
+    @staticmethod
+    def _line_doc_payload(text: str, language: str) -> Optional[str]:
+        """Return one documentation-line payload, or ``None`` if not docs."""
+        stripped = text.strip()
+        if language == "go":
+            if not stripped.startswith("//"):
+                return None
+            return stripped[2:].lstrip()
+        if language == "rust":
+            # Rust ``//!`` is inner module/crate documentation; ``////`` is
+            # an ordinary comment, not an outer item doc comment.
+            if not stripped.startswith("///") or stripped.startswith("////"):
+                return None
+            return stripped[3:].lstrip()
+        if stripped.startswith(("///", "//!")):
+            return stripped[3:].lstrip()
+        return None
+
+    def _preceding_doc_comment(self, node, language: str) -> Optional[str]:
+        """Return documentation directly attached above a definition."""
+        anchor = node
+        while (
+            anchor.parent is not None
+            and anchor.parent.type in _DOC_COMMENT_WRAPPER_TYPES
+        ):
+            anchor = anchor.parent
+
+        siblings: list = []
+        current_line = anchor.start_point[0]
+        sibling = anchor.prev_sibling
+        while sibling is not None:
+            if sibling.end_point[0] < current_line - 1:
+                break
+            if sibling.type in _DOC_COMMENT_SKIP_TYPES:
+                current_line = sibling.start_point[0]
+                sibling = sibling.prev_sibling
+                continue
+            if sibling.type not in _DOC_COMMENT_NODE_TYPES:
+                break
+            siblings.append(sibling)
+            current_line = sibling.start_point[0]
+            sibling = sibling.prev_sibling
+
+        if not siblings:
+            return None
+
+        nearest = siblings[0].text.decode("utf-8", errors="replace").strip()
+        if nearest.startswith("/*"):
+            allowed = ("/**",) if language == "rust" else ("/**", "/*!")
+            if not nearest.startswith(allowed):
+                return None
+            return _strip_block_doc_comment(nearest)
+
+        # Work from the definition upward and stop at the first adjacent
+        # ordinary comment.  This attaches only the nearest documentation
+        # block and avoids hoovering unrelated implementation notes into it.
+        payloads: list[str] = []
+        for comment in siblings:
+            text = comment.text.decode("utf-8", errors="replace")
+            payload = self._line_doc_payload(text, language)
+            if payload is None:
+                break
+            if language == "go" and payload.startswith(("go:", "line ")):
+                continue
+            payloads.append(payload)
+        if not payloads:
+            return None
+        payloads.reverse()
+        return "\n".join(payloads)
+
+    def _extract_classes(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Extract a class definition node and its inheritance edges.
+
+        Returns True if the child was handled (class with a name found).
+        """
+        name = self._get_name(child, language, "class")
+        if not name:
+            return False
+
+        class_parent = enclosing_class
+
+        # Swift: detect the actual type keyword (class/struct/enum/actor/extension)
+        # and store it in extra["swift_kind"] for richer downstream analysis.
+        # Tree-sitter maps struct/enum/actor/extension all to class_declaration;
+        # protocol uses its own protocol_declaration node type.
+        extra: dict = {}
+        if language == "swift":
+            if child.type == "class_declaration":
+                _swift_keywords = {"class", "struct", "enum", "actor", "extension"}
+                for kw_child in child.children:
+                    kw_text = kw_child.text.decode("utf-8", errors="replace")
+                    if kw_text in _swift_keywords:
+                        extra["swift_kind"] = kw_text
+                        break
+            elif child.type == "protocol_declaration":
+                extra["swift_kind"] = "protocol"
+
+        # Java: detect Spring stereotype annotations and store as metadata
+        class_annotations: list[str] = []
+        if language == "java":
+            class_annotations = self._get_java_annotations(child)
+            spring_stereotypes = [
+                a for a in class_annotations if a in _SPRING_STEREOTYPE_ANNOTATIONS
+            ]
+            if spring_stereotypes:
+                extra["spring_stereotype"] = spring_stereotypes[0]
+            if class_annotations:
+                extra["spring_annotations"] = class_annotations
+            temporal_roles = [
+                a for a in class_annotations if a in _TEMPORAL_INTERFACE_ANNOTATIONS
+            ]
+            if temporal_roles:
+                is_wf = "WorkflowInterface" in temporal_roles
+                role = "workflow_interface" if is_wf else "activity_interface"
+                extra["temporal_role"] = role
+            if import_map is not None:
+                request_prefixes: list[str] = []
+                for annotation in self._java_annotations_named(
+                    child,
+                    frozenset({"RequestMapping"}),
+                ):
+                    request_prefixes.extend(self._spring_mapping_paths(annotation))
+                if request_prefixes:
+                    import_map[f"{_SPRING_REQUEST_PREFIX_KEY}{name}"] = json.dumps(
+                        request_prefixes,
+                    )
+
+        # Class-level annotation persistence for all annotation-bearing
+        # languages.  Kotlin (@HiltViewModel, @AndroidEntryPoint) and C#
+        # ([ApiController], [Route]) lost this metadata entirely; Java reuses
+        # the list already gathered above.  Stored in ``modifiers`` (string)
+        # and ``extra["decorators"]`` (list).  See: #295
+        if language == "java":
+            class_decorators = list(class_annotations)
+        else:
+            class_decorators = _modifier_annotation_names(child)
+            if language == "python":
+                class_decorators.extend(_python_decorator_names(child))
+            if language == "csharp":
+                class_decorators.extend(_csharp_attribute_names(child))
+        class_modifiers: Optional[str] = (
+            ",".join(class_decorators) if class_decorators else None
+        )
+        if class_decorators and "decorators" not in extra:
+            extra["decorators"] = class_decorators
+
+        docstring = self._get_docstring_summary(child, language)
+        if docstring:
+            extra["docstring"] = docstring
+
+        node = NodeInfo(
+            kind="Class",
+            name=name,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=class_parent,
+            modifiers=class_modifiers,
+            extra=extra,
+        )
+        nodes.append(node)
+
+        # CONTAINS edge
+        class_container = (
+            self._qualify(enclosing_class, file_path, None)
+            if language == "julia" and enclosing_class
+            else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=class_container,
+            target=self._qualify(name, file_path, class_parent),
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+
+        # Inheritance edges
+        bases = self._get_bases(child, language, source)
+        for base in bases:
+            edges.append(EdgeInfo(
+                kind="INHERITS",
+                source=self._qualify(
+                    name, file_path, class_parent,
+                ),
+                target=base,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+            ))
+
+        # Spring DI: emit INJECTS edges for injected dependencies
+        if language == "java":
+            self._emit_spring_injections(
+                child, name, class_annotations, language, file_path, edges,
+            )
+            self._emit_spring_config_edges(
+                child, name, enclosing_class, file_path, edges,
+            )
+            # Temporal: emit TEMPORAL_STUB edges for activity/workflow stub fields
+            self._emit_temporal_stub_fields(child, name, file_path, edges)
+            # Kafka: emit CONSUMES/PRODUCES edges for Kafka field declarations
+            self._emit_kafka_edges_from_class(child, name, file_path, edges)
+
+        # Recurse into class body
+        if language == "julia":
+            recursive_class = self._julia_scope_join(enclosing_class, name)
+        else:
+            recursive_class = name
+        self._extract_from_tree(
+            child, source, language, file_path, nodes, edges,
+            enclosing_class=recursive_class, enclosing_func=None,
+            import_map=import_map, defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    def _extract_functions(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+        enclosing_func: Optional[str] = None,
+    ) -> bool:
+        """Extract a function/method definition node.
+
+        Returns True if the child was handled (function with a name found).
+        """
+        name = self._get_name(child, language, "function")
+        if not name:
+            return False
+
+        # Go methods: attach to their receiver type as the enclosing class,
+        # so `func (s *T) Foo()` becomes a member of T rather than a
+        # top-level function. See: #190
+        if language == "go" and child.type == "method_declaration":
+            receiver_type = self._get_go_receiver_type(child)
+            if receiver_type:
+                enclosing_class = receiver_type
+
+        # Extract annotations/decorators for test detection
+        decorators: tuple[str, ...] = ()
+        deco_list: list[str] = []
+        for sub in child.children:
+            # Java/Kotlin/C#: annotations inside a modifiers child
+            if sub.type == "modifiers":
+                for mod in sub.children:
+                    if mod.type in ("annotation", "marker_annotation"):
+                        text = mod.text.decode("utf-8", errors="replace")
+                        deco_list.append(text.lstrip("@").strip())
+        # Python: check parent decorated_definition for decorator siblings
+        if child.parent and child.parent.type == "decorated_definition":
+            for sib in child.parent.children:
+                if sib.type == "decorator":
+                    text = sib.text.decode("utf-8", errors="replace")
+                    deco_list.append(text.lstrip("@").strip())
+        # Rust: attributes are preceding siblings of function_item, not
+        # children. Walk back through `attribute_item` nodes and strip the
+        # `#[ ]` (or `#![ ]`) wrapper.
+        if language == "rust":
+            sib = child.prev_sibling
+            while sib is not None and sib.type == "attribute_item":
+                text = sib.text.decode("utf-8", errors="replace").strip()
+                if text.startswith("#!["):
+                    inner = text[3:].rstrip()
+                elif text.startswith("#["):
+                    inner = text[2:].rstrip()
+                else:
+                    inner = text
+                if inner.endswith("]"):
+                    inner = inner[:-1]
+                deco_list.append(inner.strip())
+                sib = sib.prev_sibling
+        # C#: attributes use `attribute_list` child nodes ([HttpGet],
+        # [Authorize]) rather than `modifiers > annotation`. Capture the
+        # attribute name from each `attribute_list > attribute > identifier`.
+        # See: #295
+        if language == "csharp":
+            deco_list.extend(_csharp_attribute_names(child))
+        # PHP: `#[Test]` attributes wrap `attribute_list > attribute_group >
+        # attribute > name`. PHPUnit's legacy `/** @test */` docblock tag is
+        # a preceding-sibling `comment` node instead, so it needs a separate
+        # check; when present it's folded into `deco_list` as `"Test"` since
+        # that's already in `_TEST_ANNOTATIONS`. See: #693
+        if language == "php":
+            deco_list.extend(_php_attribute_names(child))
+            if _php_docblock_marks_test(child):
+                deco_list.append("Test")
+        if deco_list:
+            decorators = tuple(deco_list)
+
+        is_test = _is_test_function(name, file_path, decorators)
+        # PHPUnit's name convention is ``test*`` (not only ``test_*``).
+        if (
+            language == "php"
+            and child.type == "method_declaration"
+            and _is_test_file(file_path)
+            and name.startswith("test")
+        ):
+            is_test = True
+        kind = "Test" if is_test else "Function"
+
+        parent_name = enclosing_class
+        container_scope = enclosing_class
+        julia_qualifier: Optional[str] = None
+        if language == "julia":
+            lexical_parent = self._julia_scope_join(
+                enclosing_class, enclosing_func,
+            )
+            julia_qualifier = self._julia_definition_qualifier(child)
+            parent_name = self._julia_scope_join(
+                lexical_parent, julia_qualifier,
+            )
+            container_scope = lexical_parent
+
+        identity_name = name
+        params = self._get_params(child, language, source)
+        if language == "cpp":
+            explicit_scope, identity_name, cpp_params = self._cpp_function_identity(
+                child, name, source,
+            )
+            lexical_namespace = self._cpp_lexical_namespace(child)
+            lexical_classes = self._cpp_lexical_class_names(child)
+            lexical_class_scope = ".".join(lexical_classes) or None
+            parent_name = self._cpp_scope_join(
+                lexical_namespace,
+                explicit_scope or lexical_class_scope or enclosing_class,
+            )
+            if lexical_classes:
+                container_scope = ".".join(lexical_classes[-2:])
+            elif enclosing_class:
+                container_scope = enclosing_class
+            if cpp_params is not None:
+                params = cpp_params
+
+        qualified = self._qualify(identity_name, file_path, parent_name)
+        ret_type = self._get_return_type(child, language, source)
+
+        # Java: detect Temporal method-level annotations and Kafka listeners
+        method_extra: dict = {}
+        if julia_qualifier:
+            method_extra["julia_module_qualifier"] = julia_qualifier
+        if language == "java" and deco_list:
+            endpoint_count = self._emit_spring_endpoint_nodes(
+                child,
+                name,
+                enclosing_class,
+                file_path,
+                import_map or {},
+                nodes,
+                edges,
+            )
+            if endpoint_count:
+                method_extra["spring_endpoint"] = True
+                method_extra["spring_endpoint_count"] = endpoint_count
+            temporal_method_annots = [
+                a for a in deco_list if a in _TEMPORAL_METHOD_ANNOTATIONS
+            ]
+            if temporal_method_annots:
+                method_extra["temporal_role"] = temporal_method_annots[0].lower()
+            if any(a.split("(")[0] in _KAFKA_LISTENER_ANNOTATIONS for a in deco_list):
+                method_extra["kafka_listener"] = True
+                self._emit_kafka_edges_from_method(
+                    child, name, enclosing_class, file_path, edges,
+                )
+            if any(
+                annotation.split("(", 1)[0] in _SPRING_SCHEDULED_ANNOTATIONS
+                for annotation in deco_list
+            ):
+                schedule_count = self._emit_scheduled_nodes_from_method(
+                    child,
+                    name,
+                    enclosing_class,
+                    file_path,
+                    nodes,
+                    edges,
+                )
+                if schedule_count:
+                    method_extra["scheduled"] = True
+                    method_extra["schedule_count"] = schedule_count
+            listener_count = self._emit_spring_event_listener_edges(
+                child,
+                name,
+                enclosing_class,
+                file_path,
+                import_map or {},
+                edges,
+            )
+            if listener_count:
+                method_extra["spring_event_listener"] = True
+                method_extra["spring_event_type_count"] = listener_count
+
+            publish_count = self._emit_spring_event_publish_edges(
+                child,
+                name,
+                enclosing_class,
+                file_path,
+                import_map or {},
+                edges,
+            )
+            if publish_count:
+                method_extra["spring_event_publisher"] = True
+                method_extra["spring_event_publish_count"] = publish_count
+        elif language == "java":
+            publish_count = self._emit_spring_event_publish_edges(
+                child,
+                name,
+                enclosing_class,
+                file_path,
+                import_map or {},
+                edges,
+            )
+            if publish_count:
+                method_extra["spring_event_publisher"] = True
+                method_extra["spring_event_publish_count"] = publish_count
+
+        # Persist annotations/decorators so consumers can filter on them
+        # (e.g. "show me all @Composable functions").  Stored in BOTH
+        # ``modifiers`` (comma-joined string) and ``extra["decorators"]``
+        # (list) — merged into the existing method_extra dict rather than a
+        # separate one.  See: #295
+        modifiers_str: Optional[str] = ",".join(deco_list) if deco_list else None
+        if deco_list:
+            method_extra["decorators"] = list(deco_list)
+
+        docstring = self._get_docstring_summary(child, language)
+        if docstring:
+            method_extra["docstring"] = docstring
+
+        node = NodeInfo(
+            kind=kind,
+            name=name,
+            file_path=file_path,
+            line_start=child.start_point[0] + 1,
+            line_end=child.end_point[0] + 1,
+            language=language,
+            parent_name=parent_name,
+            params=params,
+            return_type=ret_type,
+            modifiers=modifiers_str,
+            is_test=is_test,
+            extra=method_extra,
+            identity_name=identity_name,
+        )
+        nodes.append(node)
+
+        # CONTAINS edge
+        container = (
+            self._qualify(container_scope, file_path, None)
+            if container_scope
+            else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=container,
+            target=qualified,
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+
+        # Qualified Julia methods extend a foreign module while remaining
+        # structurally contained by their lexical module.
+        if julia_qualifier:
+            edges.append(EdgeInfo(
+                kind="REFERENCES",
+                source=qualified,
+                target=julia_qualifier,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+                extra={"julia_qualified_def": True},
+            ))
+
+        # Solidity: modifier invocations on functions -> CALLS edges
+        if language == "solidity":
+            for sub in child.children:
+                if sub.type == "modifier_invocation":
+                    for ident in sub.children:
+                        if ident.type == "identifier":
+                            edges.append(EdgeInfo(
+                                kind="CALLS",
+                                source=qualified,
+                                target=ident.text.decode(
+                                    "utf-8", errors="replace",
+                                ),
+                                file_path=file_path,
+                                line=sub.start_point[0] + 1,
+                            ))
+                            break
+
+        # Recurse to find calls inside the function
+        recursive_class = (
+            parent_name if language in ("julia", "cpp") else enclosing_class
+        )
+        self._extract_from_tree(
+            child, source, language, file_path, nodes, edges,
+            enclosing_class=recursive_class, enclosing_func=identity_name,
+            import_map=import_map, defined_names=defined_names,
+            _depth=_depth + 1,
+        )
+        return True
+
+    def _extract_imports(
+        self,
+        child,
+        language: str,
+        source: bytes,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> bool:
+        """Extract import edges from an import statement node.
+
+        Returns True if at least one import edge was emitted. Some grammars
+        reuse a single node type for both imports and ordinary calls (e.g.
+        Ruby's ``call`` covers both ``require``/``require_relative`` and method
+        invocation). Returning False lets the dispatcher fall through to call
+        extraction instead of silently dropping the call. See: Ruby call graph.
+        """
+        imports = self._extract_import(child, language, source)
+        for imp_target in imports:
+            resolved = self._resolve_module_to_file(
+                imp_target, file_path, language,
+            )
+            edges.append(EdgeInfo(
+                kind="IMPORTS_FROM",
+                source=file_path,
+                target=resolved if resolved else imp_target,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+            ))
+        return bool(imports)
+
+    def _extract_calls(
+        self,
+        child,
+        source: bytes,
+        language: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        _depth: int,
+    ) -> bool:
+        """Extract call expressions, including test runner special cases.
+
+        Returns True if the child was fully handled (a test runner call or a
+        statically unreachable Python call that should skip default
+        recursion). Returns False if the caller should continue to Solidity
+        handling and default recursion.
+        """
+        if (
+            language == "python"
+            and (child.start_point[0] + 1, child.start_point[1])
+            in _python_unreachable_call_positions(source)
+        ):
+            return True
+
+        # Non-Python languages: tree-sitter dead-guard walk (Go/TS/JS
+        # ``if false``, C/C++ ``#if 0``).  ``ast`` above cannot reach them.
+        if language != "python" and _is_in_static_dead_guard(child):
+            return True
+
+        call_name = self._get_call_name(child, language, source)
+
+        # For member expressions like describe.only / it.skip / test.each,
+        # resolve the base call name so those are treated as test runner
+        # calls.
+        effective_call_name = call_name
+        if (
+            call_name
+            and language in ("javascript", "typescript", "tsx")
+            and _is_test_file(file_path)
+            and call_name not in _TEST_RUNNER_NAMES
+        ):
+            effective_call_name = (
+                self._get_base_call_name(child, source) or call_name
+            )
+
+        # Special handling: test runner calls in test files -> Test nodes
+        if (
+            effective_call_name
+            and language in ("javascript", "typescript", "tsx")
+            and _is_test_file(file_path)
+            and effective_call_name in _TEST_RUNNER_NAMES
+        ):
+            test_desc = self._get_test_description(child, source)
+            line_no = child.start_point[0] + 1
+            synthetic_base = (
+                f"{effective_call_name}:{test_desc}"
+                if test_desc else effective_call_name
+            )
+            synthetic_name = f"{synthetic_base}@L{line_no}"
+            qualified = self._qualify(
+                synthetic_name, file_path, enclosing_class,
+            )
+
+            nodes.append(NodeInfo(
+                kind="Test",
+                name=synthetic_name,
+                file_path=file_path,
+                line_start=child.start_point[0] + 1,
+                line_end=child.end_point[0] + 1,
+                language=language,
+                parent_name=enclosing_class,
+                is_test=True,
+            ))
+
+            # CONTAINS edge: parent -> this test
+            container = (
+                self._qualify(
+                    enclosing_func, file_path, enclosing_class,
+                )
+                if enclosing_func
+                else file_path
+            )
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=qualified,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+            ))
+
+            # Recurse into the call's children (the arrow function body)
+            self._extract_from_tree(
+                child, source, language, file_path, nodes, edges,
+                enclosing_class=enclosing_class,
+                enclosing_func=synthetic_name,
+                import_map=import_map, defined_names=defined_names,
+                _depth=_depth + 1,
+            )
+            return True
+
+        if call_name:
+            # Module-scope calls (no enclosing function) are attributed to
+            # the File node. Matches the existing convention for CONTAINS
+            # edges and _extract_value_references. Without this fallback,
+            # any function called only from top-level script glue, CLI
+            # entrypoints, or Jupyter/Databricks notebook cells is flagged
+            # as dead by find_dead_code.
+            # For Verilog module instantiations and Julia module-level calls,
+            # create CALLS edges from the enclosing module. Julia needs this
+            # lexical source so same-file resolution can find module members.
+            if enclosing_func:
+                caller = self._qualify(
+                    enclosing_func, file_path, enclosing_class,
+                )
+            elif language in ("verilog", "julia") and enclosing_class:
+                caller = self._qualify(
+                    enclosing_class, file_path, None
+                )
+            else:
+                caller = file_path
+
+            # Preserve simple member-call receivers. Typed-receiver resolution
+            # uses this evidence during parsing, and the Spring DI resolver
+            # consumes the same metadata for Java injected fields.
+            call_extra: dict = {}
+            if language in ("javascript", "typescript", "tsx"):
+                member_call = self._get_js_member_call_name(child)
+                if member_call:
+                    call_extra["member_call"] = member_call
+            if (
+                language in self._TYPED_CALL_LANGUAGES
+                or language in ("cpp", "rust")
+            ):
+                receiver, method_name = self._get_member_call_receiver_method(
+                    child, language,
+                )
+                if method_name:
+                    call_name = method_name
+                if receiver:
+                    call_extra["receiver"] = receiver
+                if language == "java" and child.type == "method_reference":
+                    call_extra["call_syntax"] = "method_reference"
+
+            if language == "java" and child.type == "method_invocation":
+                self._emit_spring_webflux_endpoint(
+                    child,
+                    source,
+                    call_name,
+                    file_path,
+                    enclosing_class,
+                    import_map or {},
+                    defined_names or set(),
+                    nodes,
+                    edges,
+                )
+
+            # Keep Julia module qualification in the canonical target. The
+            # same-file resolver can then distinguish ``run`` from ``A.B.run``.
+            if (
+                language == "julia"
+                and child.children
+                and child.children[0].type == "field_expression"
+            ):
+                qualifier, qualified_name = self._julia_field_info(
+                    child.children[0],
+                )
+                if qualifier and qualified_name:
+                    module_parts = qualifier.split(".")
+                    imported_module = self._resolve_julia_import_alias(
+                        module_parts[0], enclosing_class, enclosing_func,
+                        import_map or {},
+                    )
+                    if imported_module:
+                        module_parts[0] = imported_module
+                    resolved_qualifier = ".".join(module_parts)
+                    call_name = f"{resolved_qualifier}.{qualified_name}"
+                    call_extra["julia_call_module"] = resolved_qualifier
+
+            if language == "julia" and "." not in call_name:
+                imported_symbol = self._resolve_julia_import_alias(
+                    call_name, enclosing_class, enclosing_func,
+                    import_map or {},
+                )
+                if imported_symbol:
+                    call_name = imported_symbol
+
+            # When a receiver is present, skip scope-based resolution: the method
+            # lives on the receiver's type, not in the current file's scope.
+            # The spring_resolver post-pass will do the correct cross-type lookup.
+            receiver_name = call_extra.get("receiver")
+            if receiver_name in ("self", "cls", "this") and enclosing_class:
+                target = (
+                    call_name
+                    if language == "cpp"
+                    else self._qualify(call_name, file_path, enclosing_class)
+                )
+            elif (
+                language == "rust"
+                and call_name.startswith("Self::")
+                and enclosing_class
+            ):
+                target = self._qualify(
+                    call_name.rsplit("::", 1)[-1], file_path, enclosing_class,
+                )
+            elif receiver_name:
+                target = call_name
+            else:
+                target = self._resolve_call_target(
+                    call_name, file_path, language,
+                    import_map or {}, defined_names or set(),
+                )
+            edges.append(EdgeInfo(
+                kind="CALLS",
+                source=caller,
+                target=target,
+                file_path=file_path,
+                line=child.start_point[0] + 1,
+                extra=call_extra,
+            ))
+
+        return False
+
+    @staticmethod
+    def _get_js_member_call_name(node) -> Optional[str]:
+        """Return a static JS/TS member-call expression, if present.
+
+        ``_get_call_name`` intentionally reduces ``app.handle()`` to
+        ``handle`` for general method-call handling. Retain ``app.handle`` as
+        supplemental evidence so the same-file resolver can link it to a
+        member-assigned definition without changing unresolved external calls.
+        Computed and multiline expressions are intentionally excluded.
+        """
+        callee = node.child_by_field_name("function")
+        if callee is None and node.children:
+            callee = node.children[0]
+        if callee is None or callee.type != "member_expression":
+            return None
+        return CodeParser._get_js_static_member_path(callee)
+
+    def _get_member_call_receiver_method(
+        self,
+        node,
+        language: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Return a simple receiver name and method for a member call.
+
+        ``self.field.save()`` and ``this.field.save()`` use ``field`` as the
+        receiver so class-field annotations can resolve them. More complex
+        receiver expressions are deliberately left unresolved.
+        """
+        if language == "php" and node.type in (
+            "member_call_expression",
+            "nullsafe_member_call_expression",
+        ):
+            receiver = node.child_by_field_name("object")
+            method = node.child_by_field_name("name")
+            if method is None:
+                return None, None
+            method_name = method.text.decode("utf-8", errors="replace")
+            if receiver is None or receiver.type != "variable_name":
+                return None, method_name
+            return (
+                receiver.text.decode("utf-8", errors="replace"),
+                method_name,
+            )
+
+        if language == "rust" and node.type == "call_expression":
+            callee = node.child_by_field_name("function")
+            while callee is not None and callee.type == "generic_function":
+                callee = callee.child_by_field_name("function")
+            if callee is None or callee.type != "field_expression":
+                return None, None
+            receiver = callee.child_by_field_name("value")
+            method = callee.child_by_field_name("field")
+            if receiver is None or method is None:
+                return None, None
+            return (
+                receiver.text.decode("utf-8", errors="replace"),
+                method.text.decode("utf-8", errors="replace"),
+            )
+
+        if language == "cpp" and node.type == "call_expression":
+            callee = node.child_by_field_name("function")
+            if callee is None or callee.type != "field_expression":
+                return None, None
+            receiver = callee.child_by_field_name("argument")
+            method = callee.child_by_field_name("field")
+            if receiver is None or method is None:
+                return None, None
+            return (
+                receiver.text.decode("utf-8", errors="replace"),
+                method.text.decode("utf-8", errors="replace"),
+            )
+
+        if language == "java" and node.type == "method_invocation":
+            method, receiver = self._get_java_method_and_receiver(node)
+            return receiver, method
+
+        if language == "java" and node.type == "method_reference":
+            named = [child for child in node.children if child.is_named]
+            if len(named) < 2:
+                return None, None
+            receiver_node = named[0]
+            method_node = named[-1]
+            if method_node.type not in ("identifier", "type_identifier"):
+                return None, None
+            receiver = receiver_node.text.decode("utf-8", errors="replace")
+            method = method_node.text.decode("utf-8", errors="replace")
+            return receiver, method
+
+        if language == "csharp":
+            if node.type != "invocation_expression":
+                return None, None
+            return self._get_csharp_receiver_method(node)
+
+        callee = node.child_by_field_name("function")
+        if callee is None and node.children:
+            callee = node.children[0]
+        if callee is None:
+            return None, None
+
+        if language == "kotlin" and callee.type == "navigation_expression":
+            receiver = next(
+                (
+                    child.text.decode("utf-8", errors="replace")
+                    for child in callee.children
+                    if child.type == "simple_identifier"
+                ),
+                None,
+            )
+            method = None
+            for child in callee.children:
+                if child.type != "navigation_suffix":
+                    continue
+                method = next(
+                    (
+                        part.text.decode("utf-8", errors="replace")
+                        for part in child.children
+                        if part.type == "simple_identifier"
+                    ),
+                    None,
+                )
+            return receiver, method
+
+        if callee.type not in ("attribute", "member_expression"):
+            return None, None
+        object_node = callee.child_by_field_name("object")
+        property_node = (
+            callee.child_by_field_name("attribute")
+            or callee.child_by_field_name("property")
+        )
+        if object_node is None or property_node is None:
+            return None, None
+
+        method = property_node.text.decode("utf-8", errors="replace")
+        if object_node.type in ("identifier", "simple_identifier", "self", "this"):
+            return (
+                object_node.text.decode("utf-8", errors="replace"),
+                method,
+            )
+
+        if object_node.type in ("attribute", "member_expression"):
+            root = object_node.child_by_field_name("object")
+            field_node = (
+                object_node.child_by_field_name("attribute")
+                or object_node.child_by_field_name("property")
+            )
+            if (
+                root is not None
+                and field_node is not None
+                and root.type in ("identifier", "self", "this")
+                and root.text in (b"self", b"this")
+            ):
+                return (
+                    field_node.text.decode("utf-8", errors="replace"),
+                    method,
+                )
+
+        return None, method
+
+    @staticmethod
+    def _get_csharp_receiver_method(node) -> tuple[Optional[str], Optional[str]]:
+        """Return ``(receiver, method)`` for a C# invocation expression.
+
+        Handles ``obj.Method()`` / ``Class.Method()`` (member access),
+        ``this.field.Method()`` (class-field receiver), and
+        ``obj?.Method()`` (conditional access via a member binding).
+        Chained or computed receivers keep the method name but no receiver.
+        """
+        callee = node.child_by_field_name("function")
+        if callee is None and node.children:
+            callee = node.children[0]
+        if callee is None:
+            return None, None
+
+        if callee.type == "member_access_expression":
+            name_node = callee.child_by_field_name("name")
+            if name_node is None:
+                return None, None
+            method = name_node.text.decode("utf-8", errors="replace")
+            receiver_node = callee.child_by_field_name("expression")
+            if receiver_node is None:
+                return None, method
+            if receiver_node.type in ("identifier", "this", "this_expression"):
+                return (
+                    receiver_node.text.decode("utf-8", errors="replace"),
+                    method,
+                )
+            # ``this.field.Save()``: the class field is the receiver.
+            if receiver_node.type == "member_access_expression":
+                root = receiver_node.child_by_field_name("expression")
+                field_node = receiver_node.child_by_field_name("name")
+                if (
+                    root is not None
+                    and field_node is not None
+                    and root.type in ("this", "this_expression")
+                ):
+                    return (
+                        field_node.text.decode("utf-8", errors="replace"),
+                        method,
+                    )
+            return None, method
+
+        if callee.type == "conditional_access_expression":
+            bindings = [
+                child for child in callee.children
+                if child.type == "member_binding_expression"
+            ]
+            if not bindings:
+                return None, None
+            name_node = bindings[-1].child_by_field_name("name")
+            if name_node is None:
+                return None, None
+            method = name_node.text.decode("utf-8", errors="replace")
+            receiver_node = callee.child_by_field_name("condition")
+            named_children = [
+                child for child in callee.children if child.is_named
+            ]
+            if (
+                receiver_node is not None
+                and receiver_node.type == "identifier"
+                and len(named_children) == 2
+            ):
+                return (
+                    receiver_node.text.decode("utf-8", errors="replace"),
+                    method,
+                )
+            return None, method
+
+        return None, None
+
+    # ------------------------------------------------------------------
+    # PHP / Laravel semantic constructs
+    # ------------------------------------------------------------------
+
+    def _resolve_php_scoped_calls(
+        self,
+        root,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        file_path: str,
+    ) -> list[EdgeInfo]:
+        """Resolve PHP ``Class::method`` calls from lexical file evidence.
+
+        Resolution happens during parsing, so incremental updates touch only
+        the changed file. Bare cross-file class names are deliberately left
+        unresolved; accepted evidence is a same-file method, ``self``/``static``,
+        an explicit import, a qualified name, or the current PHP namespace.
+        """
+        methods: dict[tuple[str, str], list[str]] = {}
+        for node in nodes:
+            if (
+                node.language != "php"
+                or node.kind not in ("Function", "Test")
+                or not node.parent_name
+            ):
+                continue
+            key = (node.parent_name.casefold(), node.name.casefold())
+            methods.setdefault(key, []).append(
+                self._qualify(node.name, file_path, node.parent_name),
+            )
+
+        def same_file_target(class_name: str, method: str) -> Optional[str]:
+            candidates = methods.get(
+                (class_name.casefold(), method.casefold()),
+                [],
+            )
+            return candidates[0] if len(candidates) == 1 else None
+
+        def resolve_target(
+            scope: str,
+            method: str,
+            namespace: str,
+            imports: dict[str, str],
+            enclosing_class: Optional[str],
+        ) -> tuple[Optional[str], Optional[str]]:
+            normalized = scope.strip("\\")
+            lowered = normalized.casefold()
+            if lowered in ("self", "static"):
+                if not enclosing_class:
+                    return None, None
+                return (
+                    same_file_target(enclosing_class, method),
+                    "enclosing_class",
+                )
+            if lowered == "parent":
+                return None, None
+
+            if "\\" not in normalized:
+                local = same_file_target(normalized, method)
+                if local is not None:
+                    return local, "same_file"
+
+            head = normalized.partition("\\")[0]
+            imported = imports.get(head.casefold())
+            absolute = scope.startswith("\\")
+            if imported:
+                qualified = self._php_resolve_class_reference(
+                    scope, namespace, imports,
+                )
+                evidence = "import"
+            elif absolute:
+                qualified = normalized
+                evidence = "fully_qualified"
+            elif "\\" in normalized:
+                qualified = self._php_resolve_class_reference(
+                    scope, namespace, imports,
+                )
+                evidence = "qualified"
+            elif namespace:
+                qualified = f"{namespace}\\{normalized}"
+                evidence = "same_namespace"
+            else:
+                return None, None
+
+            resolved_file = self._resolve_module_to_file(
+                qualified, file_path, "php",
+            )
+            if resolved_file is None:
+                return None, None
+            class_name = qualified.rsplit("\\", 1)[-1]
+            return (
+                f"{self._qualify(class_name, resolved_file, None)}.{method}",
+                evidence,
+            )
+
+        resolutions: dict[tuple[int, str, str], tuple[str, str]] = {}
+
+        def walk_node(
+            node,
+            namespace: str,
+            imports: dict[str, str],
+            enclosing_class: Optional[str],
+            enclosing_func: Optional[str],
+            depth: int = 0,
+        ) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            if node.type in self._class_types["php"]:
+                class_name = self._get_name(node, "php", "class")
+                for child in node.children:
+                    walk_node(
+                        child,
+                        namespace,
+                        imports,
+                        class_name or enclosing_class,
+                        None,
+                        depth + 1,
+                    )
+                return
+
+            if node.type in self._function_types["php"]:
+                function_name = self._get_name(node, "php", "function")
+                for child in node.children:
+                    walk_node(
+                        child,
+                        namespace,
+                        imports,
+                        enclosing_class,
+                        function_name or enclosing_func,
+                        depth + 1,
+                    )
+                return
+
+            scope, method = self._php_scoped_call_parts(node)
+            if scope and method:
+                target, evidence = resolve_target(
+                    scope,
+                    method,
+                    namespace,
+                    imports,
+                    enclosing_class,
+                )
+                if target is not None and evidence is not None:
+                    stable_scope = scope.lstrip("\\")
+                    source_name = (
+                        self._qualify(
+                            enclosing_func, file_path, enclosing_class,
+                        )
+                        if enclosing_func
+                        else file_path
+                    )
+                    resolutions[(
+                        node.start_point[0] + 1,
+                        source_name,
+                        f"{stable_scope}::{method}",
+                    )] = (target, evidence)
+
+            for child in node.children:
+                walk_node(
+                    child,
+                    namespace,
+                    imports,
+                    enclosing_class,
+                    enclosing_func,
+                    depth + 1,
+                )
+
+        def walk_sequence(
+            container, namespace: str = "", depth: int = 0,
+        ) -> None:
+            if depth > self._MAX_AST_DEPTH:
+                return
+            current_namespace = namespace
+            imports: dict[str, str] = {}
+            for child in container.children:
+                if child.type == "namespace_definition":
+                    child_namespace = self._php_namespace_name(child)
+                    block = next(
+                        (
+                            part for part in child.children
+                            if part.type == "compound_statement"
+                        ),
+                        None,
+                    )
+                    if block is not None:
+                        walk_sequence(block, child_namespace, depth + 1)
+                    else:
+                        current_namespace = child_namespace
+                        imports = {}
+                    continue
+                if child.type == "namespace_use_declaration":
+                    imports.update(self._php_import_bindings(child))
+                    continue
+                walk_node(
+                    child,
+                    current_namespace,
+                    imports,
+                    enclosing_class=None,
+                    enclosing_func=None,
+                    depth=depth + 1,
+                )
+
+        walk_sequence(root)
+        if not resolutions:
+            return edges
+
+        resolved: list[EdgeInfo] = []
+        for edge in edges:
+            resolution = resolutions.get((edge.line, edge.source, edge.target))
+            if edge.kind != "CALLS" or resolution is None:
+                resolved.append(edge)
+                continue
+            target, evidence = resolution
+            extra = dict(edge.extra)
+            extra["scoped_resolution"] = evidence
+            resolved.append(EdgeInfo(
+                kind=edge.kind,
+                source=edge.source,
+                target=target,
+                file_path=edge.file_path,
+                line=edge.line,
+                extra=extra,
+            ))
+        return resolved
+
+    def _extract_php_laravel_edges(
+        self,
+        root,
+        file_path: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Run evidence-gated Laravel analysis without altering generic calls."""
+        self._walk_php_laravel_sequence(
+            root,
+            file_path,
+            edges,
+            namespace="",
+        )
+
+    def _walk_php_laravel_sequence(
+        self,
+        container,
+        file_path: str,
+        edges: list[EdgeInfo],
+        namespace: str,
+    ) -> None:
+        """Walk a PHP namespace scope, applying imports in source order."""
+        current_namespace = namespace
+        imports: dict[str, str] = {}
+
+        for child in container.children:
+            if child.type == "namespace_definition":
+                child_namespace = self._php_namespace_name(child)
+                block = next(
+                    (
+                        part for part in child.children
+                        if part.type == "compound_statement"
+                    ),
+                    None,
+                )
+                if block is not None:
+                    self._walk_php_laravel_sequence(
+                        block,
+                        file_path,
+                        edges,
+                        namespace=child_namespace,
+                    )
+                else:
+                    current_namespace = child_namespace
+                    imports = {}
+                continue
+
+            if child.type == "namespace_use_declaration":
+                imports.update(self._php_import_bindings(child))
+                continue
+
+            self._walk_php_laravel_node(
+                child,
+                file_path,
+                edges,
+                current_namespace,
+                imports,
+                enclosing_class=None,
+                enclosing_func=None,
+                eloquent_model=False,
+            )
+
+    def _walk_php_laravel_node(
+        self,
+        node,
+        file_path: str,
+        edges: list[EdgeInfo],
+        namespace: str,
+        imports: dict[str, str],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        eloquent_model: bool,
+    ) -> None:
+        """Walk one PHP subtree with its namespace and enclosing-class evidence."""
+        if node.type in self._class_types["php"]:
+            class_name = self._get_name(node, "php", "class")
+            is_eloquent = (
+                node.type == "class_declaration"
+                and self._php_class_extends_eloquent_model(
+                    node,
+                    namespace,
+                    imports,
+                )
+            )
+            for child in node.children:
+                self._walk_php_laravel_node(
+                    child,
+                    file_path,
+                    edges,
+                    namespace,
+                    imports,
+                    enclosing_class=class_name,
+                    enclosing_func=None,
+                    eloquent_model=is_eloquent,
+                )
+            return
+
+        if node.type in self._function_types["php"]:
+            function_name = self._get_name(node, "php", "function")
+            for child in node.children:
+                self._walk_php_laravel_node(
+                    child,
+                    file_path,
+                    edges,
+                    namespace,
+                    imports,
+                    enclosing_class=enclosing_class,
+                    enclosing_func=function_name or enclosing_func,
+                    eloquent_model=eloquent_model,
+                )
+            return
+
+        if node.type == "scoped_call_expression":
+            self._emit_laravel_route_edge(
+                node,
+                file_path,
+                edges,
+                namespace,
+                imports,
+                enclosing_class,
+                enclosing_func,
+            )
+        elif node.type == "member_call_expression" and eloquent_model:
+            self._emit_laravel_relationship_edge(
+                node,
+                file_path,
+                edges,
+                namespace,
+                imports,
+                enclosing_class,
+                enclosing_func,
+            )
+
+        for child in node.children:
+            self._walk_php_laravel_node(
+                child,
+                file_path,
+                edges,
+                namespace,
+                imports,
+                enclosing_class,
+                enclosing_func,
+                eloquent_model,
+            )
+
+    @staticmethod
+    def _php_namespace_name(node) -> str:
+        for child in node.children:
+            if child.type == "namespace_name":
+                return child.text.decode(
+                    "utf-8", errors="replace",
+                ).strip("\\")
+        return ""
+
+    @staticmethod
+    def _php_import_bindings(node) -> dict[str, str]:
+        """Return case-insensitive local class aliases for a PHP use statement."""
+        statement = node.text.decode("utf-8", errors="replace").lstrip()
+        lowered = statement.casefold()
+        if lowered.startswith("use function ") or lowered.startswith("use const "):
+            return {}
+
+        group = next(
+            (
+                child for child in node.children
+                if child.type == "namespace_use_group"
+            ),
+            None,
+        )
+        prefix = ""
+        if group is not None:
+            for child in node.children:
+                if child.type == "namespace_name":
+                    prefix = child.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip("\\")
+                    break
+            clauses = [
+                child for child in group.children
+                if child.type == "namespace_use_clause"
+            ]
+        else:
+            clauses = [
+                child for child in node.children
+                if child.type == "namespace_use_clause"
+            ]
+
+        bindings: dict[str, str] = {}
+        for clause in clauses:
+            imported: Optional[str] = None
+            alias: Optional[str] = None
+            seen_alias = False
+            for child in clause.children:
+                if child.type == "as":
+                    seen_alias = True
+                    continue
+                if imported is None and child.type in ("qualified_name", "name"):
+                    imported = child.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip("\\")
+                    continue
+                if seen_alias and child.type == "name":
+                    alias = child.text.decode(
+                        "utf-8", errors="replace",
+                    )
+            if not imported:
+                continue
+            qualified = f"{prefix}\\{imported}" if prefix else imported
+            local_name = alias or qualified.rsplit("\\", 1)[-1]
+            bindings[local_name.casefold()] = qualified
+        return bindings
+
+    @staticmethod
+    def _php_resolve_class_reference(
+        reference: str,
+        namespace: str,
+        imports: dict[str, str],
+    ) -> str:
+        """Resolve a PHP class reference through aliases and its namespace."""
+        absolute = reference.startswith("\\")
+        normalized = reference.strip("\\")
+        if not normalized:
+            return ""
+        if absolute:
+            return normalized
+
+        head, separator, tail = normalized.partition("\\")
+        imported = imports.get(head.casefold())
+        if imported:
+            return f"{imported}\\{tail}" if separator else imported
+        if namespace:
+            return f"{namespace}\\{normalized}"
+        return normalized
+
+    def _php_class_extends_eloquent_model(
+        self,
+        node,
+        namespace: str,
+        imports: dict[str, str],
+    ) -> bool:
+        for base in self._get_bases(node, "php", b""):
+            resolved = self._php_resolve_class_reference(
+                base,
+                namespace,
+                imports,
+            )
+            if resolved.casefold() == self._LARAVEL_ELOQUENT_MODEL.casefold():
+                return True
+        return False
+
+    @staticmethod
+    def _php_scoped_call_parts(node) -> tuple[Optional[str], Optional[str]]:
+        """Return the static receiver and method for a PHP scoped call."""
+        if node.type != "scoped_call_expression":
+            return None, None
+        scope = node.child_by_field_name("scope")
+        name = node.child_by_field_name("name")
+        if scope is None or name is None:
+            return None, None
+        receiver = scope.text.decode("utf-8", errors="replace")
+        method = name.text.decode("utf-8", errors="replace")
+        return receiver or None, method or None
+
+    @staticmethod
+    def _php_class_constant_reference(node) -> Optional[str]:
+        class_reference: Optional[str] = None
+        constant: Optional[str] = None
+        for child in node.children:
+            if class_reference is None and child.type in ("name", "qualified_name"):
+                class_reference = child.text.decode(
+                    "utf-8", errors="replace",
+                )
+            elif child.type == "name":
+                constant = child.text.decode(
+                    "utf-8", errors="replace",
+                )
+        if class_reference and constant and constant.casefold() == "class":
+            return class_reference
+        return None
+
+    def _php_route_handler(
+        self,
+        node,
+    ) -> Optional[tuple[str, str]]:
+        arguments = next(
+            (child for child in node.children if child.type == "arguments"),
+            None,
+        )
+        if arguments is None:
+            return None
+        args = [
+            child for child in arguments.children
+            if child.type == "argument"
+        ]
+        if len(args) < 2:
+            return None
+        array = next(
+            (
+                child for child in args[1].children
+                if child.type == "array_creation_expression"
+            ),
+            None,
+        )
+        if array is None:
+            return None
+        elements = [
+            child for child in array.children
+            if child.type == "array_element_initializer"
+        ]
+        if len(elements) != 2:
+            return None
+
+        class_access = next(
+            (
+                child for child in elements[0].children
+                if child.type == "class_constant_access_expression"
+            ),
+            None,
+        )
+        method_string = next(
+            (
+                child for child in elements[1].children
+                if child.type in ("string", "encapsed_string")
+            ),
+            None,
+        )
+        if class_access is None or method_string is None:
+            return None
+        class_reference = self._php_class_constant_reference(class_access)
+        method = method_string.text.decode(
+            "utf-8", errors="replace",
+        ).strip("'\"")
+        if (
+            not class_reference
+            or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", method) is None
+        ):
+            return None
+        return class_reference, method
+
+    def _php_semantic_target(
+        self,
+        class_reference: str,
+        namespace: str,
+        imports: dict[str, str],
+        file_path: str,
+        method: Optional[str] = None,
+    ) -> str:
+        qualified_class = self._php_resolve_class_reference(
+            class_reference,
+            namespace,
+            imports,
+        )
+        short_name = qualified_class.rsplit("\\", 1)[-1]
+        resolved_file = self._resolve_module_to_file(
+            qualified_class,
+            file_path,
+            "php",
+        )
+        if resolved_file:
+            target = f"{resolved_file}::{short_name}"
+        else:
+            target = short_name
+        return f"{target}.{method}" if method else target
+
+    def _php_laravel_caller(
+        self,
+        file_path: str,
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> str:
+        if enclosing_func:
+            return self._qualify(
+                enclosing_func,
+                file_path,
+                enclosing_class,
+            )
+        if enclosing_class:
+            return self._qualify(enclosing_class, file_path, None)
+        return file_path
+
+    def _emit_laravel_route_edge(
+        self,
+        node,
+        file_path: str,
+        edges: list[EdgeInfo],
+        namespace: str,
+        imports: dict[str, str],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> None:
+        receiver, verb = self._php_scoped_call_parts(node)
+        if not receiver or verb not in self._LARAVEL_ROUTE_VERBS:
+            return
+        resolved_receiver = self._php_resolve_class_reference(
+            receiver,
+            namespace,
+            imports,
+        )
+        if resolved_receiver.casefold() != self._LARAVEL_ROUTE_FACADE.casefold():
+            return
+        handler = self._php_route_handler(node)
+        if handler is None:
+            return
+        controller, method = handler
+        edges.append(EdgeInfo(
+            kind="CALLS",
+            source=self._php_laravel_caller(
+                file_path,
+                enclosing_class,
+                enclosing_func,
+            ),
+            target=self._php_semantic_target(
+                controller,
+                namespace,
+                imports,
+                file_path,
+                method,
+            ),
+            file_path=file_path,
+            line=node.start_point[0] + 1,
+            extra={
+                "framework": "laravel",
+                "laravel_kind": "route",
+                "route_verb": verb,
+            },
+        ))
+
+    def _emit_laravel_relationship_edge(
+        self,
+        node,
+        file_path: str,
+        edges: list[EdgeInfo],
+        namespace: str,
+        imports: dict[str, str],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> None:
+        if not node.children or node.children[0].type != "variable_name":
+            return
+        receiver = node.children[0].text.decode(
+            "utf-8", errors="replace",
+        )
+        if receiver != "$this":
+            return
+        method_node = next(
+            (
+                child for child in reversed(node.children)
+                if child.type == "name"
+            ),
+            None,
+        )
+        if method_node is None:
+            return
+        relationship = method_node.text.decode(
+            "utf-8", errors="replace",
+        )
+        if relationship not in self._LARAVEL_RELATIONSHIPS:
+            return
+
+        arguments = next(
+            (child for child in node.children if child.type == "arguments"),
+            None,
+        )
+        if arguments is None:
+            return
+        first_argument = next(
+            (
+                child for child in arguments.children
+                if child.type == "argument"
+            ),
+            None,
+        )
+        if first_argument is None:
+            return
+        class_access = next(
+            (
+                child for child in first_argument.children
+                if child.type == "class_constant_access_expression"
+            ),
+            None,
+        )
+        if class_access is None:
+            return
+        target_model = self._php_class_constant_reference(class_access)
+        if target_model is None:
+            return
+
+        edges.append(EdgeInfo(
+            kind="REFERENCES",
+            source=self._php_laravel_caller(
+                file_path,
+                enclosing_class,
+                enclosing_func,
+            ),
+            target=self._php_semantic_target(
+                target_model,
+                namespace,
+                imports,
+                file_path,
+            ),
+            file_path=file_path,
+            line=node.start_point[0] + 1,
+            extra={
+                "framework": "laravel",
+                "laravel_kind": "eloquent_relationship",
+                "relationship": relationship,
+            },
+        ))
+
+    @staticmethod
+    def _get_java_method_and_receiver(node) -> tuple[Optional[str], Optional[str]]:
+        """For a Java method_invocation node, return (method_name, receiver_name).
+
+        Pattern: [receiver_identifier, '.', method_identifier, argument_list]
+        Chained: [inner_method_invocation, '.', method_identifier, argument_list]
+
+        Returns (None, None) for unrecognised shapes.
+        """
+        children = node.children
+        if (
+            len(children) == 2
+            and children[0].type == "identifier"
+            and children[-1].type == "argument_list"
+        ):
+            return (
+                children[0].text.decode("utf-8", errors="replace"),
+                None,
+            )
+        if len(children) < 3:
+            return None, None
+
+        # method_identifier is always the last identifier before argument_list
+        method_name: Optional[str] = None
+        receiver_name: Optional[str] = None
+
+        # Scan backwards for the method identifier
+        for i in range(len(children) - 1, -1, -1):
+            ch = children[i]
+            if ch.type == "argument_list":
+                continue
+            if ch.type == "identifier":
+                if method_name is None:
+                    method_name = ch.text.decode("utf-8", errors="replace")
+                else:
+                    # Second identifier scanning backwards = receiver
+                    receiver_name = ch.text.decode("utf-8", errors="replace")
+                break
+            if ch.type == "." :
+                continue
+            # Chained call or complex expression as receiver — no simple receiver
+            break
+
+        # Receiver is the first child if it's a plain identifier
+        if method_name and children[0].type == "identifier":
+            first_text = children[0].text.decode("utf-8", errors="replace")
+            if first_text != method_name:
+                receiver_name = first_text
+
+        return method_name, receiver_name
+
+    def _extract_jsx_component_call(
+        self,
+        child,
+        language: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> None:
+        """Emit a synthetic CALLS edge for JSX component usage.
+
+        React-style component invocations use JSX rather than ``call_expression``.
+        Treat uppercase component tags such as ``<MarkdownMsg />`` as call-like
+        edges so caller/impact queries can cross the JSX boundary. Intrinsic DOM
+        tags (``<div>``) are ignored.
+
+        Module-scope JSX (e.g. a top-level ``<App />`` render call) attributes
+        to the File node.
+        """
+        target = self._resolve_jsx_component_target(
+            child, language, file_path, import_map or {}, defined_names or set(),
+        )
+        if not target:
+            return
+
+        caller = (
+            self._qualify(enclosing_func, file_path, enclosing_class)
+            if enclosing_func
+            else file_path
+        )
+        edges.append(EdgeInfo(
+            kind="CALLS",
+            source=caller,
+            target=target,
+            file_path=file_path,
+            line=child.start_point[0] + 1,
+        ))
+
+    def _resolve_jsx_component_target(
+        self,
+        node,
+        language: str,
+        file_path: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> Optional[str]:
+        """Resolve a JSX component element to a call target."""
+        component_ref = self._get_jsx_component_reference(node)
+        if component_ref is None:
+            return None
+
+        base_name, component_name = component_ref
+        if base_name is None:
+            return self._resolve_call_target(
+                component_name, file_path, language, import_map, defined_names,
+            )
+
+        if base_name in import_map:
+            resolved = self._resolve_imported_symbol(
+                component_name, import_map[base_name], file_path, language,
+            )
+            if resolved:
+                return resolved
+
+        return component_name
+
+    # ------------------------------------------------------------------
+    # Value-reference extraction (function-as-value patterns)
+    # ------------------------------------------------------------------
+
+    # AST node types that represent object literal key-value pairs.
+    _PAIR_TYPES = frozenset({"pair"})
+
+    # AST node types for array/list containers.
+    _ARRAY_TYPES = frozenset({"array", "list"})
+
+    # AST node types for call argument containers. JS/TS uses ``arguments``;
+    # Python uses ``argument_list``. Both share the same identifier-child shape
+    # for bare-identifier callbacks like ``executor.submit(my_handler)``.
+    _ARGUMENTS_TYPES = frozenset({"arguments", "argument_list"})
+
+    # Names that are almost certainly not function references (constants,
+    # common primitives).  All-uppercase identifiers and very short names
+    # are excluded by a length/casing heuristic in the method itself.
+    _VALUE_REF_SKIP_NAMES = frozenset({
+        "true", "false", "null", "undefined", "None", "True", "False",
+        "self", "this", "cls", "super",
+    })
+
+    def _extract_ts_type_reference(
+        self,
+        child,
+        language: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> None:
+        """Emit a ``REFERENCES`` edge for a type used in a TS type position.
+
+        ``function summarize(items: Finding[])`` is a real dependency on
+        ``Finding``, but a type annotation is not call syntax, so neither
+        _extract_calls nor _extract_value_references sees it and callers_of on
+        an interface stays empty.
+
+        ``REFERENCES`` (0.6 in IMPACT_EDGE_WEIGHTS) rather than ``CALLS`` (1.0):
+        a type use is a weaker signal than an invocation, and folding the two
+        together would let type churn outrank call churn in impact ranking.
+        """
+        parent = child.parent
+        if parent is not None:
+            # The declaration's own name is a definition, not a use. Compare by
+            # byte span: child_by_field_name returns a fresh wrapper object, so
+            # identity/equality checks against *child* are unreliable.
+            if parent.type in _TS_TYPE_DECLARATIONS:
+                name_node = parent.child_by_field_name("name")
+                if (
+                    name_node is not None
+                    and name_node.start_byte == child.start_byte
+                    and name_node.end_byte == child.end_byte
+                ):
+                    return
+            # extends/implements are already covered by INHERITS edges. Generic
+            # bases add a ``generic_type`` wrapper, so walk up to the clause.
+            # Do not suppress a separate imported type used as a type argument:
+            # ``extends Base<Dependency>`` inherits Base but references Dependency.
+            ancestor = parent
+            inside_type_arguments = False
+            while ancestor is not None:
+                if ancestor.type == "type_arguments":
+                    inside_type_arguments = True
+                if ancestor.type in _TS_HERITAGE_CLAUSES:
+                    if not inside_type_arguments:
+                        return
+                    break
+                if ancestor.type in _TS_TYPE_DECLARATIONS:
+                    break
+                ancestor = ancestor.parent
+
+        # Attribute to the enclosing function, else the enclosing type, else the
+        # file — so `interface Wrapper { nested: Verdict }` names Wrapper as the
+        # dependent rather than collapsing to the whole module.
+        if enclosing_func:
+            caller = self._qualify(enclosing_func, file_path, enclosing_class)
+        elif enclosing_class:
+            caller = self._qualify(enclosing_class, file_path, None)
+        else:
+            caller = file_path
+
+        self._emit_reference_if_known(
+            child.text.decode("utf-8", errors="replace"),
+            language, file_path, caller, edges,
+            import_map or {}, defined_names or set(),
+            line=child.start_point[0] + 1,
+        )
+
+    def _extract_value_references(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        language: str,
+        file_path: str,
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> None:
+        """Emit ``REFERENCES`` edges for function-as-value patterns.
+
+        Detects identifiers in value positions that likely refer to
+        functions — object literal values, map property assignments,
+        array elements, and callback arguments.  This reduces false
+        positives in dead-code detection for dispatch-map patterns
+        like ``Record<string, Handler>``.
+
+        Only emits edges when the identifier matches a locally defined
+        name or an imported symbol, avoiding noise from arbitrary
+        variable references.
+        """
+        imap = import_map or {}
+        dnames = defined_names or set()
+
+        # Use enclosing function as source, or the file path for module-scope code.
+        if enclosing_func:
+            caller = self._qualify(enclosing_func, file_path, enclosing_class)
+        else:
+            caller = file_path
+
+        # --- JS/TS/Python: object literal pair values  { key: fnRef } ---
+        if node_type in self._PAIR_TYPES:
+            self._ref_from_pair(child, source, language, file_path, caller, edges, imap, dnames)
+            return
+
+        # --- JS/TS: shorthand property identifiers  { fnRef } ---
+        if (
+            node_type == "shorthand_property_identifier"
+            and language in ("javascript", "typescript", "tsx")
+        ):
+            name = child.text.decode("utf-8", errors="replace")
+            self._emit_reference_if_known(
+                name, language, file_path, caller, edges, imap, dnames,
+                line=child.start_point[0] + 1,
+            )
+            return
+
+        # --- JS/TS/Python: assignment with member/subscript LHS ---
+        if node_type in ("assignment_expression", "augmented_assignment", "assignment"):
+            self._ref_from_assignment(
+                child, source, language, file_path, caller, edges, imap, dnames,
+            )
+            return
+
+        # --- JS/TS/Python: array / list elements ---
+        if node_type in self._ARRAY_TYPES:
+            self._ref_from_array(child, source, language, file_path, caller, edges, imap, dnames)
+            return
+
+        # --- Callback arguments (identifier args inside call_expression) ---
+        if node_type in self._ARGUMENTS_TYPES:
+            self._ref_from_arguments(
+                child, source, language, file_path, caller, edges, imap, dnames,
+            )
+
+    def _emit_reference_if_known(
+        self,
+        name: str,
+        language: str,
+        file_path: str,
+        caller: str,
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+        line: int = 0,
+    ) -> None:
+        """Emit a ``REFERENCES`` edge if *name* is a known function/import."""
+        if not name or name in self._VALUE_REF_SKIP_NAMES:
+            return
+        # Skip all-uppercase names (likely constants) and single-char names.
+        if name.isupper() or len(name) <= 1:
+            return
+        # Must be a known local definition or import to be worth tracking.
+        if name not in defined_names and name not in import_map:
+            return
+
+        target = self._resolve_call_target(
+            name, file_path, language, import_map, defined_names,
+        )
+        edges.append(EdgeInfo(
+            kind="REFERENCES",
+            source=caller,
+            target=target,
+            file_path=file_path,
+            line=line,
+        ))
+
+    def _ref_from_pair(
+        self,
+        pair_node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        caller: str,
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> None:
+        """Extract a REFERENCES edge from an object/dict literal pair value."""
+        # pair children: key, ":", value
+        children = pair_node.children
+        # Find the value — it's the last meaningful child.
+        value_node = None
+        for ch in reversed(children):
+            if ch.type not in (":", ",", "comment"):
+                value_node = ch
+                break
+        if value_node is None:
+            return
+        if value_node.type == "identifier":
+            name = value_node.text.decode("utf-8", errors="replace")
+            self._emit_reference_if_known(
+                name, language, file_path, caller, edges,
+                import_map, defined_names,
+                line=value_node.start_point[0] + 1,
+            )
+
+    def _ref_from_assignment(
+        self,
+        assign_node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        caller: str,
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> None:
+        """Extract REFERENCES from ``obj.key = fnRef`` or ``obj['key'] = fnRef``."""
+        children = assign_node.children
+        if len(children) < 3:
+            return
+        lhs = children[0]
+        # LHS must be a member_expression or subscript_expression (map assignment).
+        if lhs.type not in (
+            "member_expression", "subscript_expression",
+            "attribute", "subscript",
+        ):
+            return
+        # RHS is the last non-punctuation child.
+        rhs = None
+        for ch in reversed(children):
+            if ch.type not in ("=", ":", ",", "comment", "type_annotation"):
+                rhs = ch
+                break
+        if rhs is None or rhs.type != "identifier":
+            return
+        name = rhs.text.decode("utf-8", errors="replace")
+        self._emit_reference_if_known(
+            name, language, file_path, caller, edges,
+            import_map, defined_names,
+            line=rhs.start_point[0] + 1,
+        )
+
+    def _ref_from_array(
+        self,
+        array_node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        caller: str,
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> None:
+        """Extract REFERENCES from array/list elements that are identifiers."""
+        for ch in array_node.children:
+            if ch.type == "identifier":
+                name = ch.text.decode("utf-8", errors="replace")
+                self._emit_reference_if_known(
+                    name, language, file_path, caller, edges,
+                    import_map, defined_names,
+                    line=ch.start_point[0] + 1,
+                )
+
+    def _ref_from_arguments(
+        self,
+        args_node,
+        source: bytes,
+        language: str,
+        file_path: str,
+        caller: str,
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> None:
+        """Extract REFERENCES from identifier arguments (callbacks)."""
+        for ch in args_node.children:
+            if ch.type == "identifier":
+                name = ch.text.decode("utf-8", errors="replace")
+                self._emit_reference_if_known(
+                    name, language, file_path, caller, edges,
+                    import_map, defined_names,
+                    line=ch.start_point[0] + 1,
+                )
+
+    def _extract_solidity_constructs(
+        self,
+        child,
+        node_type: str,
+        source: bytes,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> bool:
+        """Handle Solidity-specific AST constructs (emit, state vars, etc.).
+
+        Returns True if the child was fully handled and should skip
+        default recursion.
+        """
+        # Emit statements: emit EventName(...) -> CALLS edge.
+        # Module-scope emits attribute to the File node.
+        if node_type == "emit_statement":
+            for sub in child.children:
+                if sub.type == "expression":
+                    for ident in sub.children:
+                        if ident.type == "identifier":
+                            caller = (
+                                self._qualify(
+                                    enclosing_func, file_path,
+                                    enclosing_class,
+                                )
+                                if enclosing_func
+                                else file_path
+                            )
+                            edges.append(EdgeInfo(
+                                kind="CALLS",
+                                source=caller,
+                                target=ident.text.decode(
+                                    "utf-8", errors="replace",
+                                ),
+                                file_path=file_path,
+                                line=child.start_point[0] + 1,
+                            ))
+            # emit_statement falls through to default recursion
+            return False
+
+        # State variable declarations -> Function nodes (public ones
+        # auto-generate getters, and all are critical for reviews)
+        if node_type == "state_variable_declaration" and enclosing_class:
+            var_name = None
+            var_visibility = None
+            var_mutability = None
+            var_type = None
+            for sub in child.children:
+                if sub.type == "identifier":
+                    var_name = sub.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                elif sub.type == "visibility":
+                    var_visibility = sub.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                elif sub.type == "type_name":
+                    var_type = sub.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                elif sub.type in ("constant", "immutable"):
+                    var_mutability = sub.type
+            if var_name:
+                qualified = self._qualify(
+                    var_name, file_path, enclosing_class,
+                )
+                nodes.append(NodeInfo(
+                    kind="Function",
+                    name=var_name,
+                    file_path=file_path,
+                    line_start=child.start_point[0] + 1,
+                    line_end=child.end_point[0] + 1,
+                    language="solidity",
+                    parent_name=enclosing_class,
+                    return_type=var_type,
+                    modifiers=var_visibility,
+                    extra={
+                        "solidity_kind": "state_variable",
+                        "mutability": var_mutability,
+                    },
+                ))
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=self._qualify(
+                        enclosing_class, file_path, None,
+                    ),
+                    target=qualified,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+                return True
+            return False
+
+        # File-level and contract-level constant declarations
+        if node_type == "constant_variable_declaration":
+            var_name = None
+            var_type = None
+            for sub in child.children:
+                if sub.type == "identifier":
+                    var_name = sub.text.decode(
+                        "utf-8", errors="replace",
+                    )
+                elif sub.type == "type_name":
+                    var_type = sub.text.decode(
+                        "utf-8", errors="replace",
+                    )
+            if var_name:
+                qualified = self._qualify(
+                    var_name, file_path, enclosing_class,
+                )
+                nodes.append(NodeInfo(
+                    kind="Function",
+                    name=var_name,
+                    file_path=file_path,
+                    line_start=child.start_point[0] + 1,
+                    line_end=child.end_point[0] + 1,
+                    language="solidity",
+                    parent_name=enclosing_class,
+                    return_type=var_type,
+                    extra={"solidity_kind": "constant"},
+                ))
+                container = (
+                    self._qualify(enclosing_class, file_path, None)
+                    if enclosing_class
+                    else file_path
+                )
+                edges.append(EdgeInfo(
+                    kind="CONTAINS",
+                    source=container,
+                    target=qualified,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+                return True
+            return False
+
+        # Using directives: using LibName for Type -> DEPENDS_ON edge
+        if node_type == "using_directive":
+            lib_name = None
+            for sub in child.children:
+                if sub.type == "type_alias":
+                    for ident in sub.children:
+                        if ident.type == "identifier":
+                            lib_name = ident.text.decode(
+                                "utf-8", errors="replace",
+                            )
+            if lib_name:
+                source_name = (
+                    self._qualify(
+                        enclosing_class, file_path, None,
+                    )
+                    if enclosing_class
+                    else file_path
+                )
+                edges.append(EdgeInfo(
+                    kind="DEPENDS_ON",
+                    source=source_name,
+                    target=lib_name,
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+            return True
+
+        return False
+
+    def _rust_path_segments(self, node) -> list[str]:
+        """Return semantic Rust path segments while discarding type arguments."""
+        if node is None:
+            return []
+        if node.type in (
+            "identifier", "type_identifier", "crate", "self", "super",
+        ):
+            return [node.text.decode("utf-8", errors="replace")]
+        if node.type in (
+            "scoped_identifier", "scoped_type_identifier",
+        ):
+            path = node.child_by_field_name("path")
+            name = node.child_by_field_name("name")
+            return self._rust_path_segments(path) + self._rust_path_segments(name)
+        if node.type == "generic_type":
+            return self._rust_path_segments(node.child_by_field_name("type"))
+        if node.type == "generic_function":
+            return self._rust_path_segments(node.child_by_field_name("function"))
+        return []
+
+    def _parse_rust_use_node(
+        self, node, prefix: tuple[str, ...] = (),
+    ) -> list[tuple[str, str]]:
+        """Flatten nested Rust use trees into local-name/original-path pairs."""
+        if node.type == "use_declaration":
+            argument = node.child_by_field_name("argument")
+            return self._parse_rust_use_node(argument, prefix) if argument else []
+
+        if node.type in ("identifier", "type_identifier"):
+            name = node.text.decode("utf-8", errors="replace")
+            full = (*prefix, name)
+            return [(name, "::".join(full))]
+
+        if node.type == "self":
+            if not prefix:
+                return []
+            return [(prefix[-1], "::".join(prefix))]
+
+        if node.type in ("scoped_identifier", "scoped_type_identifier"):
+            segments = tuple(self._rust_path_segments(node))
+            if not segments:
+                return []
+            full = (*prefix, *segments)
+            return [(segments[-1], "::".join(full))]
+
+        if node.type == "use_as_clause":
+            path = node.child_by_field_name("path")
+            alias = node.child_by_field_name("alias")
+            segments = tuple(self._rust_path_segments(path))
+            if not segments or alias is None:
+                return []
+            local_name = alias.text.decode("utf-8", errors="replace")
+            return [(local_name, "::".join((*prefix, *segments)))]
+
+        if node.type == "scoped_use_list":
+            path = node.child_by_field_name("path")
+            use_list = node.child_by_field_name("list")
+            path_segments = tuple(self._rust_path_segments(path))
+            if use_list is None:
+                return []
+            return self._parse_rust_use_node(
+                use_list, (*prefix, *path_segments),
+            )
+
+        if node.type == "use_list":
+            results: list[tuple[str, str]] = []
+            for child in node.children:
+                if child.is_named:
+                    results.extend(self._parse_rust_use_node(child, prefix))
+            return results
+
+        if node.type == "use_wildcard":
+            path = node.child_by_field_name("path")
+            segments = tuple(self._rust_path_segments(path))
+            full = (*prefix, *segments)
+            return [("*", "::".join(full))] if full else []
+
+        return []
+
+    def _resolve_rust_type_target(
+        self,
+        segments: list[str],
+        file_path: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> str:
+        """Resolve a Rust type path only when file evidence is available."""
+        if not segments:
+            return ""
+        local_name = segments[-1]
+        if len(segments) == 1 and local_name in defined_names:
+            return self._qualify(local_name, file_path, None)
+
+        first = segments[0]
+        if first in import_map:
+            imported = import_map[first].split("::") + segments[1:]
+            original_name = imported[-1]
+            resolved = self._resolve_module_to_file(
+                "::".join(imported), file_path, "rust",
+            )
+            if resolved:
+                return self._qualify(original_name, resolved, None)
+
+        resolved = self._resolve_module_to_file(
+            "::".join(segments), file_path, "rust",
+        )
+        if resolved:
+            return self._qualify(local_name, resolved, None)
+        return "::".join(segments)
+
+    def _extract_rust_impl(
+        self,
+        impl_node,
+        source: bytes,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        import_map: dict[str, str],
+        defined_names: set[str],
+        depth: int,
+    ) -> None:
+        """Use impl blocks as method scopes without emitting duplicate types."""
+        type_node = impl_node.child_by_field_name("type")
+        target_segments = self._rust_path_segments(type_node)
+        if not target_segments:
+            return
+        target_name = target_segments[-1]
+        trait_node = impl_node.child_by_field_name("trait")
+        if trait_node is not None:
+            trait_segments = self._rust_path_segments(trait_node)
+            trait_target = self._resolve_rust_type_target(
+                trait_segments, file_path, import_map, defined_names,
+            )
+            if trait_target:
+                edges.append(EdgeInfo(
+                    kind="IMPLEMENTS",
+                    source=self._qualify(target_name, file_path, None),
+                    target=trait_target,
+                    file_path=file_path,
+                    line=impl_node.start_point[0] + 1,
+                ))
+
+        self._extract_from_tree(
+            impl_node,
+            source,
+            "rust",
+            file_path,
+            nodes,
+            edges,
+            enclosing_class=target_name,
+            import_map=import_map,
+            defined_names=defined_names,
+            _depth=depth + 1,
+        )
+
+    def _extract_verilog_constructs(
+        self,
+        child,
+        node_type: str,
+        file_path: str,
+        nodes: list[NodeInfo],
+        edges: list[EdgeInfo],
+        enclosing_class: Optional[str],
+        enclosing_func: Optional[str],
+    ) -> bool:
+        """Index module-level RTL declarations without inventing local globals.
+
+        Signal-like declarations use Function nodes for backward-compatible
+        storage, but carry ``extra["verilog_kind"]`` so function-oriented
+        analyses can exclude them. Function/task-local declarations are
+        intentionally consumed without emission because the graph has no
+        variable-scope identity model.
+        """
+
+        def decode(node) -> str:
+            return node.text.decode("utf-8", errors="replace")
+
+        def find_simple_identifier(node) -> Optional[str]:
+            if node.type == "simple_identifier":
+                return decode(node)
+            for sub in node.children:
+                found = find_simple_identifier(sub)
+                if found:
+                    return found
+            return None
+
+        def emit(
+            name: Optional[str],
+            source_node,
+            kind: str,
+            modifiers: Optional[str] = None,
+            return_type: Optional[str] = None,
+            default: Optional[str] = None,
+        ) -> None:
+            if not name:
+                return
+            if any(
+                node.name == name
+                and node.parent_name == enclosing_class
+                and node.extra.get("verilog_kind") == kind
+                for node in nodes
+            ):
+                return
+            extra: dict = {"verilog_kind": kind}
+            if default is not None:
+                extra["default"] = default
+            qualified = self._qualify(name, file_path, enclosing_class)
+            nodes.append(NodeInfo(
+                kind="Function",
+                name=name,
+                file_path=file_path,
+                line_start=source_node.start_point[0] + 1,
+                line_end=source_node.end_point[0] + 1,
+                language="verilog",
+                parent_name=enclosing_class,
+                return_type=return_type,
+                modifiers=modifiers,
+                extra=extra,
+            ))
+            container = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class
+                else file_path
+            )
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=qualified,
+                file_path=file_path,
+                line=source_node.start_point[0] + 1,
+            ))
+
+        local_declarations = {
+            "data_declaration",
+            "input_declaration",
+            "output_declaration",
+            "inout_declaration",
+            "net_declaration",
+            "parameter_declaration",
+            "local_parameter_declaration",
+            "type_declaration",
+        }
+        if enclosing_func is not None and node_type in local_declarations:
+            return True
+
+        if node_type == "list_of_port_declarations":
+            last_direction: Optional[str] = None
+            last_type: Optional[str] = None
+            for port in child.children:
+                if port.type != "ansi_port_declaration":
+                    continue
+                direction = last_direction
+                data_type = last_type
+                name = None
+                for sub in port.children:
+                    if sub.type in (
+                        "variable_port_header",
+                        "net_port_header",
+                        "net_port_header1",
+                        "interface_port_header",
+                    ):
+                        for header_part in sub.children:
+                            if header_part.type == "port_direction":
+                                direction = decode(header_part).strip() or direction
+                            elif header_part.type in (
+                                "data_type",
+                                "net_port_type1",
+                                "variable_port_type",
+                                "data_type_or_implicit1",
+                            ):
+                                data_type = decode(header_part)
+                    elif sub.type == "port_identifier":
+                        name = find_simple_identifier(sub)
+                if name:
+                    last_direction = direction
+                    last_type = data_type
+                    emit(name, port, "port", direction, data_type)
+            return True
+
+        if node_type in (
+            "input_declaration", "output_declaration", "inout_declaration",
+        ):
+            direction = node_type.split("_", 1)[0]
+            data_type = None
+            for sub in child.children:
+                if sub.type in ("data_type", "data_type_or_implicit1"):
+                    data_type = decode(sub)
+            for sub in child.children:
+                if sub.type not in (
+                    "list_of_port_identifiers",
+                    "list_of_variable_identifiers",
+                    "list_of_variable_port_identifiers",
+                ):
+                    continue
+                for identifier in sub.children:
+                    if identifier.type == "port_identifier":
+                        emit(
+                            find_simple_identifier(identifier),
+                            identifier,
+                            "port",
+                            direction,
+                            data_type,
+                        )
+                    elif identifier.type == "simple_identifier":
+                        emit(
+                            decode(identifier),
+                            identifier,
+                            "port",
+                            direction,
+                            data_type,
+                        )
+            return True
+
+        if node_type in (
+            "parameter_declaration", "local_parameter_declaration",
+        ):
+            kind = (
+                "localparam"
+                if node_type == "local_parameter_declaration"
+                else "parameter"
+            )
+            data_type = None
+            for sub in child.children:
+                if sub.type in ("data_type_or_implicit1", "data_type"):
+                    data_type = decode(sub)
+                elif sub.type == "list_of_param_assignments":
+                    for assignment in sub.children:
+                        if assignment.type != "param_assignment":
+                            continue
+                        name = None
+                        default = None
+                        for part in assignment.children:
+                            if part.type in (
+                                "parameter_identifier", "simple_identifier",
+                            ):
+                                name = find_simple_identifier(part)
+                            elif part.type == "constant_param_expression":
+                                default = decode(part)
+                        emit(
+                            name,
+                            assignment,
+                            kind,
+                            return_type=data_type,
+                            default=default,
+                        )
+            return True
+
+        if node_type == "net_declaration":
+            keyword = None
+            for sub in child.children:
+                if sub.type == "net_type":
+                    keyword = decode(sub).strip()
+            for sub in child.children:
+                if sub.type != "list_of_net_decl_assignments":
+                    continue
+                for assignment in sub.children:
+                    if assignment.type == "net_decl_assignment":
+                        emit(
+                            find_simple_identifier(assignment),
+                            assignment,
+                            "net",
+                            keyword,
+                            keyword,
+                        )
+            return True
+
+        if node_type == "data_declaration":
+            if any(
+                sub.type in ("package_import_declaration", "type_declaration")
+                for sub in child.children
+            ):
+                return False
+            data_type = None
+            for sub in child.children:
+                if sub.type == "data_type_or_implicit1":
+                    data_type = decode(sub)
+            keyword = data_type.split()[0] if data_type else None
+            for sub in child.children:
+                if sub.type != "list_of_variable_decl_assignments":
+                    continue
+                for assignment in sub.children:
+                    if assignment.type == "variable_decl_assignment":
+                        emit(
+                            find_simple_identifier(assignment),
+                            assignment,
+                            "net",
+                            keyword,
+                            data_type,
+                        )
+            return True
+
+        if node_type == "type_declaration":
+            name = None
+            data_type = None
+            for sub in child.children:
+                if sub.type == "simple_identifier":
+                    name = decode(sub)
+                elif sub.type == "data_type":
+                    data_type = decode(sub)
+            emit(name, child, "typedef", return_type=data_type)
+            return True
+
+        if node_type == "modport_declaration":
+            for item in child.children:
+                if item.type != "modport_item":
+                    continue
+                name = next(
+                    (
+                        find_simple_identifier(sub)
+                        for sub in item.children
+                        if sub.type == "modport_identifier"
+                    ),
+                    None,
+                )
+                emit(name, item, "modport")
+            return True
+
+        if node_type == "named_port_connection":
+            expression = next(
+                (sub for sub in child.children if sub.type == "expression"),
+                None,
+            )
+            if expression is None:
+                return True
+            roots: set[str] = set()
+
+            def collect_roots(node) -> None:
+                if node.type == "simple_identifier":
+                    roots.add(decode(node))
+                    return
+                for sub in node.children:
+                    if sub.type in (
+                        "select1",
+                        "select",
+                        "bit_select",
+                        "constant_range",
+                        "constant_expression",
+                    ):
+                        continue
+                    collect_roots(sub)
+
+            collect_roots(expression)
+            known_signals = {
+                node.name
+                for node in nodes
+                if node.parent_name == enclosing_class
+                and node.extra.get("verilog_kind") in {
+                    "port", "net", "parameter", "localparam",
+                }
+            }
+            source_name = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class
+                else file_path
+            )
+            for signal in sorted(roots & known_signals):
+                edges.append(EdgeInfo(
+                    kind="REFERENCES",
+                    source=source_name,
+                    target=self._qualify(signal, file_path, enclosing_class),
+                    file_path=file_path,
+                    line=child.start_point[0] + 1,
+                ))
+            return True
+
+        if node_type in ("covergroup_declaration", "property_declaration"):
+            identifier_type = (
+                "covergroup_identifier"
+                if node_type == "covergroup_declaration"
+                else "property_identifier"
+            )
+            name = next(
+                (
+                    find_simple_identifier(sub)
+                    for sub in child.children
+                    if sub.type == identifier_type
+                ),
+                None,
+            )
+            emit(name, child, node_type.split("_", 1)[0])
+            return True
+
+        if node_type == "sequence_declaration":
+            name = next(
+                (
+                    decode(sub)
+                    for sub in child.children
+                    if sub.type == "simple_identifier"
+                ),
+                None,
+            )
+            emit(name, child, "sequence")
+            return True
+
+        return False
+
+    def _collect_file_scope(
+        self, root, language: str, source: bytes,
+    ) -> tuple[dict[str, str], set[str]]:
+        """Pre-scan top-level AST to collect import mappings and defined names.
+
+        Returns:
+            (import_map, defined_names) where import_map maps imported names
+            to their source module/path, and defined_names is the set of
+            function/class names defined at file scope.
+        """
+        import_map: dict[str, str] = {}
+        defined_names: set[str] = set()
+
+        class_types = set(self._class_types.get(language, []))
+        func_types = set(self._function_types.get(language, []))
+        import_types = set(self._import_types.get(language, []))
+
+        # Node types that wrap a class/function with decorators/annotations
+        decorator_wrappers = {"decorated_definition", "decorator"}
+
+        for child in root.children:
+            node_type = child.type
+
+            if language == "java" and node_type == "package_declaration":
+                package = child.text.decode("utf-8", errors="replace").strip()
+                package = package.removeprefix("package ").removesuffix(";").strip()
+                if package:
+                    import_map[_JAVA_PACKAGE_KEY] = package
+                continue
+
+            # Kotlin groups top-level imports under an ``import_list`` node,
+            # while the generic import table contains ``import_header``.
+            if language == "kotlin" and node_type == "import_list":
+                for import_node in child.children:
+                    if import_node.type == "import_header":
+                        self._collect_import_names(
+                            import_node, language, source, import_map,
+                        )
+                continue
+
+            # Unwrap decorator wrappers to reach the inner definition
+            target = child
+            if node_type in decorator_wrappers:
+                for inner in child.children:
+                    if inner.type in func_types or inner.type in class_types:
+                        target = inner
+                        break
+            elif (
+                language in ("javascript", "typescript", "tsx")
+                and node_type == "export_statement"
+            ):
+                for inner in child.children:
+                    if inner.type in func_types or inner.type in class_types:
+                        target = inner
+                        break
+
+            target_type = target.type
+
+            # R: function names live on the left side of binary_operator
+            if language == "r" and target_type == "binary_operator":
+                r_children = target.children
+                if (
+                    len(r_children) >= 3
+                    and r_children[0].type == "identifier"
+                    and r_children[2].type == "function_definition"
+                ):
+                    name = r_children[0].text.decode("utf-8", errors="replace")
+                    defined_names.add(name)
+                    continue
+
+            # Collect defined function/class names
+            if target_type in func_types or target_type in class_types:
+                name = self._get_name(target, language,
+                                      "class" if target_type in class_types else "function")
+                if name:
+                    defined_names.add(name)
+                    continue
+
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type == "export_statement"
+            ):
+                self._collect_js_exported_local_names(child, defined_names)
+
+            # Collect import mappings: imported_name → module_path
+            if node_type in import_types:
+                self._collect_import_names(child, language, source, import_map)
+
+            if (
+                language in ("javascript", "typescript", "tsx")
+                and node_type in ("lexical_declaration", "variable_declaration")
+            ):
+                self._collect_js_require_names(child, import_map)
+
+        if language == "julia":
+            self._collect_julia_scoped_import_names(
+                root, source, import_map,
+            )
+
+        return import_map, defined_names
+
+    def _collect_julia_scoped_import_names(
+        self,
+        node,
+        source: bytes,
+        import_map: dict[str, str],
+        scope: Optional[str] = None,
+    ) -> None:
+        """Collect Julia aliases without leaking them across modules."""
+        current_scope = scope
+        if node.type == "module_definition":
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                module_name = name_node.text.decode(
+                    "utf-8", errors="replace",
+                )
+                current_scope = self._julia_scope_join(
+                    current_scope, module_name,
+                )
+
+        import_types = set(self._import_types.get("julia", []))
+        for child in node.children:
+            if child.type in import_types:
+                local_imports: dict[str, str] = {}
+                self._collect_import_names(
+                    child, "julia", source, local_imports,
+                )
+                for alias, target in local_imports.items():
+                    key = self._julia_scope_join(current_scope, alias)
+                    if key:
+                        import_map[key] = target
+                continue
+            self._collect_julia_scoped_import_names(
+                child, source, import_map, current_scope,
+            )
+
+    def _expand_python_star_imports(
+        self,
+        root,
+        file_path: str,
+        import_map: dict[str, str],
+        resolving: frozenset[str] = frozenset(),
+    ) -> None:
+        """Add public names from repository-local Python star imports."""
+        for child in root.children:
+            if child.type != "import_from_statement":
+                continue
+            if not any(part.type == "wildcard_import" for part in child.children):
+                continue
+            module_node = child.child_by_field_name("module_name")
+            if module_node is None:
+                continue
+            module = module_node.text.decode("utf-8", errors="replace")
+            resolved = self._resolve_python_module_in_repo(module, file_path)
+            if resolved is None or resolved in resolving:
+                continue
+            for name, origin in self._get_python_star_exports(
+                resolved, resolving,
+            ).items():
+                import_map.setdefault(name, origin)
+
+    def _get_python_star_exports(
+        self,
+        module_file: str,
+        resolving: frozenset[str] = frozenset(),
+    ) -> dict[str, str]:
+        """Return exported names mapped to their repository-local origin files."""
+        try:
+            module_path = Path(module_file).resolve()
+            file_stat = module_path.stat()
+        except (OSError, ValueError):
+            return {}
+        resolved_module = normalize_file_path(module_path)
+        if resolved_module in resolving:
+            return {}
+
+        cache_key = (resolved_module, file_stat.st_mtime_ns, file_stat.st_size)
+        with _PYTHON_STAR_EXPORT_CACHE_LOCK:
+            cached = _PYTHON_STAR_EXPORT_CACHE.get(cache_key)
+            if cached is not None:
+                return dict(cached)
+
+            exports = self._read_python_star_exports(
+                module_path, resolving,
+            )
+            stale_keys = [
+                key for key in _PYTHON_STAR_EXPORT_CACHE
+                if key[0] == resolved_module and key != cache_key
+            ]
+            for stale_key in stale_keys:
+                _PYTHON_STAR_EXPORT_CACHE.pop(stale_key, None)
+            if len(_PYTHON_STAR_EXPORT_CACHE) >= _PYTHON_STAR_CACHE_MAX:
+                oldest_keys = list(_PYTHON_STAR_EXPORT_CACHE)[: _PYTHON_STAR_CACHE_MAX // 2]
+                for oldest_key in oldest_keys:
+                    _PYTHON_STAR_EXPORT_CACHE.pop(oldest_key, None)
+            _PYTHON_STAR_EXPORT_CACHE[cache_key] = dict(exports)
+            return exports
+
+    def _read_python_star_exports(
+        self,
+        module_path: Path,
+        resolving: frozenset[str],
+    ) -> dict[str, str]:
+        """Read and parse one Python module for star-export discovery."""
+        resolved_module = normalize_file_path(module_path)
+        try:
+            source = module_path.read_bytes()
+        except (OSError, PermissionError):
+            return {}
+        try:
+            parser = self._get_parser("python")
+            if not parser:
+                return {}
+            tree = parser.parse(source)  # type: ignore[union-attr]
+            import_map, defined_names = self._collect_file_scope(
+                tree.root_node, "python", source,
+            )
+
+            origins: dict[str, str] = {}
+            next_resolving = resolving | {resolved_module}
+            self._expand_python_star_imports(
+                tree.root_node, resolved_module, origins, next_resolving,
+            )
+            for name, module in import_map.items():
+                origin = self._resolve_python_module_in_repo(module, resolved_module)
+                if origin is not None:
+                    origins[name] = origin
+            for name in defined_names:
+                origins[name] = resolved_module
+
+            explicit_exports = self._extract_python_dunder_all(tree.root_node)
+            if explicit_exports is not None:
+                return {
+                    name: origins.get(name, resolved_module)
+                    for name in explicit_exports
+                }
+            return {
+                name: origin
+                for name, origin in origins.items()
+                if not name.startswith("_")
+            }
+        except Exception as exc:
+            logger.debug(
+                "Skipping Python star exports for %s: %s",
+                module_path,
+                exc,
+            )
+            return {}
+
+    @staticmethod
+    def _extract_python_dunder_all(root) -> Optional[set[str]]:
+        """Return literal string names from ``__all__``, or None if absent."""
+        for child in root.children:
+            if child.type != "assignment":
+                continue
+            left = child.child_by_field_name("left")
+            if left is None or left.type != "identifier" or left.text != b"__all__":
+                continue
+            right = child.child_by_field_name("right")
+            if right is None:
+                return set()
+            try:
+                value = ast.literal_eval(right.text.decode("utf-8", errors="replace"))
+            except (SyntaxError, ValueError):
+                return set()
+            if not isinstance(value, (list, tuple)):
+                return set()
+            return {name for name in value if isinstance(name, str)}
+        return None
+
+    def _python_repo_boundary(self, file_path: str) -> Path:
+        """Return the filesystem boundary for safe Python import lookup."""
+        caller_dir = Path(file_path).resolve().parent
+        if self._repo_root is not None:
+            return self._repo_root
+        for candidate in (caller_dir, *caller_dir.parents):
+            if (candidate / ".git").exists() or (candidate / ".svn").exists():
+                return candidate
+        return caller_dir
+
+    @staticmethod
+    def _path_is_within(path: Path, boundary: Path) -> bool:
+        """Return whether *path* is *boundary* or one of its descendants."""
+        try:
+            path.relative_to(boundary)
+        except ValueError:
+            return False
+        return True
+
+    def _resolve_python_module_in_repo(
+        self, module: str, file_path: str,
+    ) -> Optional[str]:
+        """Resolve a Python module without traversing above the repository."""
+        caller_dir = Path(file_path).resolve().parent
+        boundary = self._python_repo_boundary(file_path)
+        leading_dots = len(module) - len(module.lstrip("."))
+        module_name = module[leading_dots:]
+        relative = Path(*module_name.split(".")) if module_name else Path()
+
+        search_roots: list[Path] = []
+        if leading_dots:
+            base = caller_dir
+            for _ in range(leading_dots - 1):
+                if base == boundary:
+                    return None
+                base = base.parent
+            search_roots.append(base)
+        else:
+            current = caller_dir
+            while self._path_is_within(current, boundary):
+                search_roots.append(current)
+                if current == boundary:
+                    break
+                current = current.parent
+
+        for root in search_roots:
+            base = root / relative
+            candidates = (
+                base.with_suffix(".py") if module_name else base / "__init__.py",
+                base / "__init__.py",
+            )
+            for candidate in candidates:
+                try:
+                    resolved = candidate.resolve()
+                except (OSError, ValueError):
+                    continue
+                if not self._path_is_within(resolved, boundary):
+                    continue
+                if resolved.is_file():
+                    return normalize_file_path(resolved)
+        return None
+
+    def _collect_js_exported_local_names(
+        self, node, defined_names: set[str],
+    ) -> None:
+        """Collect locally exported JS/TS names from export statements."""
+        for child in node.children:
+            if child.type in ("lexical_declaration", "variable_declaration"):
+                for sub in child.children:
+                    if sub.type == "variable_declarator":
+                        for part in sub.children:
+                            if part.type == "identifier":
+                                defined_names.add(
+                                    part.text.decode("utf-8", errors="replace"),
+                                )
+                                break
+
+    @staticmethod
+    def _js_static_module_target(call_node) -> Optional[str]:
+        """Return a literal module target from ``require``/``import``.
+
+        Only direct calls with exactly one non-empty string (or a template
+        literal without substitutions) are accepted. Expressions such as
+        ``path.join(...)`` and interpolated templates are deliberately
+        ignored because reducing them to a path prefix creates false edges.
+        """
+        function = call_node.child_by_field_name("function")
+        if function is None:
+            function = next(iter(call_node.named_children), None)
+        if function is None:
+            return None
+        function_text = function.text.decode("utf-8", errors="replace")
+        if function_text not in ("require", "import"):
+            return None
+
+        arguments = call_node.child_by_field_name("arguments")
+        if arguments is None:
+            arguments = next(
+                (child for child in call_node.children if child.type == "arguments"),
+                None,
+            )
+        if arguments is None or len(arguments.named_children) != 1:
+            return None
+
+        argument = arguments.named_children[0]
+        raw = argument.text.decode("utf-8", errors="replace")
+        if argument.type == "string":
+            target = raw[1:-1] if len(raw) >= 2 else ""
+            return target or None
+        if argument.type == "template_string":
+            if any(child.type == "template_substitution" for child in argument.children):
+                return None
+            target = raw[1:-1] if len(raw) >= 2 else ""
+            return target or None
+        return None
+
+    def _extract_js_module_call(
+        self,
+        call_node,
+        file_path: str,
+        language: str,
+        edges: list[EdgeInfo],
+    ) -> None:
+        """Emit one file-level IMPORTS_FROM edge for a static module call."""
+        module = self._js_static_module_target(call_node)
+        if not module:
+            return
+        target = self._resolve_module_to_file(module, file_path, language) or module
+        if any(
+            edge.kind == "IMPORTS_FROM"
+            and edge.source == file_path
+            and edge.target == target
+            for edge in edges
+        ):
+            return
+        edges.append(EdgeInfo(
+            kind="IMPORTS_FROM",
+            source=file_path,
+            target=target,
+            file_path=file_path,
+            line=call_node.start_point[0] + 1,
+        ))
+
+    def _collect_js_require_names(
+        self,
+        declaration,
+        import_map: dict[str, str],
+    ) -> None:
+        """Collect direct and shorthand-destructured CommonJS bindings."""
+        for declarator in declaration.named_children:
+            if declarator.type != "variable_declarator":
+                continue
+            value = declarator.child_by_field_name("value")
+            if value is None or value.type != "call_expression":
+                continue
+            module = self._js_static_module_target(value)
+            if not module:
+                continue
+            name = declarator.child_by_field_name("name")
+            if name is None:
+                continue
+            if name.type == "identifier":
+                import_map[name.text.decode("utf-8", errors="replace")] = module
+                continue
+            if name.type != "object_pattern":
+                continue
+            for child in name.named_children:
+                if child.type == "shorthand_property_identifier_pattern":
+                    local_name = child.text.decode("utf-8", errors="replace")
+                    import_map[local_name] = module
+
+    def _collect_import_names(
+        self, node, language: str, source: bytes, import_map: dict[str, str],
+    ) -> None:
+        """Extract imported names and their source modules into import_map."""
+        if language == "python":
+            if node.type == "import_from_statement":
+                # from X.Y import A, B → {A: X.Y, B: X.Y}
+                module = None
+                seen_import_keyword = False
+                for child in node.children:
+                    if child.type == "dotted_name" and not seen_import_keyword:
+                        module = child.text.decode("utf-8", errors="replace")
+                    elif child.type == "import":
+                        seen_import_keyword = True
+                    elif seen_import_keyword and module:
+                        if child.type in ("identifier", "dotted_name"):
+                            name = child.text.decode("utf-8", errors="replace")
+                            import_map[name] = module
+                        elif child.type == "aliased_import":
+                            # from X import A as B → {B: X}
+                            names = [
+                                sub.text.decode("utf-8", errors="replace")
+                                for sub in child.children
+                                if sub.type in ("identifier", "dotted_name")
+                            ]
+                            # Last name is the alias (local name)
+                            if names:
+                                import_map[names[-1]] = module
+
+        elif language in ("javascript", "typescript", "tsx"):
+            # import { A, B } from './path' → {A: ./path, B: ./path}
+            module = None
+            for child in node.children:
+                if child.type == "string":
+                    module = child.text.decode("utf-8", errors="replace").strip("'\"")
+            if module:
+                for child in node.children:
+                    if child.type == "import_clause":
+                        self._collect_js_import_names(child, module, import_map)
+
+        elif language == "rust":
+            for local_name, original_path in self._parse_rust_use_node(node):
+                if local_name != "*":
+                    import_map[local_name] = original_path
+
+        elif language == "julia":
+            def _alias_parts(alias_node) -> tuple[Optional[str], Optional[str]]:
+                names: list[str] = []
+                for part in alias_node.children:
+                    if part.type == "identifier":
+                        names.append(
+                            part.text.decode("utf-8", errors="replace"),
+                        )
+                    elif part.type == "import_path":
+                        names.append(
+                            ".".join(
+                                child.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                                for child in part.children
+                                if child.type == "identifier"
+                            ),
+                        )
+                if len(names) < 2:
+                    return None, None
+                return names[0], names[-1]
+
+            for child in node.children:
+                if child.type == "import_alias":
+                    real_name, alias = _alias_parts(child)
+                    if real_name and alias:
+                        import_map[alias] = real_name
+                    continue
+                if child.type != "selected_import":
+                    continue
+                module_name: Optional[str] = None
+                seen_colon = False
+                for part in child.children:
+                    if part.type == ":":
+                        seen_colon = True
+                    elif not seen_colon and part.type == "identifier":
+                        module_name = part.text.decode(
+                            "utf-8", errors="replace",
+                        )
+                    elif not seen_colon and part.type == "import_path":
+                        module_name = ".".join(
+                            component.text.decode(
+                                "utf-8", errors="replace",
+                            )
+                            for component in part.children
+                            if component.type == "identifier"
+                        )
+                    elif seen_colon and part.type == "import_alias":
+                        real_name, alias = _alias_parts(part)
+                        if module_name and real_name and alias:
+                            import_map[alias] = f"{module_name}.{real_name}"
+
+        elif language in ("java", "kotlin"):
+            text = node.text.decode("utf-8", errors="replace").strip()
+            if not text.startswith("import "):
+                return
+            imported = text[len("import "):].rstrip(";").strip()
+            if imported.startswith("static ") or imported.endswith(".*"):
+                return
+            original, separator, alias = imported.partition(" as ")
+            local_name = alias.strip() if separator else original.rsplit(".", 1)[-1]
+            if local_name:
+                import_map[local_name] = original.strip()
+
+        elif language == "php":
+            import_map.update(self._php_import_bindings(node))
+
+    def _collect_js_import_names(
+        self, clause_node, module: str, import_map: dict[str, str],
+    ) -> None:
+        """Walk JS/TS import_clause to extract named and default imports."""
+        for child in clause_node.children:
+            if child.type == "identifier":
+                # Default import
+                import_map[child.text.decode("utf-8", errors="replace")] = module
+            elif child.type == "namespace_import":
+                for sub in child.children:
+                    if sub.type == "identifier":
+                        import_map[sub.text.decode("utf-8", errors="replace")] = module
+                        break
+            elif child.type == "named_imports":
+                for spec in child.children:
+                    if spec.type == "import_specifier":
+                        # Could be: name or name as alias
+                        imported_node = spec.child_by_field_name("name")
+                        alias_node = spec.child_by_field_name("alias")
+                        names = [
+                            s.text.decode("utf-8", errors="replace")
+                            for s in spec.children
+                            if s.type in ("identifier", "property_identifier")
+                        ]
+                        # Last identifier is the local name
+                        if names:
+                            local_name = names[-1]
+                            import_map[local_name] = module
+                            imported_name = (
+                                imported_node.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                                if imported_node is not None
+                                else names[0]
+                            )
+                            if alias_node is not None and imported_name != local_name:
+                                import_map[
+                                    f"{_JS_IMPORT_ORIGINAL_PREFIX_KEY}{local_name}"
+                                ] = imported_name
+
+    @staticmethod
+    def _js_imported_symbol_name(
+        local_name: str,
+        import_map: dict[str, str],
+    ) -> str:
+        """Return the exported name behind a local JS/TS import alias."""
+        return import_map.get(
+            f"{_JS_IMPORT_ORIGINAL_PREFIX_KEY}{local_name}",
+            local_name,
+        )
+
+    def exclude_files(self, paths: set[str]) -> None:
+        """Treat these files as absent when resolving imports.
+
+        ``forget`` calls this before re-parsing the surviving referrers of a
+        forgotten file so their imports resolve exactly as they would in a
+        build where the forgotten files never existed: an import that would
+        point at a forgotten file falls back to a bare module, and the calls
+        it feeds stay bare too.
+        """
+        self._excluded_files = {normalize_file_path(Path(p).resolve()) for p in paths}
+        # Drop resolutions cached before the exclusions were applied.
+        self._module_file_cache.clear()
+
+    def _resolve_module_to_file(
+        self, module: str, file_path: str, language: str,
+    ) -> Optional[str]:
+        """Resolve a module/import path to an absolute file path.
+
+        Uses self._module_file_cache to avoid repeated filesystem lookups.
+        Files marked via :meth:`exclude_files` resolve to ``None`` so callers
+        fall back to the bare module string, matching a build without them.
+        """
+        caller_dir = str(Path(file_path).parent)
+        cache_key = f"{language}:{caller_dir}:{module}"
+        if cache_key in self._module_file_cache:
+            resolved = self._module_file_cache[cache_key]
+        else:
+            resolved = self._do_resolve_module(module, file_path, language)
+            if resolved is not None:
+                # Resolution walks the real filesystem, so on Windows the
+                # raw result uses backslashes; identity must not (#774).
+                resolved = normalize_file_path(resolved)
+            if len(self._module_file_cache) >= self._MODULE_CACHE_MAX:
+                self._module_file_cache.clear()
+            self._module_file_cache[cache_key] = resolved
+        if resolved is not None and resolved in self._excluded_files:
+            return None
+        return resolved
+
+    def _do_resolve_module(
+        self, module: str, file_path: str, language: str,
+    ) -> Optional[str]:
+        """Language-aware module-to-file resolution."""
+        caller_dir = Path(file_path).parent
+
+        if language == "bash":
+            # ``source ./lib.sh`` or ``source lib.sh`` — resolve relative
+            # to the caller's directory. See: #197
+            try:
+                target = (caller_dir / module).resolve()
+                if target.is_file():
+                    return str(target)
+            except (OSError, ValueError):
+                pass
+            return None
+
+        if language == "nix":
+            # ``import ./x.nix`` / ``callPackage ./x.nix { }`` — relative to
+            # the caller's directory. Non-relative targets (URLs, bare
+            # identifiers like ``nixpkgs``) are left unresolved.
+            try:
+                target = (caller_dir / module).resolve()
+                if target.is_file():
+                    return str(target)
+            except (OSError, ValueError):
+                pass
+            return None
+
+        if language == "zig":
+            # Zig: only relative ``@import("./foo.zig")`` paths are
+            # resolvable here. ``@import("std")`` and other package-style
+            # imports stay unresolved (the caller falls back to the raw
+            # module string as the edge target).
+            if module.endswith(".zig"):
+                try:
+                    target = (caller_dir / module).resolve()
+                    if target.is_file():
+                        return str(target)
+                except (OSError, ValueError):
+                    pass
+            return None
+
+        if language == "python":
+            rel_path = module.replace(".", "/")
+            candidates = [rel_path + ".py", rel_path + "/__init__.py"]
+            # Walk up from caller's directory to find the module file
+            current = caller_dir
+            while True:
+                for candidate in candidates:
+                    target = current / candidate
+                    if target.is_file():
+                        return str(target.resolve())
+                if current == current.parent:
+                    break
+                current = current.parent
+
+        elif language in ("javascript", "typescript", "tsx", "vue"):
+            if module.startswith("."):
+                # Relative import — resolve from caller's directory
+                base = caller_dir / module
+                extensions = [".ts", ".tsx", ".js", ".jsx", ".vue"]
+                # Try exact path first (might already have extension)
+                if base.is_file():
+                    return str(base.resolve())
+                # Try with extensions
+                for ext in extensions:
+                    target = base.with_suffix(ext)
+                    if target.is_file():
+                        return str(target.resolve())
+                # Try index file in directory
+                if base.is_dir():
+                    for ext in extensions:
+                        target = base / f"index{ext}"
+                        if target.is_file():
+                            return str(target.resolve())
+            else:
+                # Non-relative import — try tsconfig path alias resolution
+                resolved = self._tsconfig_resolver.resolve_alias(module, file_path)
+                if resolved:
+                    return resolved
+
+        elif language == "dart":
+            if module.startswith("."):
+                # Dart relative imports include the .dart extension
+                base = caller_dir / module
+                if base.is_file():
+                    return str(base.resolve())
+                # Fallback: try appending .dart
+                target = base.with_suffix(".dart")
+                if target.is_file():
+                    return str(target.resolve())
+            elif module.startswith("package:"):
+                # ``package:<name>/<sub_path>`` — resolve to the current repo's
+                # ``lib/<sub_path>`` iff a ``pubspec.yaml`` declaring that
+                # package name is found in an ancestor directory. See: #87
+                try:
+                    uri_body = module[len("package:"):]
+                    pkg_name, _, sub_path = uri_body.partition("/")
+                    if not sub_path:
+                        return None
+                    pubspec_root = self._find_dart_pubspec_root(
+                        caller_dir, pkg_name
+                    )
+                    if pubspec_root is not None:
+                        target = pubspec_root / "lib" / sub_path
+                        if target.is_file():
+                            return str(target.resolve())
+                except (OSError, ValueError):
+                    return None
+            # ``dart:core`` / ``dart:async`` etc. are SDK libraries we do
+            # not track; fall through to return None.
+
+        elif language == "rust":
+            return self._resolve_rust_module_file(module, file_path)
+
+        elif language == "java":
+            # ``import com.example.pkg.ClassName;`` — convert dot-notation
+            # to a relative path and walk up from the caller's directory to
+            # find the source root.  Wildcards (``import pkg.*``) and static
+            # member imports (``import static pkg.Class.member``) that don't
+            # resolve as-is are retried after dropping the last segment
+            # (the member name).
+            if module.endswith(".*"):
+                return None  # wildcard import — can't resolve to one file
+            rel_path = module.replace(".", "/") + ".java"
+            current = caller_dir
+            while True:
+                target = current / rel_path
+                if target.is_file():
+                    return str(target.resolve())
+                if current == current.parent:
+                    break
+                current = current.parent
+            # Static import: ``pkg.Class.member`` — strip member, try again
+            dot = module.rfind(".")
+            if dot > 0:
+                class_module = module[:dot]
+                rel_path2 = class_module.replace(".", "/") + ".java"
+                current = caller_dir
+                while True:
+                    target = current / rel_path2
+                    if target.is_file():
+                        return str(target.resolve())
+                    if current == current.parent:
+                        break
+                    current = current.parent
+
+        elif language == "kotlin":
+            if module.endswith(".*"):
+                return None
+            relative = module.replace(".", "/")
+            current = caller_dir
+            while True:
+                for suffix in (".kt", ".kts"):
+                    target = current / f"{relative}{suffix}"
+                    if target.is_file():
+                        return str(target.resolve())
+                if current == current.parent:
+                    break
+                current = current.parent
+
+        elif language == "php":
+            composer_resolved = self._resolve_php_composer_module(
+                module, caller_dir,
+            )
+            if composer_resolved:
+                return composer_resolved
+
+            # ``use App\Domain\Entity\Job;`` — convert namespace separators to
+            # a relative path and walk up from the caller's directory to find
+            # the file, mirroring the Java resolver. PSR-4 layouts where a
+            # namespace segment maps to a real directory (e.g. ``App\Foo`` ->
+            # ``.../App/Foo``) resolve; vendor/global classes (``\Exception``)
+            # and ``use function`` / ``use const`` targets with no matching
+            # file stay unresolved and keep the bare FQN, like JDK imports.
+            rel_path = module.replace("\\", "/").lstrip("/") + ".php"
+            try:
+                boundary = self._php_repository_boundary(caller_dir)
+                current = caller_dir.resolve()
+            except (OSError, RuntimeError, ValueError):
+                return None
+            if boundary is None or not _path_is_within(current, boundary):
+                return None
+
+            while _path_is_within(current, boundary):
+                try:
+                    target = (current / rel_path).resolve()
+                except (OSError, RuntimeError, ValueError):
+                    target = None
+                if (
+                    target is not None
+                    and _path_is_within(target, boundary)
+                    and target.is_file()
+                ):
+                    return str(target)
+                if current == boundary:
+                    break
+                current = current.parent
+
+        return None
+
+    @staticmethod
+    def _rust_dependency_specs(manifest: dict[str, Any]) -> dict[str, Any]:
+        """Collect Cargo dependency tables, including target-specific ones."""
+        specs: dict[str, Any] = {}
+        for section in ("dependencies", "dev-dependencies", "build-dependencies"):
+            table = manifest.get(section)
+            if isinstance(table, dict):
+                specs.update(table)
+        target_tables = manifest.get("target")
+        if isinstance(target_tables, dict):
+            for target in target_tables.values():
+                if not isinstance(target, dict):
+                    continue
+                for section in (
+                    "dependencies", "dev-dependencies", "build-dependencies",
+                ):
+                    table = target.get(section)
+                    if isinstance(table, dict):
+                        specs.update(table)
+        return specs
+
+    @staticmethod
+    def _rust_crate_layout(crate_root: Path) -> Optional[tuple[Path, Path]]:
+        """Return ``(source root, crate root module)`` for a local crate."""
+        manifest = _load_cargo_manifest(crate_root / "Cargo.toml")
+        if not isinstance(manifest.get("package"), dict):
+            return None
+        lib = manifest.get("lib")
+        explicit_lib = lib.get("path") if isinstance(lib, dict) else None
+        if isinstance(explicit_lib, str):
+            root_file = crate_root / explicit_lib
+            if root_file.is_file():
+                return root_file.parent, root_file
+
+        source_root = crate_root / "src"
+        for name in ("lib.rs", "main.rs"):
+            candidate = source_root / name
+            if candidate.is_file():
+                return source_root, candidate
+        return None
+
+    def _rust_project_context(
+        self, file_path: str,
+    ) -> Optional[tuple[Path, Path, Path, dict[str, Path], Path]]:
+        """Discover a bounded Cargo crate/workspace once per source directory."""
+        try:
+            caller_dir = Path(file_path).resolve().parent
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if self._repo_root is not None and not _path_is_within(
+            caller_dir, self._repo_root,
+        ):
+            return None
+        key = str(caller_dir)
+        if key in self._rust_project_cache:
+            return self._rust_project_cache[key]
+
+        manifests: list[tuple[Path, dict[str, Any]]] = []
+        current = caller_dir
+        for _ in range(64):
+            manifest_path = current / "Cargo.toml"
+            if manifest_path.is_file():
+                manifests.append((manifest_path, _load_cargo_manifest(manifest_path)))
+            if self._repo_root is not None and current == self._repo_root:
+                break
+            if current == current.parent:
+                break
+            current = current.parent
+
+        crate_entry = next(
+            (
+                entry for entry in manifests
+                if isinstance(entry[1].get("package"), dict)
+            ),
+            None,
+        )
+        if crate_entry is None:
+            return None
+        crate_manifest, crate_data = crate_entry
+        crate_root = crate_manifest.parent
+        workspace_entry = next(
+            (
+                entry for entry in manifests
+                if isinstance(entry[1].get("workspace"), dict)
+            ),
+            None,
+        )
+        workspace_root = (
+            workspace_entry[0].parent if workspace_entry else crate_root
+        )
+        boundary = self._repo_root or workspace_root
+        try:
+            boundary = boundary.resolve()
+            crate_root = crate_root.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not _path_is_within(crate_root, boundary):
+            return None
+
+        layout = self._rust_crate_layout(crate_root)
+        if layout is None:
+            return None
+        source_root, root_file = layout
+
+        workspace_specs: dict[str, Any] = {}
+        workspace_base = workspace_root
+        if workspace_entry:
+            workspace_table = workspace_entry[1].get("workspace")
+            if isinstance(workspace_table, dict):
+                raw_specs = workspace_table.get("dependencies")
+                if isinstance(raw_specs, dict):
+                    workspace_specs = raw_specs
+
+        dependencies: dict[str, Path] = {}
+        for alias, raw_spec in self._rust_dependency_specs(crate_data).items():
+            if not isinstance(alias, str) or not isinstance(raw_spec, dict):
+                continue
+            spec = raw_spec
+            base = crate_root
+            if raw_spec.get("workspace") is True:
+                inherited = workspace_specs.get(alias)
+                if not isinstance(inherited, dict):
+                    continue
+                spec = inherited
+                base = workspace_base
+            raw_path = spec.get("path")
+            if not isinstance(raw_path, str):
+                continue
+            try:
+                dependency_root = (base / raw_path).resolve()
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if not _path_is_within(dependency_root, boundary):
+                continue
+            if self._rust_crate_layout(dependency_root) is None:
+                continue
+            dependencies[alias] = dependency_root
+            dependencies[alias.replace("-", "_")] = dependency_root
+
+        context = (crate_root, source_root, root_file, dependencies, boundary)
+        self._rust_project_cache[key] = context
+        return context
+
+    @staticmethod
+    def _rust_current_module_parts(file_path: Path, source_root: Path) -> list[str]:
+        try:
+            relative = file_path.resolve().relative_to(source_root.resolve())
+        except (OSError, RuntimeError, ValueError):
+            return []
+        parts = list(relative.parts)
+        if not parts:
+            return []
+        filename = parts.pop()
+        if filename not in ("lib.rs", "main.rs", "mod.rs"):
+            parts.append(Path(filename).stem)
+        return parts
+
+    @staticmethod
+    def _rust_module_file_for_parts(
+        source_root: Path, root_file: Path, parts: list[str],
+    ) -> Optional[Path]:
+        if not parts:
+            return root_file
+        relative = Path(*parts)
+        flat = source_root / relative.with_suffix(".rs")
+        nested = source_root / relative / "mod.rs"
+        if flat.is_file():
+            return flat
+        if nested.is_file():
+            return nested
+        return None
+
+    def _resolve_rust_module_file(
+        self, module: str, file_path: str,
+    ) -> Optional[str]:
+        """Resolve crate/self/super and local path dependencies to source files."""
+        context = self._rust_project_context(file_path)
+        if context is None:
+            return None
+        _, source_root, root_file, dependencies, boundary = context
+        segments = [segment for segment in module.split("::") if segment]
+        if not segments:
+            return None
+
+        current_parts: list[str] = []
+        current_file = root_file
+        remaining = list(segments)
+        first = remaining[0]
+        if first == "crate":
+            remaining.pop(0)
+        elif first == "self":
+            remaining.pop(0)
+            current_parts = self._rust_current_module_parts(
+                Path(file_path), source_root,
+            )
+            current_file = Path(file_path)
+        elif first == "super":
+            current_parts = self._rust_current_module_parts(
+                Path(file_path), source_root,
+            )
+            while remaining and remaining[0] == "super":
+                remaining.pop(0)
+                if current_parts:
+                    current_parts.pop()
+            parent_file = self._rust_module_file_for_parts(
+                source_root, root_file, current_parts,
+            )
+            if parent_file is None:
+                return None
+            current_file = parent_file
+        elif first in dependencies:
+            dependency_root = dependencies[first]
+            remaining.pop(0)
+            layout = self._rust_crate_layout(dependency_root)
+            if layout is None:
+                return None
+            source_root, current_file = layout
+            current_parts = []
+
+        for index, segment in enumerate(remaining):
+            candidate_parts = [*current_parts, segment]
+            candidate = self._rust_module_file_for_parts(
+                source_root, current_file if not current_parts else root_file,
+                candidate_parts,
+            )
+            if candidate is not None:
+                current_parts = candidate_parts
+                current_file = candidate
+                continue
+            # The final segment can be an item exported by the current module.
+            if index != len(remaining) - 1:
+                return None
+            break
+
+        try:
+            resolved = current_file.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+        if not _path_is_within(resolved, boundary):
+            return None
+        return normalize_file_path(resolved)
+
+    def _resolve_php_composer_module(
+        self,
+        module: str,
+        caller_dir: Path,
+    ) -> Optional[str]:
+        """Resolve a PHP class through the nearest bounded Composer project."""
+        boundary = self._php_repository_boundary(caller_dir)
+        if boundary is None:
+            return None
+        mappings = self._find_php_composer_psr4(caller_dir, boundary)
+        if not mappings:
+            return None
+
+        normalized_module = module.lstrip("\\")
+        for prefix, destinations in mappings:
+            if prefix:
+                if normalized_module == prefix:
+                    relative = ""
+                elif normalized_module.startswith(prefix + "\\"):
+                    relative = normalized_module[len(prefix) + 1:]
+                else:
+                    continue
+            else:
+                relative = normalized_module
+            if not relative:
+                continue
+            relative_path = relative.replace("\\", "/") + ".php"
+            for destination in destinations:
+                try:
+                    target = (Path(destination) / relative_path).resolve()
+                except (OSError, RuntimeError, ValueError):
+                    continue
+                if not _path_is_within(target, boundary):
+                    continue
+                if target.is_file():
+                    return str(target)
+        return None
+
+    def _php_repository_boundary(self, start: Path) -> Optional[Path]:
+        """Return a safe Composer search boundary for *start*."""
+        try:
+            resolved_start = start.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+        if self._repo_root is not None:
+            if _path_is_within(resolved_start, self._repo_root):
+                return self._repo_root
+            return None
+
+        current = resolved_start
+        while True:
+            if (current / ".git").exists() or (current / ".svn").exists():
+                return current
+            if current == current.parent:
+                break
+            current = current.parent
+        # With no explicit or discoverable repository, never climb above the
+        # caller directory looking for unrelated Composer configuration.
+        return resolved_start
+
+    def _find_php_composer_psr4(
+        self,
+        start: Path,
+        boundary: Path,
+    ) -> _PhpPsr4Mappings:
+        """Find and parse the nearest composer.json without crossing *boundary*."""
+        current = start.resolve()
+        while _path_is_within(current, boundary):
+            composer = current / "composer.json"
+            if composer.is_file():
+                try:
+                    composer_stat = composer.stat()
+                except OSError:
+                    return ()
+                return _read_php_composer_psr4(
+                    str(composer.resolve()),
+                    str(boundary),
+                    composer_stat.st_mtime_ns,
+                    composer_stat.st_size,
+                )
+            if current == boundary:
+                break
+            current = current.parent
+        return ()
+
+    def _find_dart_pubspec_root(
+        self, start: Path, pkg_name: str,
+    ) -> Optional[Path]:
+        """Walk up from ``start`` to find a ``pubspec.yaml`` whose ``name:``
+        matches ``pkg_name``. Returns the directory containing that pubspec,
+        or None if no match is found. Result is cached per (start, pkg_name)
+        pair so repeated lookups within one parse pass are cheap.
+        """
+        cache_key = (str(start), pkg_name)
+        cached = self._dart_pubspec_cache.get(cache_key)
+        if cached is not None or cache_key in self._dart_pubspec_cache:
+            return cached
+        current = start
+        # Avoid infinite loops on weird symlinks.
+        for _ in range(20):
+            pubspec = current / "pubspec.yaml"
+            if pubspec.is_file():
+                try:
+                    text = pubspec.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    text = ""
+                m = re.search(r"^name:\s*([\w-]+)", text, re.MULTILINE)
+                if m and m.group(1) == pkg_name:
+                    self._dart_pubspec_cache[cache_key] = current
+                    return current
+            if current.parent == current:
+                break
+            current = current.parent
+        self._dart_pubspec_cache[cache_key] = None
+        return None
+
+    def _resolve_rust_scoped_call(
+        self,
+        call_name: str,
+        file_path: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> Optional[str]:
+        """Resolve associated/module Rust calls with alias provenance."""
+        parts = [part for part in call_name.split("::") if part]
+        if len(parts) < 2:
+            return None
+        method = parts[-1]
+        prefix = parts[:-1]
+        if prefix == ["Self"]:
+            return None
+        if len(prefix) == 1 and prefix[0] in defined_names:
+            return f"{self._qualify(prefix[0], file_path, None)}.{method}"
+
+        if prefix[0] in import_map:
+            prefix = import_map[prefix[0]].split("::") + prefix[1:]
+
+        resolved = self._resolve_module_to_file(
+            "::".join(prefix), file_path, "rust",
+        )
+        if resolved is None:
+            return None
+        parent_resolved = None
+        if len(prefix) > 1:
+            parent_resolved = self._resolve_module_to_file(
+                "::".join(prefix[:-1]), file_path, "rust",
+            )
+        if parent_resolved == resolved and prefix[-1] not in {
+            "crate", "self", "super",
+        }:
+            return f"{self._qualify(prefix[-1], resolved, None)}.{method}"
+        return self._qualify(method, resolved, None)
+
+    def _resolve_call_target(
+        self,
+        call_name: str,
+        file_path: str,
+        language: str,
+        import_map: dict[str, str],
+        defined_names: set[str],
+    ) -> str:
+        """Resolve a bare call name to a qualified target, with fallback."""
+        if language == "rust" and "::" in call_name:
+            resolved_rust = self._resolve_rust_scoped_call(
+                call_name, file_path, import_map, defined_names,
+            )
+            if resolved_rust:
+                return resolved_rust
+        if call_name in defined_names:
+            if language == "cpp":
+                return call_name
+            return self._qualify(call_name, file_path, None)
+        if call_name in import_map:
+            if language == "julia":
+                return import_map[call_name]
+            resolved = self._resolve_imported_symbol(
+                self._js_imported_symbol_name(call_name, import_map),
+                import_map[call_name],
+                file_path,
+                language,
+            )
+            if resolved:
+                return resolved
+        return call_name
+
+    def _resolve_imported_symbol(
+        self,
+        symbol_name: str,
+        module: str,
+        file_path: str,
+        language: str,
+    ) -> Optional[str]:
+        """Resolve an imported symbol to its defining qualified name when possible."""
+        module_path = Path(module)
+        if language == "python" and module_path.is_absolute():
+            try:
+                candidate = module_path.resolve()
+            except (OSError, ValueError):
+                return None
+            boundary = self._python_repo_boundary(file_path)
+            if not self._path_is_within(candidate, boundary) or not candidate.is_file():
+                return None
+            resolved = normalize_file_path(candidate)
+        else:
+            resolved = self._resolve_module_to_file(module, file_path, language)
+        if not resolved:
+            return None
+
+        export_target = self._resolve_exported_symbol(resolved, symbol_name)
+        if export_target:
+            return export_target
+        return self._qualify(symbol_name, resolved, None)
+
+    def _resolve_exported_symbol(
+        self,
+        module_file: str,
+        symbol_name: str,
+        seen: Optional[set[tuple[str, str]]] = None,
+    ) -> Optional[str]:
+        """Resolve a JS/TS symbol through common re-export/barrel patterns."""
+        cache_key = f"{module_file}::{symbol_name}"
+        if cache_key in self._export_symbol_cache:
+            return self._export_symbol_cache[cache_key]
+
+        key = (module_file, symbol_name)
+        if seen is None:
+            seen = set()
+        if key in seen:
+            return None
+        seen.add(key)
+
+        path = Path(module_file)
+        language = self.detect_language(path)
+        if language not in ("javascript", "typescript", "tsx", "vue"):
+            return None
+
+        try:
+            source = path.read_bytes()
+        except (OSError, PermissionError):
+            return None
+
+        parser = self._get_parser(language)
+        if not parser:
+            return None
+
+        tree = parser.parse(source)
+
+        # Direct local definition/export in the module file.
+        import_map, defined_names = self._collect_file_scope(
+            tree.root_node, language, source,
+        )
+        if symbol_name in defined_names:
+            result = self._qualify(symbol_name, module_file, None)
+            self._export_symbol_cache[cache_key] = result
+            return result
+
+        for child in tree.root_node.children:
+            if child.type != "export_statement":
+                continue
+
+            export_clause = None
+            target_module = None
+            has_star_export = False
+
+            for sub in child.children:
+                if sub.type == "export_clause":
+                    export_clause = sub
+                elif sub.type == "string":
+                    target_module = sub.text.decode("utf-8", errors="replace").strip("'\"")
+                elif sub.type == "*":
+                    has_star_export = True
+
+            # Re-exported names: export { Foo as Bar } from './x'
+            if export_clause is not None:
+                for spec in export_clause.children:
+                    if spec.type != "export_specifier":
+                        continue
+                    names = [
+                        part.text.decode("utf-8", errors="replace")
+                        for part in spec.children
+                        if part.type in ("identifier", "property_identifier")
+                    ]
+                    if not names:
+                        continue
+                    exported_name = names[-1]
+                    original_name = names[0]
+                    if exported_name != symbol_name:
+                        continue
+                    if target_module:
+                        resolved_module = self._resolve_module_to_file(
+                            target_module, module_file, language,
+                        )
+                        if resolved_module:
+                            result = self._resolve_exported_symbol(
+                                resolved_module, original_name, seen,
+                            ) or self._qualify(original_name, resolved_module, None)
+                            self._export_symbol_cache[cache_key] = result
+                            return result
+                    result = self._qualify(original_name, module_file, None)
+                    self._export_symbol_cache[cache_key] = result
+                    return result
+
+            # Star re-export: export * from './x'
+            if has_star_export and target_module:
+                resolved_module = self._resolve_module_to_file(
+                    target_module, module_file, language,
+                )
+                if resolved_module:
+                    result = self._resolve_exported_symbol(
+                        resolved_module, symbol_name, seen,
+                    )
+                    if result:
+                        self._export_symbol_cache[cache_key] = result
+                        return result
+
+        self._export_symbol_cache[cache_key] = None
+        return None
+
+    def _qualify(self, name: str, file_path: str, enclosing_class: Optional[str]) -> str:
+        """Create a qualified name: file_path::ClassName.name or file_path::name.
+
+        The path component is normalized to POSIX separators so identities
+        are stable across operating systems (#774). ``name`` and
+        ``enclosing_class`` are never touched — PHP namespace identifiers
+        legitimately contain backslashes.
+        """
+        file_path = normalize_file_path(file_path)
+        if enclosing_class:
+            return f"{file_path}::{enclosing_class}.{name}"
+        return f"{file_path}::{name}"
+
+    def _node_qualified(self, node: NodeInfo) -> str:
+        """Return the parser identity for a node without changing display name."""
+        return self._qualify(
+            node.identity_name or node.name,
+            node.file_path,
+            node.parent_name,
+        )
+
+    # Leaf node types that typically carry a definition's name across grammars.
+    # Used when descending from a configured ``name_field`` target to a clean
+    # text leaf (config-driven custom languages only).
+    _CUSTOM_NAME_LEAF_TYPES = (
+        "word", "identifier", "name", "simple_identifier",
+        "command_name", "key_brace", "type_identifier",
+        "property_identifier", "constant",
+    )
+    #: Depth guard for custom name-field descent / descendant search.
+    _MAX_CUSTOM_NAME_DEPTH = 4
+    #: Cap on a resolved custom name before it is rejected as junk.
+    _MAX_CUSTOM_NAME_LEN = 256
+
+    def _custom_name_leaf(self, node, depth: int):
+        """Return the first text-bearing leaf of a known name type within
+        ``depth`` levels of ``node`` (preorder), or None."""
+        if node.type in self._CUSTOM_NAME_LEAF_TYPES and node.child_count == 0:
+            return node
+        if depth <= 0:
+            return None
+        for child in node.children:
+            found = self._custom_name_leaf(child, depth - 1)
+            if found is not None:
+                return found
+        return None
+
+    def _find_custom_descendant(self, node, type_name: str, depth: int):
+        """Return the first descendant of ``node`` whose type == ``type_name``
+        within ``depth`` levels (preorder), or None."""
+        if depth <= 0:
+            return None
+        for child in node.children:
+            if child.type == type_name:
+                return child
+            found = self._find_custom_descendant(child, type_name, depth - 1)
+            if found is not None:
+                return found
+        return None
+
+    def _clean_custom_name(self, text: str) -> Optional[str]:
+        """Strip wrapping braces/quotes/whitespace; reject empty, multi-line,
+        or oversized text so a bad target never becomes a garbage name."""
+        cleaned = text.strip().strip("{}\"'").strip()
+        if not cleaned or "\n" in cleaned or len(cleaned) > self._MAX_CUSTOM_NAME_LEN:
+            return None
+        return cleaned
+
+    def _custom_leaf_name(self, node) -> Optional[str]:
+        """Resolve a configured ``name_field`` target node to a clean name.
+
+        Prefers a text-bearing leaf of a known name type; falls back to the
+        target's own text (covers fieldless wrappers like Markdown ``inline``).
+        """
+        leaf = self._custom_name_leaf(node, self._MAX_CUSTOM_NAME_DEPTH)
+        target = leaf if leaf is not None else node
+        return self._clean_custom_name(
+            target.text.decode("utf-8", errors="replace")
+        )
+
+    def _resolve_custom_name(self, node, language: str) -> Optional[str]:
+        """Resolve a definition name for a config-driven custom language using
+        the language's ordered ``name_field`` candidates.
+
+        Two passes so grammar *fields* are always preferred over a broader
+        *type* search: this avoids matching an unrelated same-typed node in a
+        different field (e.g. LaTeX ``\\newcommand`` whose ``implementation``
+        body contains a ``text`` node — the ``declaration`` field must win).
+        Returns None when no candidate resolves (caller then applies the legacy
+        ``name`` field fallback).
+        """
+        custom = self._custom_languages.get(language)
+        candidates = custom.name_field if custom is not None else ()
+        if not candidates:
+            return None
+        # Pass 1: field lookups (authoritative).
+        for cand in candidates:
+            target = node.child_by_field_name(cand)
+            if target is not None:
+                resolved = self._custom_leaf_name(target)
+                if resolved:
+                    return resolved
+        # Pass 2: typed-descendant search (for fieldless shapes).
+        for cand in candidates:
+            target = self._find_custom_descendant(
+                node, cand, self._MAX_CUSTOM_NAME_DEPTH
+            )
+            if target is not None:
+                resolved = self._custom_leaf_name(target)
+                if resolved:
+                    return resolved
+        return None
+
+    def _get_name(self, node, language: str, kind: str) -> Optional[str]:
+        """Extract the name from a class/function definition node."""
+        # Dart: function_signature has a return-type node before the identifier;
+        # search only for 'identifier' to avoid returning the return type name.
+        if language == "dart" and node.type == "function_signature":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return None
+        # Solidity: constructor and receive/fallback have no identifier child
+        if language == "solidity":
+            if node.type == "constructor_definition":
+                return "constructor"
+            if node.type == "fallback_receive_definition":
+                for child in node.children:
+                    if child.type in ("receive", "fallback"):
+                        return child.text.decode("utf-8", errors="replace")
+        # Lua/Luau: function_declaration names may be dot_index_expression or
+        # method_index_expression (e.g. function Animal.new() / Animal:speak()).
+        # Return only the method name; the table name is used as parent_name
+        # in _extract_lua_constructs.
+        if language in ("lua", "luau") and node.type == "function_declaration":
+            for child in node.children:
+                if child.type in ("dot_index_expression", "method_index_expression"):
+                    # Last identifier child is the method name
+                    for sub in reversed(child.children):
+                        if sub.type == "identifier":
+                            return sub.text.decode("utf-8", errors="replace")
+                    return None
+        # Perl: bareword for subroutine names, package for package names
+        if language == "perl":
+            for child in node.children:
+                if child.type == "bareword":
+                    return child.text.decode("utf-8", errors="replace")
+                if child.type == "package" and child.text != b"package":
+                    return child.text.decode("utf-8", errors="replace")
+        # Java: method_declaration has return type_identifier before the method
+        # identifier — skip straight to the first plain identifier child to
+        # avoid returning the return type as the function name.
+        if language == "java" and kind == "function" and node.type in (
+            "method_declaration", "constructor_declaration",
+        ):
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return None
+        # C#: unlike Java there is no type_identifier — a non-generic return
+        # type such as ``Task`` is itself an ``identifier``, so the generic
+        # loop below would return it instead of the method name. Read the
+        # ``name`` field; unusual shapes still fall through.
+        if language == "csharp" and kind == "function" and node.type in (
+            "method_declaration", "constructor_declaration",
+        ):
+            name_node = node.child_by_field_name("name")
+            if name_node is not None:
+                return name_node.text.decode("utf-8", errors="replace")
+
+        if language == "cpp" and kind == "function":
+            declarator = node.child_by_field_name("declarator")
+            if node.type in ("declaration", "field_declaration"):
+                if (
+                    not self._cpp_declaration_has_callable_scope(node)
+                    or not self._cpp_is_callable_declaration(declarator)
+                ):
+                    return None
+                return self._cpp_callable_name(declarator)
+            cpp_name = self._cpp_callable_name(declarator)
+            if cpp_name:
+                return cpp_name
+
+        # For C/C++/Objective-C: function names are inside
+        # function_declarator / pointer_declarator. Check these first to
+        # avoid matching the return type_identifier as the function name.
+        if language in ("c", "cpp", "objc") and kind == "function":
+            for child in node.children:
+                if child.type in ("function_declarator", "pointer_declarator"):
+                    # Scoped names like Foo::bar use qualified_identifier; take
+                    # the rightmost identifier/field_identifier after the last ::.
+                    for sub in child.children:
+                        if sub.type == "qualified_identifier":
+                            for qsub in reversed(sub.children):
+                                if qsub.type in ("identifier", "field_identifier"):
+                                    return qsub.text.decode("utf-8", errors="replace")
+                    result = self._get_name(child, language, kind)
+                    if result:
+                        return result
+            # C++: inside function_declarator, the name appears as
+            # qualified_identifier (Class::method), destructor_name (~Class),
+            # operator_name (operator==), or field_identifier. The generic
+            # loop below only recognizes 'identifier'/'type_identifier',
+            # so scoped method definitions would otherwise fall through and
+            # match the outer return-type type_identifier as the function name.
+            # Nested scopes (Outer::Inner::method) produce nested
+            # qualified_identifier nodes — peel until we find the leaf name.
+            if language == "cpp" and node.type == "function_declarator":
+                def _leaf_name(qi):
+                    # Walk right-to-left: the rightmost identifier/
+                    # destructor_name/operator_name is the method name.
+                    # If the rightmost child is itself a qualified_identifier
+                    # (nested scope), recurse into it.
+                    for sub in reversed(qi.children):
+                        if sub.type in (
+                            "identifier",
+                            "destructor_name",
+                            "operator_name",
+                        ):
+                            return sub.text.decode(
+                                "utf-8", errors="replace")
+                        if sub.type == "qualified_identifier":
+                            inner = _leaf_name(sub)
+                            if inner:
+                                return inner
+                    return None
+                for child in node.children:
+                    if child.type == "qualified_identifier":
+                        name = _leaf_name(child)
+                        if name:
+                            return name
+                    if child.type in (
+                        "field_identifier",
+                        "destructor_name",
+                        "operator_name",
+                    ):
+                        return child.text.decode(
+                            "utf-8", errors="replace")
+
+        # Objective-C method_definition: the method name is the first
+        # ``identifier`` child (first part of the selector). Multi-part
+        # selectors like ``- (void)add:(int)a to:(int)b`` keep ``add`` as
+        # the canonical method name; later parts are keyword arguments.
+        if language == "objc" and node.type == "method_definition":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+
+        # Bash function_definition: ``foo() { ... }`` — tree-sitter-bash
+        # stores the function name as a ``word`` child, which the generic
+        # loop below doesn't recognize.
+        if language == "bash" and node.type == "function_definition":
+            for child in node.children:
+                if child.type == "word":
+                    return child.text.decode("utf-8", errors="replace")
+        # Go methods: tree-sitter-go uses field_identifier for the name
+        # (e.g. func (s *T) MethodName(...) { }). Must run before the generic
+        # loop, which would match the result type's type_identifier (e.g. int64).
+        if language == "go" and node.type == "method_declaration":
+            for child in node.children:
+                if child.type == "field_identifier":
+                    return child.text.decode("utf-8", errors="replace")
+        # Java methods: tree-sitter-java puts type_identifier or generic_type
+        # (return type) before identifier (method name).  Must run before
+        # the generic loop, which would match the return type's
+        # type_identifier (e.g. "String", "ConfigBean").
+        # Constructors are fine — they have no return type node.
+        # Kotlin is unaffected: its syntax places the name before the type.
+        if language == "java" and node.type == "method_declaration":
+            for child in node.children:
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+        # Swift init/deinit/subscript: the grammar gives none of them a usable
+        # name. `init_declaration`'s name field is the `init` keyword itself,
+        # `deinit_declaration` has no name field at all (so the generic loop
+        # returns None and the node is dropped), and `subscript_declaration`'s
+        # name field is the *return type* (`subscript(i: Int) -> String` would
+        # be named "String"). Name each after its Swift declaration keyword.
+        if language == "swift" and node.type in (
+            "init_declaration",
+            "deinit_declaration",
+            "subscript_declaration",
+        ):
+            return node.type.removesuffix("_declaration")
+        # Swift extensions: name is inside user_type > type_identifier
+        # (e.g. `extension MyClass: Protocol { ... }`)
+        if language == "swift" and node.type == "class_declaration":
+            for child in node.children:
+                if child.type == "user_type":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            return sub.text.decode("utf-8", errors="replace")
+        # Verilog/SystemVerilog: names are nested differently per construct type.
+        if language == "verilog":
+            if node.type == "package_declaration":
+                for child in node.children:
+                    if child.type == "package_identifier":
+                        for sub in child.children:
+                            if sub.type == "simple_identifier":
+                                return sub.text.decode("utf-8", errors="replace")
+            # module_declaration: name is in module_header > simple_identifier
+            if node.type == "module_declaration":
+                for child in node.children:
+                    if child.type == "module_header":
+                        for sub in child.children:
+                            if sub.type == "simple_identifier":
+                                return sub.text.decode("utf-8", errors="replace")
+            # interface_declaration: name is in interface_ansi_header > interface_identifier
+            if node.type == "interface_declaration":
+                for child in node.children:
+                    if child.type in ("interface_header", "interface_ansi_header"):
+                        for sub in child.children:
+                            if sub.type == "simple_identifier":
+                                return sub.text.decode("utf-8", errors="replace")
+                            if sub.type == "interface_identifier":
+                                for ss in sub.children:
+                                    if ss.type == "simple_identifier":
+                                        return ss.text.decode("utf-8", errors="replace")
+                                return sub.text.decode("utf-8", errors="replace")
+            # task_declaration: name is in task_body_declaration > task_identifier
+            if node.type == "task_declaration":
+                for child in node.children:
+                    if child.type == "task_body_declaration":
+                        for sub in child.children:
+                            if sub.type == "task_identifier":
+                                return sub.text.decode("utf-8", errors="replace")
+            # function_declaration: name is in function_body_declaration > function_identifier
+            if node.type == "function_declaration":
+                for child in node.children:
+                    if child.type == "function_body_declaration":
+                        for sub in child.children:
+                            if sub.type == "function_identifier":
+                                return sub.text.decode("utf-8", errors="replace")
+
+        # Julia: functions / macros nest the name inside
+        # ``signature > call_expression > identifier``. Qualified names
+        # (``function Base.show``) store the method name as the last
+        # identifier of a ``field_expression``. ``where`` clauses wrap the
+        # call in a ``where_expression``.
+        # Structs and abstract types put the name inside ``type_head``,
+        # possibly wrapped in ``binary_expression`` (``<:``) or
+        # ``parametrized_type_expression`` (``{T}``).
+        if language == "julia":
+            if node.type in ("function_definition", "macro_definition"):
+                callee = self._julia_signature_callee(node)
+                if callee is None:
+                    return None
+                if callee.type == "field_expression":
+                    _, name = self._julia_field_info(callee)
+                    return name
+                if callee.type == "parametrized_type_expression":
+                    # Parametric constructor: ``Foo{T}(x)``.
+                    for part in callee.children:
+                        if part.type == "identifier":
+                            return part.text.decode(
+                                "utf-8", errors="replace",
+                            )
+                    return None
+                return self._julia_component_name(callee)
+            if node.type in ("struct_definition", "abstract_definition"):
+                for child in node.children:
+                    if child.type == "type_head":
+                        # Direct identifier: struct Foo ... end
+                        for sub in child.children:
+                            if sub.type == "identifier":
+                                return sub.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                        # Subtyped: type_head > binary_expression > identifier (first)
+                        for sub in child.children:
+                            if sub.type == "binary_expression":
+                                for ident in sub.children:
+                                    if ident.type == "identifier":
+                                        return ident.text.decode(
+                                            "utf-8", errors="replace",
+                                        )
+                                    if ident.type == "parametrized_type_expression":
+                                        for p in ident.children:
+                                            if p.type == "identifier":
+                                                return p.text.decode(
+                                                    "utf-8", errors="replace",
+                                                )
+                                        return None
+                                return None
+                        # Parametric (no <:): type_head > parametrized_type_expression
+                        for sub in child.children:
+                            if sub.type == "parametrized_type_expression":
+                                for p in sub.children:
+                                    if p.type == "identifier":
+                                        return p.text.decode(
+                                            "utf-8", errors="replace",
+                                        )
+                                return None
+                return None
+
+        # Config-driven custom languages make ``name_field`` authoritative.
+        # Resolve it before the generic direct-child heuristic so an unrelated
+        # identifier (for example a Java return type) cannot win.
+        if language in self._custom_languages:
+            resolved = self._resolve_custom_name(node, language)
+            if resolved:
+                return resolved
+            name_child = node.child_by_field_name("name")
+            if name_child is not None:
+                return name_child.text.decode("utf-8", errors="replace")
+
+        # Most built-in languages use a 'name' child.
+        # field_identifier covers C++ class member function names inside
+        # function_declarator (e.g. virtual std::string get_name() = 0).
+        for child in node.children:
+            if child.type in (
+                "identifier", "name", "type_identifier", "property_identifier",
+                "simple_identifier", "constant", "field_identifier",
+            ):
+                return child.text.decode("utf-8", errors="replace")
+        # For Go type declarations, look for type_spec
+        if language == "go" and node.type == "type_declaration":
+            for child in node.children:
+                if child.type == "type_spec":
+                    return self._get_name(child, language, kind)
+        return None
+
+    def _get_go_receiver_type(self, node) -> Optional[str]:
+        """Extract the receiver type from a Go method_declaration.
+
+        For ``func (s *T) Foo() {...}`` returns ``"T"``. For ``func (T) Foo()``
+        also returns ``"T"``. Returns None if no receiver is present.
+
+        The receiver is always the first ``parameter_list`` child of a
+        Go ``method_declaration`` and contains a single ``parameter_declaration``
+        whose type is either a ``type_identifier`` or a ``pointer_type``
+        wrapping one. See: #190
+        """
+        for child in node.children:
+            if child.type != "parameter_list":
+                continue
+            for param in child.children:
+                if param.type != "parameter_declaration":
+                    continue
+                for sub in param.children:
+                    if sub.type == "type_identifier":
+                        return sub.text.decode("utf-8", errors="replace")
+                    if sub.type == "pointer_type":
+                        for ptr_child in sub.children:
+                            if ptr_child.type == "type_identifier":
+                                return ptr_child.text.decode(
+                                    "utf-8", errors="replace"
+                                )
+            # First parameter_list is always the receiver; stop searching.
+            return None
+        return None
+
+    @staticmethod
+    def _cpp_scope_join(
+        outer: Optional[str],
+        inner: Optional[str],
+    ) -> Optional[str]:
+        if outer and inner:
+            return f"{outer}.{inner}"
+        return outer or inner
+
+    def _cpp_lexical_namespace(self, node) -> Optional[str]:
+        """Return the dotted namespace path containing a C++ AST node."""
+        namespaces: list[str] = []
+        ancestor = node.parent
+        while ancestor is not None:
+            if ancestor.type == "namespace_definition":
+                name_node = ancestor.child_by_field_name("name")
+                namespace = (
+                    name_node.text.decode("utf-8", errors="replace")
+                    if name_node is not None
+                    else "(anonymous)"
+                )
+                namespaces.append(re.sub(r"\s*::\s*", ".", namespace))
+            ancestor = ancestor.parent
+        namespaces.reverse()
+        return ".".join(namespaces) or None
+
+    def _cpp_lexical_class_names(self, node) -> list[str]:
+        """Return containing C++ class names from outermost to innermost."""
+        classes: list[str] = []
+        ancestor = node.parent
+        class_types = self._class_types.get("cpp", [])
+        while ancestor is not None:
+            if ancestor.type in class_types:
+                name = self._get_name(ancestor, "cpp", "class")
+                if name:
+                    classes.append(name)
+            ancestor = ancestor.parent
+        classes.reverse()
+        return classes
+
+    def _cpp_function_identity(
+        self,
+        node,
+        name: str,
+        source: bytes,
+    ) -> tuple[Optional[str], str, Optional[str]]:
+        """Return explicit scope, signature identity, and raw C++ parameters."""
+        declarator_root = node.child_by_field_name("declarator")
+        declarator = self._cpp_find_function_declarator(declarator_root)
+        if declarator is None:
+            return None, name, None
+
+        callable_name = self._cpp_callable_name(declarator_root) or name
+        callable_node = declarator.child_by_field_name("declarator")
+        if declarator_root is not None and declarator_root.type == "qualified_identifier":
+            callable_node = declarator_root
+        elif callable_node is not None and callable_node.type != "qualified_identifier":
+            callable_node = self._cpp_find_qualified_identifier(callable_node)
+        explicit_scope: Optional[str] = None
+        if callable_node is not None and callable_node.type == "qualified_identifier":
+            callable_text = callable_node.text.decode(
+                "utf-8", errors="replace",
+            )
+            if "::" in callable_text:
+                scope_text = callable_text.rsplit("::", 1)[0].lstrip(":").strip()
+                explicit_scope = re.sub(
+                    r"\s*::\s*", ".", scope_text,
+                )
+
+        parameters = declarator.child_by_field_name("parameters")
+        if parameters is None:
+            return explicit_scope, name, None
+
+        parameter_types = [
+            self._cpp_parameter_type(parameter, source)
+            for parameter in parameters.named_children
+            if parameter.type != "comment"
+        ]
+        parameter_types = [value for value in parameter_types if value]
+        if any(child.type == "..." for child in parameters.children):
+            parameter_types.append("...")
+        if parameter_types == ["void"]:
+            parameter_types = []
+        qualifiers = [
+            child.text.decode("utf-8", errors="replace").strip()
+            for child in declarator.children
+            if child.type in ("type_qualifier", "ref_qualifier")
+        ]
+        qualifier_suffix = f" {' '.join(qualifiers)}" if qualifiers else ""
+        raw_params = parameters.text.decode("utf-8", errors="replace")
+        return (
+            explicit_scope,
+            f"{callable_name}({','.join(parameter_types)}){qualifier_suffix}",
+            raw_params,
+        )
+
+    def _cpp_find_function_declarator(self, declarator):
+        """Find the callable declarator through reference/pointer wrappers."""
+        if declarator is None:
+            return None
+        if declarator.type in ("function_declarator", "abstract_function_declarator"):
+            nested = self._cpp_find_function_declarator(
+                declarator.child_by_field_name("declarator"),
+            )
+            if nested is not None:
+                return nested
+            return declarator
+        for child in declarator.named_children:
+            if child.type in ("parameter_list", "template_argument_list"):
+                continue
+            found = self._cpp_find_function_declarator(child)
+            if found is not None:
+                return found
+        return None
+
+    def _cpp_is_callable_declaration(self, declarator) -> bool:
+        """Return whether a declaration names a function, not a function pointer."""
+        function_declarator = self._cpp_find_function_declarator(declarator)
+        if function_declarator is None:
+            return False
+
+        callable_declarator = function_declarator.child_by_field_name("declarator")
+        if (
+            callable_declarator is None
+            or callable_declarator.type != "parenthesized_declarator"
+        ):
+            return True
+
+        # ``void (*callback)(int)`` has no nested function declarator inside
+        # the parentheses.  A real function returning a function pointer,
+        # such as ``void (*factory())(int)``, does.
+        return self._cpp_find_function_declarator(callable_declarator) is not None
+
+    @staticmethod
+    def _cpp_declaration_has_callable_scope(declaration) -> bool:
+        """Limit callable declarations to file, namespace, and class scopes."""
+        scope = declaration.parent
+        while scope is not None:
+            if scope.type in (
+                "translation_unit",
+                "namespace_definition",
+                "field_declaration_list",
+            ):
+                return not _is_in_static_dead_guard(declaration)
+            if scope.type in (
+                "compound_statement",
+                "function_definition",
+                "lambda_expression",
+            ):
+                return False
+            scope = scope.parent
+        return False
+
+    def _cpp_find_qualified_identifier(self, declarator):
+        """Find the callable's qualified identifier outside its parameters."""
+        if declarator is None:
+            return None
+        if declarator.type == "qualified_identifier":
+            return declarator
+        for child in declarator.named_children:
+            if child.type in ("parameter_list", "template_argument_list"):
+                continue
+            found = self._cpp_find_qualified_identifier(child)
+            if found is not None:
+                return found
+        return None
+
+    def _cpp_callable_name(self, declarator) -> Optional[str]:
+        """Return a C++ callable name without confusing it with its return type."""
+        if declarator is None:
+            return None
+
+        operator_cast = self._cpp_find_declarator_kind(declarator, "operator_cast")
+        if operator_cast is not None:
+            function_declarator = self._cpp_find_function_declarator(operator_cast)
+            if function_declarator is not None:
+                prefix_end = function_declarator.start_byte - operator_cast.start_byte
+                name = operator_cast.text[:prefix_end].decode(
+                    "utf-8", errors="replace",
+                )
+                name = re.sub(r"\s+", " ", name).strip()
+                return re.sub(r"\s*([*&])\s*", r"\1", name)
+
+        def leaf_name(current):
+            for child in reversed(current.named_children):
+                if child.type in ("parameter_list", "template_argument_list"):
+                    continue
+                if child.type in (
+                    "identifier",
+                    "field_identifier",
+                    "destructor_name",
+                    "operator_name",
+                ):
+                    return child.text.decode("utf-8", errors="replace")
+                found = leaf_name(child)
+                if found:
+                    return found
+            return None
+
+        return leaf_name(declarator)
+
+    def _cpp_find_declarator_kind(self, declarator, kind: str):
+        """Find one declarator node kind while ignoring parameter declarations."""
+        if declarator is None:
+            return None
+        if declarator.type == kind:
+            return declarator
+        for child in declarator.named_children:
+            if child.type in ("parameter_list", "template_argument_list"):
+                continue
+            found = self._cpp_find_declarator_kind(child, kind)
+            if found is not None:
+                return found
+        return None
+
+    def _cpp_parameter_type(self, parameter, source: bytes) -> str:
+        """Normalize one C++ parameter to its type-only identity fragment."""
+        end_byte = parameter.end_byte
+        for child in parameter.children:
+            if child.type == "=":
+                end_byte = child.start_byte
+                break
+
+        declarator = parameter.child_by_field_name("declarator")
+        name_node = self._cpp_declarator_name(declarator)
+        if name_node is not None and name_node.start_byte < end_byte:
+            raw = (
+                source[parameter.start_byte:name_node.start_byte]
+                + source[name_node.end_byte:end_byte]
+            ).decode("utf-8", errors="replace")
+        else:
+            raw = source[parameter.start_byte:end_byte].decode(
+                "utf-8", errors="replace",
+            )
+
+        raw = re.sub(r"/\*.*?\*/|//[^\r\n]*", " ", raw, flags=re.DOTALL)
+        raw = re.sub(r"\[\[.*?\]\]", " ", raw, flags=re.DOTALL)
+        normalized = re.sub(r"\s+", " ", raw).strip()
+        normalized = re.sub(r"\s*::\s*", "::", normalized)
+        normalized = re.sub(r"\s*([<>,*&()\[\]])\s*", r"\1", normalized)
+        return normalized
+
+    def _cpp_declarator_name(self, declarator):
+        """Find the declared identifier while avoiding nested parameter types."""
+        if declarator is None:
+            return None
+        if declarator.type in ("identifier", "field_identifier"):
+            return declarator
+
+        nested = declarator.child_by_field_name("declarator")
+        if nested is not None and nested != declarator:
+            found = self._cpp_declarator_name(nested)
+            if found is not None:
+                return found
+
+        for child in declarator.named_children:
+            if child.type in ("parameter_list", "template_argument_list"):
+                continue
+            found = self._cpp_declarator_name(child)
+            if found is not None:
+                return found
+        return None
+
+    def _get_params(self, node, language: str, source: bytes) -> Optional[str]:
+        """Extract parameter list as a string."""
+        for child in node.children:
+            param_types = (
+                "parameters", "formal_parameters",
+                "parameter_list", "formal_parameter_list",
+            )
+            if child.type in param_types:
+                return child.text.decode("utf-8", errors="replace")
+        # Solidity: parameters are direct children between ( and )
+        if language == "solidity":
+            params = [
+                c.text.decode("utf-8", errors="replace")
+                for c in node.children
+                if c.type == "parameter"
+            ]
+            if params:
+                return f"({', '.join(params)})"
+        return None
+
+    def _get_return_type(self, node, language: str, source: bytes) -> Optional[str]:
+        """Extract return type annotation if present."""
+        for child in node.children:
+            if child.type in ("type", "return_type", "type_annotation", "return_type_definition"):
+                return child.text.decode("utf-8", errors="replace")
+        # Python: look for -> annotation
+        if language == "python":
+            for i, child in enumerate(node.children):
+                if child.type == "->" and i + 1 < len(node.children):
+                    return node.children[i + 1].text.decode("utf-8", errors="replace")
+        return None
+
+    def _get_bases(self, node, language: str, source: bytes) -> list[str]:
+        """Extract base classes / implemented interfaces."""
+        bases = []
+        if language == "python":
+            for child in node.children:
+                if child.type == "argument_list":
+                    for arg in child.children:
+                        if arg.type in ("identifier", "attribute"):
+                            bases.append(arg.text.decode("utf-8", errors="replace"))
+        elif language == "java":
+            # Java: superclass and super_interfaces wrap the keyword
+            # (extends/implements) around type_identifier children.
+            # Taking .text would include the keyword (e.g. "implements Foo").
+            # Drill into the children to extract bare type names.
+            for child in node.children:
+                if child.type == "superclass":
+                    for sub in child.children:
+                        if sub.type in ("type_identifier", "generic_type"):
+                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                elif child.type == "super_interfaces":
+                    for sub in child.children:
+                        if sub.type == "type_list":
+                            for ident in sub.children:
+                                if ident.type in ("type_identifier", "generic_type"):
+                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+        elif language == "csharp":
+            # C# wraps ``: Base, IFace`` in a base_list. Iterate named type
+            # entries so punctuation is excluded while qualified/generic names
+            # are preserved across tree-sitter-c-sharp grammar versions.
+            # Enum base_list nodes describe storage types, not inheritance.
+            if node.type == "enum_declaration":
+                return bases
+            for child in node.children:
+                if child.type != "base_list":
+                    continue
+                for sub in child.children:
+                    if not sub.is_named or sub.type == "argument_list":
+                        continue
+                    if sub.type == "primary_constructor_base_type":
+                        # Positional records contain Base(args); retain only Base.
+                        type_node = sub.child_by_field_name("type")
+                        if type_node is not None:
+                            bases.append(
+                                type_node.text.decode("utf-8", errors="replace")
+                            )
+                        else:
+                            for nested in sub.children:
+                                if nested.is_named and nested.type != "argument_list":
+                                    bases.append(
+                                        nested.text.decode("utf-8", errors="replace")
+                                    )
+                                    break
+                        continue
+                    bases.append(sub.text.decode("utf-8", errors="replace"))
+        elif language == "kotlin":
+            # Look for superclass/interfaces in extends/implements clauses
+            for child in node.children:
+                if child.type in (
+                    "superclass", "super_interfaces", "extends_type",
+                    "implements_type", "type_identifier", "supertype",
+                    "delegation_specifier",
+                ):
+                    text = child.text.decode("utf-8", errors="replace")
+                    bases.append(text)
+        elif language == "scala":
+            for child in node.children:
+                if child.type == "extends_clause":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                        elif sub.type == "generic_type":
+                            for ident in sub.children:
+                                if ident.type == "type_identifier":
+                                    bases.append(
+                                        ident.text.decode("utf-8", errors="replace")
+                                    )
+                                    break
+        elif language == "cpp":
+            # C++: base_class_clause contains type_identifiers
+            for child in node.children:
+                if child.type == "base_class_clause":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            bases.append(sub.text.decode("utf-8", errors="replace"))
+        elif language in ("typescript", "javascript", "tsx"):
+            # Classes nest their heritage one level down, under class_heritage
+            # (`class C extends B implements I`); interfaces carry
+            # extends_type_clause as a direct child. Scanning only direct
+            # children therefore missed every class base.
+            clauses: list = []
+            for child in node.children:
+                if child.type == "class_heritage":
+                    clauses.extend(child.children)
+                else:
+                    clauses.append(child)
+            for clause in clauses:
+                if clause.type not in _TS_HERITAGE_CLAUSES:
+                    continue
+                for sub in clause.children:
+                    if sub.type in ("identifier", "type_identifier", "nested_identifier"):
+                        bases.append(sub.text.decode("utf-8", errors="replace"))
+                    elif sub.type == "generic_type":
+                        # `extends Base<T>` — the base is the generic's head.
+                        for ident in sub.children:
+                            if ident.type in ("type_identifier", "nested_type_identifier"):
+                                bases.append(ident.text.decode("utf-8", errors="replace"))
+                                break
+        elif language == "solidity":
+            # contract Foo is Bar, Baz { ... }
+            for child in node.children:
+                if child.type == "inheritance_specifier":
+                    for sub in child.children:
+                        if sub.type == "user_defined_type":
+                            for ident in sub.children:
+                                if ident.type == "identifier":
+                                    bases.append(ident.text.decode("utf-8", errors="replace"))
+        elif language == "go":
+            # Embedded structs / interface composition
+            for child in node.children:
+                if child.type == "type_spec":
+                    for sub in child.children:
+                        if sub.type in ("struct_type", "interface_type"):
+                            for field_node in sub.children:
+                                if field_node.type == "field_declaration_list":
+                                    for f in field_node.children:
+                                        if f.type == "type_identifier":
+                                            bases.append(f.text.decode("utf-8", errors="replace"))
+        elif language == "dart":
+            # class Foo extends Bar with Mixin implements Iface { ... }
+            # AST: superclass contains type_identifier (base) and mixins (with clause);
+            #      interfaces is a sibling of superclass.
+            for child in node.children:
+                if child.type == "superclass":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            bases.append(sub.text.decode("utf-8", errors="replace"))
+                        elif sub.type == "mixins":
+                            for m in sub.children:
+                                if m.type == "type_identifier":
+                                    bases.append(m.text.decode("utf-8", errors="replace"))
+                elif child.type == "interfaces":
+                    for sub in child.children:
+                        if sub.type == "type_identifier":
+                            bases.append(sub.text.decode("utf-8", errors="replace"))
+        elif language == "swift":
+            # Swift: class Foo: Bar, Baz { ... } / extension Foo: Protocol { ... }
+            # AST: inheritance_specifier > user_type > type_identifier
+            for child in node.children:
+                if child.type == "inheritance_specifier":
+                    for sub in child.children:
+                        if sub.type == "user_type":
+                            for ident in sub.children:
+                                if ident.type == "type_identifier":
+                                    bases.append(
+                                        ident.text.decode("utf-8", errors="replace")
+                                    )
+                                    break
+        elif language == "julia":
+            # Julia: struct Foo <: Bar / abstract type Foo <: Bar end
+            # AST: type_head > binary_expression with operator "<:" and
+            # identifier children; the identifier AFTER the operator is the
+            # supertype.
+            if node.type in ("struct_definition", "abstract_definition"):
+                for child in node.children:
+                    if child.type != "type_head":
+                        continue
+                    for sub in child.children:
+                        if sub.type != "binary_expression":
+                            continue
+                        has_subtype_op = False
+                        for op_child in sub.children:
+                            if (
+                                op_child.type == "operator"
+                                and op_child.text == b"<:"
+                            ):
+                                has_subtype_op = True
+                                break
+                        if not has_subtype_op:
+                            continue
+                        idents = [
+                            c for c in sub.children if c.type == "identifier"
+                        ]
+                        # First identifier is the type being defined; the
+                        # second (if present) is the supertype.
+                        if len(idents) >= 2:
+                            bases.append(
+                                idents[1].text.decode("utf-8", errors="replace"),
+                            )
+                        elif len(idents) == 1:
+                            # Could be `Parametric{T} <: Super` where the
+                            # first side is parametrized_type_expression.
+                            bases.append(
+                                idents[0].text.decode("utf-8", errors="replace"),
+                            )
+        elif language == "php":
+            # class Foo extends Bar implements Baz, Qux { ... }
+            for child in node.children:
+                if child.type not in ("base_clause", "class_interface_clause"):
+                    continue
+                for base in child.children:
+                    if base.type in ("name", "qualified_name"):
+                        bases.append(
+                            base.text.decode("utf-8", errors="replace"),
+                        )
+        return bases
+
+    def _extract_import(self, node, language: str, source: bytes) -> list[str]:
+        """Extract import targets as module/path strings."""
+        imports = []
+        text = node.text.decode("utf-8", errors="replace").strip()
+
+        if language == "python":
+            # import x.y.z  or  from x.y import z
+            if node.type == "import_from_statement":
+                for child in node.children:
+                    if child.type == "dotted_name":
+                        imports.append(child.text.decode("utf-8", errors="replace"))
+                        break
+            else:
+                for child in node.children:
+                    if child.type == "dotted_name":
+                        imports.append(child.text.decode("utf-8", errors="replace"))
+        elif language in ("javascript", "typescript", "tsx"):
+            # import ... from 'module'
+            for child in node.children:
+                if child.type == "string":
+                    val = child.text.decode("utf-8", errors="replace").strip("'\"")
+                    imports.append(val)
+        elif language == "go":
+            for child in node.children:
+                if child.type == "import_spec_list":
+                    for spec in child.children:
+                        if spec.type == "import_spec":
+                            for s in spec.children:
+                                if s.type == "interpreted_string_literal":
+                                    val = s.text.decode("utf-8", errors="replace")
+                                    imports.append(val.strip('"'))
+                elif child.type == "import_spec":
+                    for s in child.children:
+                        if s.type == "interpreted_string_literal":
+                            val = s.text.decode("utf-8", errors="replace")
+                            imports.append(val.strip('"'))
+        elif language == "rust":
+            imports.extend(
+                original_path
+                for _, original_path in self._parse_rust_use_node(node)
+            )
+        elif language in ("c", "cpp"):
+            # #include <header> or #include "header"
+            for child in node.children:
+                if child.type in ("system_lib_string", "string_literal"):
+                    val = child.text.decode("utf-8", errors="replace").strip("<>\"")
+                    imports.append(val)
+        elif language in ("java", "csharp"):
+            # import/using package.Class
+            parts = text.split()
+            if len(parts) >= 2:
+                imports.append(parts[-1].rstrip(";"))
+        elif language == "solidity":
+            # import "path/to/file.sol" or import {Symbol} from "path"
+            for child in node.children:
+                if child.type == "string":
+                    val = child.text.decode("utf-8", errors="replace").strip('"')
+                    if val:
+                        imports.append(val)
+        elif language == "scala":
+            parts = []
+            selectors = []
+            is_wildcard = False
+            for child in node.children:
+                if child.type == "identifier":
+                    parts.append(child.text.decode("utf-8", errors="replace"))
+                elif child.type == "namespace_selectors":
+                    for sub in child.children:
+                        if sub.type == "identifier":
+                            selectors.append(sub.text.decode("utf-8", errors="replace"))
+                elif child.type == "namespace_wildcard":
+                    is_wildcard = True
+            base = ".".join(parts)
+            if selectors:
+                for name in selectors:
+                    imports.append(f"{base}.{name}")
+            elif is_wildcard:
+                imports.append(f"{base}.*")
+            elif base:
+                imports.append(base)
+        elif language == "r":
+            # library(pkg), require(pkg), source("file.R")
+            func_name = self._r_call_func_name(node)
+            if func_name in ("library", "require", "source"):
+                for _name, value in self._r_iter_args(node):
+                    if value.type == "identifier":
+                        imports.append(value.text.decode("utf-8", errors="replace"))
+                    elif value.type == "string":
+                        val = self._r_first_string_arg(node)
+                        if val:
+                            imports.append(val)
+                    break  # Only first argument matters
+        elif language == "ruby":
+            # require 'module' or require_relative 'path'
+            if "require" in text:
+                match = re.search(r"""['"](.*?)['"]""", text)
+                if match:
+                    imports.append(match.group(1))
+        elif language == "dart":
+            # import 'dart:async' or import 'package:flutter/material.dart'
+            # Node structure: import_or_export > library_import > import_specification
+            #                 > configurable_uri > uri > string_literal
+            def _find_string_literal(n) -> Optional[str]:
+                if n.type == "string_literal":
+                    return n.text.decode("utf-8", errors="replace").strip("'\"")
+                for c in n.children:
+                    result = _find_string_literal(c)
+                    if result is not None:
+                        return result
+                return None
+            val = _find_string_literal(node)
+            if val:
+                imports.append(val)
+        elif language == "verilog":
+            # import pkg::*; or import pkg::item;
+            # Node structure: package_import_declaration > package_import_item > package_identifier
+            for child in node.children:
+                if child.type == "package_import_item":
+                    for subchild in child.children:
+                        if subchild.type == "package_identifier":
+                            imports.append(subchild.text.decode("utf-8", errors="replace"))
+        elif language == "julia":
+            # using/import statements. Children can be:
+            # - identifier (simple: `using Foo`)
+            # - import_path (dotted: `using Foo.Bar`)
+            # - selected_import (`using Foo: bar, baz` — first child is the
+            #   module as identifier/import_path, remaining identifiers after
+            #   the ':' are imported names to record as ``Module.name``)
+            def _import_path_text(n) -> str:
+                parts: list[str] = []
+                for sub in n.children:
+                    if sub.type == "identifier":
+                        parts.append(sub.text.decode("utf-8", errors="replace"))
+                return ".".join(parts)
+
+            def _alias_real_name(alias_node) -> Optional[str]:
+                for sub in alias_node.children:
+                    if sub.type == "as":
+                        break
+                    if sub.type == "identifier":
+                        return sub.text.decode(
+                            "utf-8", errors="replace",
+                        )
+                    if sub.type == "import_path":
+                        path = _import_path_text(sub)
+                        return path or None
+                return None
+
+            for child in node.children:
+                if child.type == "identifier":
+                    imports.append(
+                        child.text.decode("utf-8", errors="replace"),
+                    )
+                elif child.type == "import_path":
+                    path = _import_path_text(child)
+                    if path:
+                        imports.append(path)
+                elif child.type == "import_alias":
+                    real_name = _alias_real_name(child)
+                    if real_name:
+                        imports.append(real_name)
+                elif child.type == "selected_import":
+                    module_name: Optional[str] = None
+                    seen_colon = False
+                    for sub in child.children:
+                        if sub.type == ":":
+                            seen_colon = True
+                            continue
+                        if not seen_colon:
+                            if sub.type == "identifier":
+                                module_name = sub.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                            elif sub.type == "import_path":
+                                path = _import_path_text(sub)
+                                if path:
+                                    module_name = path
+                        else:
+                            if sub.type == "identifier" and module_name:
+                                imported = sub.text.decode(
+                                    "utf-8", errors="replace",
+                                )
+                                imports.append(f"{module_name}.{imported}")
+                            elif sub.type == "import_alias" and module_name:
+                                real_name = _alias_real_name(sub)
+                                if real_name:
+                                    imports.append(
+                                        f"{module_name}.{real_name}",
+                                    )
+        elif language == "gdscript":
+            # ``extends Node`` → type > identifier("Node")
+            # ``extends "res://path.gd"`` → string literal
+            # ``extends SomeClass.Nested`` → type node (keep full text)
+            for child in node.children:
+                if child.type == "type":
+                    txt = child.text.decode("utf-8", errors="replace").strip()
+                    if txt:
+                        imports.append(txt)
+                elif child.type == "string":
+                    val = child.text.decode("utf-8", errors="replace").strip("'\"")
+                    if val:
+                        imports.append(val)
+                elif child.type == "identifier":
+                    # Fallback: some grammar variants expose the parent type as
+                    # a bare identifier next to the ``extends`` keyword.
+                    txt = child.text.decode("utf-8", errors="replace")
+                    if txt and txt != "extends":
+                        imports.append(txt)
+        elif language == "php":
+            # ``namespace_use_declaration`` covers several shapes:
+            #   use A\B\C;            use A\B\C as D;
+            #   use function A\b;     use const A\B;
+            #   use A\B, C\D;         (comma-separated clauses)
+            #   use A\B\{C, D as E};  (grouped — clause names are relative to A\B)
+            # Record the fully-qualified name of each imported symbol, ignoring
+            # any ``as`` alias and stripping a leading ``\``, so IMPORTS_FROM
+            # targets are clean FQNs that _do_resolve_module can map to files.
+            # Without this branch PHP falls through to the raw-text fallback and
+            # stores the entire ``use ...;`` statement as the edge target.
+            def _php_clause_fqn(clause) -> Optional[str]:
+                for sub in clause.children:
+                    if sub.type in ("qualified_name", "name"):
+                        return sub.text.decode(
+                            "utf-8", errors="replace",
+                        ).lstrip("\\")
+                return None
+
+            group_node = None
+            prefix = ""
+            for child in node.children:
+                if child.type == "namespace_name":
+                    prefix = child.text.decode(
+                        "utf-8", errors="replace",
+                    ).strip("\\")
+                elif child.type == "namespace_use_group":
+                    group_node = child
+
+            if group_node is not None:
+                for clause in group_node.children:
+                    if clause.type == "namespace_use_clause":
+                        rel = _php_clause_fqn(clause)
+                        if rel:
+                            imports.append(f"{prefix}\\{rel}" if prefix else rel)
+            else:
+                for clause in node.children:
+                    if clause.type == "namespace_use_clause":
+                        fqn = _php_clause_fqn(clause)
+                        if fqn:
+                            imports.append(fqn)
+        elif language in self._custom_languages:
+            # Custom languages (languages.toml): prefer the grammar's
+            # module-ish field over the raw statement text (e.g. Erlang
+            # ``-import(lists, [map/2]).`` → ``lists``; Haskell
+            # ``import Data.List`` → ``Data.List``).
+            for field_name in ("module", "name", "path", "source"):
+                target = node.child_by_field_name(field_name)
+                if target is None:
+                    continue
+                val = target.text.decode("utf-8", errors="replace").strip().strip("'\"")
+                if val:
+                    imports.append(val)
+                    break
+            else:
+                imports.append(text)
+        else:
+            # Fallback: just record the text
+            imports.append(text)
+
+        return imports
+
+    def _get_call_name(self, node, language: str, source: bytes) -> Optional[str]:
+        """Extract the function/method name being called."""
+        if not node.children:
+            return None
+
+        first = node.children[0]
+
+        if language == "rust" and node.type == "call_expression":
+            callee = node.child_by_field_name("function")
+            segments = self._rust_path_segments(callee)
+            if segments:
+                return "::".join(segments)
+            while callee is not None and callee.type == "generic_function":
+                callee = callee.child_by_field_name("function")
+            if callee is not None and callee.type == "field_expression":
+                field = callee.child_by_field_name("field")
+                if field is not None:
+                    return field.text.decode("utf-8", errors="replace")
+
+        if language == "java":
+            if node.type == "method_invocation":
+                method, _ = self._get_java_method_and_receiver(node)
+                return method
+            if node.type == "method_reference":
+                _, method = self._get_member_call_receiver_method(node, language)
+                return method
+            if node.type == "object_creation_expression":
+                return self._java_type_name(node)
+
+        # Julia macrocall: ``@test expr`` — name is inside
+        # ``macro_identifier > identifier``. Prefix with ``@`` to distinguish
+        # from ordinary calls.
+        if language == "julia" and node.type == "macrocall_expression":
+            for child in node.children:
+                if child.type == "macro_identifier":
+                    for sub in child.children:
+                        if sub.type == "identifier":
+                            raw = sub.text.decode("utf-8", errors="replace")
+                            return f"@{raw}"
+                    return None
+            return None
+
+        # Julia broadcast call: ``sin.(x)`` — same structure as
+        # call_expression (first child is identifier or field_expression)
+        # so the generic paths below handle it.
+        if language == "php":
+            def _normalize_php_name(text: str) -> str:
+                # PHP global/function names can be prefixed with '\\'.
+                return text.lstrip("\\")
+
+            if node.type == "function_call_expression":
+                for child in node.children:
+                    if child.type in ("name", "qualified_name"):
+                        raw = child.text.decode("utf-8", errors="replace")
+                        return _normalize_php_name(raw)
+                return None
+
+            if node.type in (
+                "member_call_expression",
+                "nullsafe_member_call_expression",
+            ):
+                for child in reversed(node.children):
+                    if child.type == "name":
+                        return child.text.decode("utf-8", errors="replace")
+                return None
+
+            if node.type == "scoped_call_expression":
+                scope, method = self._php_scoped_call_parts(node)
+                if not scope or not method:
+                    return None
+                return f"{_normalize_php_name(scope)}::{method}"
+
+            if node.type == "object_creation_expression":
+                for child in node.children:
+                    if child.type in ("name", "qualified_name"):
+                        raw = child.text.decode("utf-8", errors="replace")
+                        return _normalize_php_name(raw)
+                return None
+
+        # Scala: instance_expression (new Foo(...)) – extract the type name
+        if node.type == "instance_expression":
+            for child in node.children:
+                if child.type in ("type_identifier", "identifier"):
+                    return child.text.decode("utf-8", errors="replace")
+            return None
+
+        # Objective-C: [receiver method:arg] — the method name is the
+        # SECOND identifier-like child (the first is the receiver). For
+        # multi-part selectors like `[obj add:a to:b]` we keep the first
+        # part (`add`) as the call name; later parts are keyword arguments.
+        if language == "objc" and node.type == "message_expression":
+            receiver_skipped = False
+            for child in node.children:
+                if child.type in ("[", "]"):
+                    continue
+                if not receiver_skipped:
+                    # First non-bracket child is the receiver (identifier,
+                    # message_expression for chained calls, etc.)
+                    receiver_skipped = True
+                    continue
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return None
+
+        # Ruby: `call` nodes expose a `method` field for both receiver calls
+        # (`Bar.new.run` -> `run`) and paren calls (`helper_method(1)` ->
+        # `helper_method`). `require`/`require_relative` are handled earlier as
+        # imports, so they never reach here. Bare implicit-self calls with no
+        # parens parse as plain `identifier` (not `call`) and are not captured.
+        if language == "ruby" and node.type in ("call", "method_call"):
+            method_node = node.child_by_field_name("method")
+            if method_node is not None:
+                return method_node.text.decode("utf-8", errors="replace")
+
+        # Bash: `command` node's first child is the command name.
+        if language == "bash" and node.type == "command":
+            for child in node.children:
+                if child.type == "command_name":
+                    # command_name wraps a word — get its text
+                    txt = child.text.decode("utf-8", errors="replace").strip()
+                    return txt or None
+            return None
+
+        # Verilog/SystemVerilog: the first child is the instantiated type.
+        if language == "verilog" and node.type in (
+            "module_instantiation", "interface_instantiation",
+        ):
+            if first.type == "simple_identifier":
+                return first.text.decode("utf-8", errors="replace")
+            return None
+
+        # Solidity wraps call targets in an 'expression' node – unwrap it
+        if language == "solidity" and first.type == "expression" and first.children:
+            first = first.children[0]
+
+        # Perl method_call_expression: $obj->method() — find the 'method' child
+        if language == "perl" and node.type == "method_call_expression":
+            for child in node.children:
+                if child.type == "method":
+                    return child.text.decode("utf-8", errors="replace")
+            return None  # method child not found
+
+        # Simple call: func_name(args)
+        # Kotlin uses "simple_identifier" instead of "identifier".
+        if first.type in ("identifier", "simple_identifier"):
+            return first.text.decode("utf-8", errors="replace")
+
+        # Perl: function_call_expression / ambiguous_function_call_expression
+        if first.type == "function":
+            return first.text.decode("utf-8", errors="replace")
+
+        # Lua/Luau: dot_index_expression (obj.method) and method_index_expression
+        # (obj:method) — extract the rightmost identifier as the call name.
+        if language in ("lua", "luau") and first.type in (
+            "dot_index_expression", "method_index_expression",
+        ):
+            for child in reversed(first.children):
+                if child.type == "identifier":
+                    return child.text.decode("utf-8", errors="replace")
+            return None
+
+        # Method call: obj.method(args)
+        # Kotlin uses "navigation_expression" for member access (obj.method).
+        member_types = (
+            "attribute", "member_expression",
+            "field_expression", "selector_expression",
+            "navigation_expression", "member_access_expression",
+            "conditional_access_expression",
+        )
+        if first.type in member_types:
+            # Get the rightmost identifier (the method name)
+            # Kotlin navigation_expression uses navigation_suffix > simple_identifier.
+            for child in reversed(first.children):
+                if child.type in (
+                    "identifier", "property_identifier", "field_identifier",
+                    "field_name", "simple_identifier",
+                ):
+                    return child.text.decode("utf-8", errors="replace")
+                if child.type == "navigation_suffix":
+                    for sub in child.children:
+                        if sub.type == "simple_identifier":
+                            return sub.text.decode("utf-8", errors="replace")
+                if child.type == "member_binding_expression":
+                    for sub in child.children:
+                        if sub.type == "identifier":
+                            return sub.text.decode("utf-8", errors="replace")
+            return first.text.decode("utf-8", errors="replace")
+
+        # Scoped call (e.g., Rust path::func())
+        if first.type in (
+            "scoped_identifier",
+            "qualified_identifier",
+            "qualified_name",
+        ):
+            return first.text.decode("utf-8", errors="replace")
+
+        # R namespace-qualified call: dplyr::filter()
+        if first.type == "namespace_operator":
+            return first.text.decode("utf-8", errors="replace")
+
+        # Custom languages (languages.toml): probe common callee field names
+        # (Erlang ``call`` uses ``expr``; Haskell ``apply`` uses ``function``).
+        if language in self._custom_languages:
+            return self._get_custom_call_name(node)
+
+        return None
+
+    # Callee field names probed for config-driven custom languages, in order.
+    _CUSTOM_CALLEE_FIELDS = ("function", "callee", "expr", "name")
+    _MAX_CUSTOM_CALLEE_DESCENT = 32  # Curried-application depth guard
+
+    def _get_custom_call_name(self, node) -> Optional[str]:
+        """Generic callee extraction for config-driven custom languages.
+
+        Tries common tree-sitter field names for the callee.  When the field
+        child is itself an application node carrying the same field (curried
+        calls, e.g. Haskell ``f x y`` = ``apply(apply(f, x), y)``), descend
+        to the leaf callee.  Multi-line or oversized callee text (a lambda
+        being invoked, for instance) is rejected rather than recorded as a
+        garbage call target.
+        """
+        for field_name in self._CUSTOM_CALLEE_FIELDS:
+            callee = node.child_by_field_name(field_name)
+            if callee is None:
+                continue
+            for _ in range(self._MAX_CUSTOM_CALLEE_DESCENT):
+                inner = callee.child_by_field_name(field_name)
+                if inner is None:
+                    break
+                callee = inner
+            text = callee.text.decode("utf-8", errors="replace").strip()
+            if text and len(text) <= 256 and "\n" not in text:
+                return text
+            return None
+        return None
+
+    def _get_jsx_component_reference(self, node) -> Optional[tuple[Optional[str], str]]:
+        """Extract ``(base_name, component_name)`` for a JSX element.
+
+        ``base_name`` is set for member-style elements such as
+        ``<UI.MarkdownMsg />`` and ``None`` for plain component tags such as
+        ``<MarkdownMsg />``.
+        """
+        for child in node.children:
+            if child.type == "identifier":
+                name = child.text.decode("utf-8", errors="replace")
+                if self._looks_like_component_name(name):
+                    return (None, name)
+                return None
+            if child.type == "member_expression":
+                base_name = self._get_member_expression_root_name(child)
+                component_name = None
+                for sub in reversed(child.children):
+                    if sub.type in ("identifier", "property_identifier"):
+                        component_name = sub.text.decode("utf-8", errors="replace")
+                        break
+                if component_name and self._looks_like_component_name(component_name):
+                    return (base_name, component_name)
+                for sub in reversed(child.children):
+                    if sub.type in ("identifier", "property_identifier"):
+                        name = sub.text.decode("utf-8", errors="replace")
+                        if self._looks_like_component_name(name):
+                            return (None, name)
+                        return None
+                text = child.text.decode("utf-8", errors="replace")
+                tail = text.split(".")[-1]
+                if self._looks_like_component_name(tail):
+                    return (None, tail)
+                return None
+        return None
+
+    def _get_member_expression_root_name(self, node) -> Optional[str]:
+        """Return the leftmost identifier for a nested member expression."""
+        for child in node.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "member_expression":
+                return self._get_member_expression_root_name(child)
+        return None
+
+    @staticmethod
+    def _looks_like_component_name(name: str) -> bool:
+        """Return True for JSX names that look like user components."""
+        return bool(name) and name[0].isupper()
+
+    # Modifier suffixes used in JS/TS test runners
+    _TEST_MODIFIER_SUFFIXES = frozenset({
+        "only", "skip", "each", "todo", "concurrent", "failing",
+    })
+
+    def _get_base_call_name(self, node, source: bytes) -> Optional[str]:
+        """Return the base object name for member-expression calls like describe.only()."""
+        if not node.children:
+            return None
+        first = node.children[0]
+        if first.type != "member_expression":
+            return None
+        rightmost: Optional[str] = None
+        for child in reversed(first.children):
+            if child.type in ("identifier", "property_identifier"):
+                rightmost = child.text.decode("utf-8", errors="replace")
+                break
+        if rightmost not in self._TEST_MODIFIER_SUFFIXES:
+            return None
+        for child in first.children:
+            if child.type == "identifier":
+                return child.text.decode("utf-8", errors="replace")
+            if child.type == "member_expression":
+                for inner in child.children:
+                    if inner.type == "identifier":
+                        return inner.text.decode("utf-8", errors="replace")
+        return None
+
+    # ------------------------------------------------------------------
+    # R-specific helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _r_call_func_name(call_node) -> Optional[str]:
+        """Extract the function name from an R call node."""
+        for child in call_node.children:
+            if child.type in ("identifier", "namespace_operator"):
+                return child.text.decode("utf-8", errors="replace")
+        return None
+
+    @staticmethod
+    def _r_first_string_arg(call_node) -> Optional[str]:
+        """Extract the first string argument value from an R call node."""
+        for child in call_node.children:
+            if child.type == "arguments":
+                for arg in child.children:
+                    if arg.type == "argument":
+                        for sub in arg.children:
+                            if sub.type == "string":
+                                for sc in sub.children:
+                                    if sc.type == "string_content":
+                                        return sc.text.decode("utf-8", errors="replace")
+                break
+        return None
+
+    @staticmethod
+    def _r_iter_args(call_node):
+        """Yield (name_str, value_node) pairs from an R call's arguments."""
+        for child in call_node.children:
+            if child.type != "arguments":
+                continue
+            for arg in child.children:
+                if arg.type != "argument":
+                    continue
+                has_eq = any(sub.type == "=" for sub in arg.children)
+                if has_eq:
+                    name = None
+                    value = None
+                    for sub in arg.children:
+                        if sub.type == "identifier" and name is None:
+                            name = sub.text.decode("utf-8", errors="replace")
+                        elif sub.type not in ("=", ","):
+                            value = sub
+                    yield (name, value)
+                else:
+                    for sub in arg.children:
+                        if sub.type not in (",",):
+                            yield (None, sub)
+                            break
+            break
+
+    @classmethod
+    def _r_find_named_arg(cls, call_node, arg_name: str):
+        """Find a named argument's value node in an R call."""
+        for name, value in cls._r_iter_args(call_node):
+            if name == arg_name:
+                return value
+        return None
+
+    # ------------------------------------------------------------------
+    # R-specific handlers
+    # ------------------------------------------------------------------
+
+    def _handle_r_binary_operator(
+        self, node, source: bytes, language: str, file_path: str,
+        nodes: list[NodeInfo], edges: list[EdgeInfo],
+        enclosing_class: Optional[str], enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> bool:
+        """Handle R binary_operator nodes: name <- function(...) { ... }."""
+        children = node.children
+        if len(children) < 3:
+            return False
+
+        left, op, right = children[0], children[1], children[2]
+        if op.type not in ("<-", "="):
+            return False
+
+        if right.type == "function_definition" and left.type == "identifier":
+            name = left.text.decode("utf-8", errors="replace")
+            is_test = _is_test_function(name, file_path)
+            kind = "Test" if is_test else "Function"
+            qualified = self._qualify(name, file_path, enclosing_class)
+            params = self._get_params(right, language, source)
+
+            nodes.append(NodeInfo(
+                kind=kind,
+                name=name,
+                file_path=file_path,
+                line_start=right.start_point[0] + 1,
+                line_end=right.end_point[0] + 1,
+                language=language,
+                parent_name=enclosing_class,
+                params=params,
+                is_test=is_test,
+            ))
+
+            container = (
+                self._qualify(enclosing_class, file_path, None)
+                if enclosing_class else file_path
+            )
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=container,
+                target=qualified,
+                file_path=file_path,
+                line=right.start_point[0] + 1,
+            ))
+
+            self._extract_from_tree(
+                right, source, language, file_path, nodes, edges,
+                enclosing_class=enclosing_class, enclosing_func=name,
+                import_map=import_map, defined_names=defined_names,
+            )
+            return True
+
+        if right.type == "call" and left.type == "identifier":
+            call_func = self._r_call_func_name(right)
+            if call_func in ("setRefClass", "setClass", "setGeneric"):
+                assign_name = left.text.decode("utf-8", errors="replace")
+                return self._handle_r_class_call(
+                    right, source, language, file_path, nodes, edges,
+                    enclosing_class, enclosing_func,
+                    import_map, defined_names,
+                    assign_name=assign_name,
+                )
+
+        return False
+
+    def _handle_r_call(
+        self, node, source: bytes, language: str, file_path: str,
+        nodes: list[NodeInfo], edges: list[EdgeInfo],
+        enclosing_class: Optional[str], enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> bool:
+        """Handle R call nodes for imports and class definitions."""
+        func_name = self._r_call_func_name(node)
+        if not func_name:
+            return False
+
+        if func_name in ("library", "require", "source"):
+            imports = self._extract_import(node, language, source)
+            for imp_target in imports:
+                edges.append(EdgeInfo(
+                    kind="IMPORTS_FROM",
+                    source=file_path,
+                    target=imp_target,
+                    file_path=file_path,
+                    line=node.start_point[0] + 1,
+                ))
+            return True
+
+        if func_name in ("setRefClass", "setClass", "setGeneric"):
+            return self._handle_r_class_call(
+                node, source, language, file_path, nodes, edges,
+                enclosing_class, enclosing_func,
+                import_map, defined_names,
+            )
+
+        # Module-scope R calls attribute to the File node.
+        call_name = self._get_call_name(node, language, source)
+        if call_name:
+            caller = (
+                self._qualify(enclosing_func, file_path, enclosing_class)
+                if enclosing_func
+                else file_path
+            )
+            target = self._resolve_call_target(
+                call_name, file_path, language,
+                import_map or {}, defined_names or set(),
+            )
+            edges.append(EdgeInfo(
+                kind="CALLS",
+                source=caller,
+                target=target,
+                file_path=file_path,
+                line=node.start_point[0] + 1,
+            ))
+
+        self._extract_from_tree(
+            node, source, language, file_path, nodes, edges,
+            enclosing_class=enclosing_class, enclosing_func=enclosing_func,
+            import_map=import_map, defined_names=defined_names,
+        )
+        return True
+
+    def _handle_r_class_call(
+        self, node, source: bytes, language: str, file_path: str,
+        nodes: list[NodeInfo], edges: list[EdgeInfo],
+        enclosing_class: Optional[str], enclosing_func: Optional[str],
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+        assign_name: Optional[str] = None,
+    ) -> bool:
+        """Handle setClass/setRefClass/setGeneric calls -> Class nodes."""
+        class_name = self._r_first_string_arg(node) or assign_name
+        if not class_name:
+            return False
+
+        qualified = self._qualify(class_name, file_path, enclosing_class)
+        nodes.append(NodeInfo(
+            kind="Class",
+            name=class_name,
+            file_path=file_path,
+            line_start=node.start_point[0] + 1,
+            line_end=node.end_point[0] + 1,
+            language=language,
+            parent_name=enclosing_class,
+        ))
+        edges.append(EdgeInfo(
+            kind="CONTAINS",
+            source=file_path,
+            target=qualified,
+            file_path=file_path,
+            line=node.start_point[0] + 1,
+        ))
+
+        methods_list = self._r_find_named_arg(node, "methods")
+        if methods_list is not None:
+            self._extract_r_methods(
+                methods_list, source, language, file_path,
+                nodes, edges, class_name,
+                import_map, defined_names,
+            )
+
+        return True
+
+    def _extract_r_methods(
+        self, list_call, source: bytes, language: str, file_path: str,
+        nodes: list[NodeInfo], edges: list[EdgeInfo],
+        class_name: str,
+        import_map: Optional[dict[str, str]],
+        defined_names: Optional[set[str]],
+    ) -> None:
+        """Extract methods from a setRefClass methods = list(...) call."""
+        for method_name, func_def in self._r_iter_args(list_call):
+            if not method_name or func_def is None:
+                continue
+            if func_def.type != "function_definition":
+                continue
+
+            qualified = self._qualify(method_name, file_path, class_name)
+            params = self._get_params(func_def, language, source)
+            nodes.append(NodeInfo(
+                kind="Function",
+                name=method_name,
+                file_path=file_path,
+                line_start=func_def.start_point[0] + 1,
+                line_end=func_def.end_point[0] + 1,
+                language=language,
+                parent_name=class_name,
+                params=params,
+            ))
+            edges.append(EdgeInfo(
+                kind="CONTAINS",
+                source=self._qualify(class_name, file_path, None),
+                target=qualified,
+                file_path=file_path,
+                line=func_def.start_point[0] + 1,
+            ))
+            self._extract_from_tree(
+                func_def, source, language, file_path, nodes, edges,
+                enclosing_class=class_name,
+                enclosing_func=method_name,
+                import_map=import_map,
+                defined_names=defined_names,
+            )

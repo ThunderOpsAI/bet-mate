@@ -9,11 +9,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.data.scraper import _get_api_headers, _fetch_prices
-
-LOGGER = logging.getLogger("betmate.betfair_sports_odds")
-
-BETFAIR_CATALOGUE_URL = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
+from app.data.scraper import _get_api_headers, _fetch_prices, betfair_catalogue_url, race_window_ttl
 
 SPORT_EVENT_TYPE_IDS = {
     "afl": "61420",
@@ -25,7 +21,6 @@ SPORT_EVENT_TYPE_IDS = {
     "golf": "3",
 }
 
-CACHE_TTL_SECONDS = 120
 _odds_cache: Dict[str, Tuple[Dict, float]] = {}
 
 
@@ -70,7 +65,7 @@ def fetch_sport_market_odds(sport: str, lookback_days: int = 1, lookahead_days: 
     }
 
     try:
-        response = requests.post(BETFAIR_CATALOGUE_URL, headers=headers, json=payload, timeout=10)
+        response = requests.post(betfair_catalogue_url(), headers=headers, json=payload, timeout=10)
         response.raise_for_status()
         catalogue = response.json()
     except Exception as exc:
@@ -127,7 +122,18 @@ def get_cached_sport_odds(sport: str) -> Dict[str, Dict[str, Any]]:
     
     if sport in _odds_cache:
         cached_data, timestamp = _odds_cache[sport]
-        if now - timestamp < CACHE_TTL_SECONDS:
+        
+        next_jump_time = None
+        for event_name, event_data in cached_data.items():
+            start_time = event_data.get("start_time")
+            if not start_time:
+                continue
+            if next_jump_time is None or start_time < next_jump_time:
+                next_jump_time = start_time
+                
+        ttl = race_window_ttl(next_jump_time) if next_jump_time else 1800
+        
+        if now - timestamp < ttl:
             return cached_data
             
     try:

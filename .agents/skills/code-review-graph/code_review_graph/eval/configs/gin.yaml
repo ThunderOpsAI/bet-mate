@@ -1,0 +1,51 @@
+name: gin
+url: https://github.com/gin-gonic/gin
+# Pinned to the latest test_commit SHA so the snapshot is deterministic and
+# every test_commit below is reachable as an ancestor.
+commit: 5c00df8afadd06cc5be530dde00fe6d9fa4a2e4a
+language: go
+size_category: small
+
+test_commits:
+  - sha: 052d1a79aafe3f04078a2716f8e77d4340308383
+    description: "feat(render): add PDF renderer and tests"
+    changed_files: 5
+  - sha: 472d086af2acd924cb4b9d7be0525f7d790f69bc
+    description: "fix(tree): panic in findCaseInsensitivePathRec with RedirectFixedPath"
+    changed_files: 2
+  - sha: 5c00df8afadd06cc5be530dde00fe6d9fa4a2e4a
+    description: "fix(render): write content length in Data.Render"
+    changed_files: 2
+
+entry_points:
+  - "gin.go::Engine"
+  - "routergroup.go::RouterGroup"
+
+search_queries:
+  - query: "Engine ServeHTTP"
+    expected: "gin.go::Engine"
+  - query: "Context request"
+    expected: "context.go::Context"
+  - query: "node tree"
+    expected: "tree.go::node"
+
+multi_hop_tasks:
+  - id: gin-serve-http-callees
+    nl_query: "What does the gin engine do when serving an HTTP request"
+    anchor_qualified_suffix: "gin.go::engine.servehttp"
+    traversal_pattern: callees_of
+    expected_neighbor_names: ["reset"]
+    k: 10
+  - id: gin-context-next-callers
+    nl_query: "Who advances the gin middleware chain via Context.Next"
+    anchor_qualified_suffix: "context.go::context.next"
+    traversal_pattern: callers_of
+    expected_neighbor_names: ["handleHTTPRequest", "serveError"]
+    k: 10
+
+# Questions for the agent_baseline benchmark (pure-python grep top-k vs graph
+# query). See docs/REPRODUCING.md for the methodology.
+agent_questions:
+  - "How does Engine.ServeHTTP route an incoming request"
+  - "Where does Context.Next advance the middleware chain"
+  - "How does the node tree match wildcard routes"

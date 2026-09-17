@@ -1,381 +1,295 @@
 "use client";
-import { Suspense, useEffect, useState } from "react";
-import { Plus, Check, X, RotateCcw, Trash2, List as ListIcon, ChevronDown, ChevronUp } from "lucide-react";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ML_API } from "../lib/mlApi";
+import {
+  Bookmark,
+  Check,
+  Plus,
+  History,
+  TrendingUp,
+  Award,
+  AlertCircle,
+  ArrowRight,
+} from "lucide-react";
+import { usePaperBetslip } from "../providers/PaperBetslipProvider";
+import { useBlackbookQuickAdd } from "../lib/useBlackbookQuickAdd";
 import { useAuth } from "../providers/AuthProvider";
-import { useActionGuard } from "../lib/useActionGuard";
+import { API_BASE, safeResponseJson } from "../lib/api";
+import ErrorBoundary from "../components/ErrorBoundary";
 
-type PredictionSnapshot = {
-  probability: number | null;
-  fair_odds: number | null;
-  payload?: Record<string, unknown> | null;
-};
-
-type PaperBet = {
-  id: number;
-  created_at: string;
-  settled_at: string | null;
-  sport: string;
-  event_id: string;
-  event_name: string;
+export type BetRecord = {
+  id: string;
   selection: string;
+  event_name: string;
+  sport: string;
   bet_type: string;
   odds: number;
   stake: number;
-  status: string;
-  payout: number | null;
-  profit: number | null;
-  notes: string | null;
-  origin?: string;
-  prediction?: PredictionSnapshot | null;
+  status: "active" | "won" | "lost" | "settled" | "pending";
+  payout?: number;
+  placed_at?: string;
+  settled_at?: string;
 };
-
-type PaperBetSummary = {
-  total_bets: number;
-  pending_bets: number;
-  settled_bets: number;
-  won_bets: number;
-  lost_bets: number;
-  void_bets: number;
-  total_staked: number;
-  total_returned: number;
-  pending_exposure: number;
-  net_profit: number;
-  roi: number;
-  win_rate: number;
-};
-
-const fmt = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD" }).format(n);
-
-const statusBadge: Record<string, string> = {
-  PENDING: "badge-yellow",
-  WON: "badge-green",
-  LOST: "badge-red",
-  VOID: "badge-muted",
-};
-
-function BetsContent() {
-  const { token } = useAuth();
-  const { requireAuthAction } = useActionGuard();
-  const [bets, setBets] = useState<PaperBet[]>([]);
-  const [summary, setSummary] = useState<PaperBetSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"active" | "settled">("active");
-  const [sportFilter, setSportFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-  const [expandedReasoning, setExpandedReasoning] = useState<Set<number>>(new Set());
-  const [error, setError] = useState("");
-
-  const fetchBets = async () => {
-    try {
-      setError("");
-      const authHeaders = { Authorization: `Bearer ${token || "guest"}` };
-      const [betsResponse, summaryResponse] = await Promise.all([
-        fetch(`${ML_API}/api/paper-bets?limit=200`, { headers: authHeaders }),
-        fetch(`${ML_API}/api/paper-bets/summary`, { headers: authHeaders }),
-      ]);
-
-      if (!betsResponse.ok || !summaryResponse.ok) {
-        throw new Error("Paper bets unavailable");
-      }
-
-      const betsData = await betsResponse.json();
-      const summaryData = await summaryResponse.json();
-      setBets(betsData?.bets ?? []);
-      setSummary(summaryData?.summary ?? null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Paper bets unavailable");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    setLoading(true);
-    void fetchBets();
-  }, [token]);
-
-  const settle = async (betId: number, status: string) => {
-    requireAuthAction(async () => {
-      await fetch(`${ML_API}/api/paper-bets/${betId}/settle`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || "guest"}` },
-        body: JSON.stringify({ status }),
-      });
-      void fetchBets();
-    });
-  };
-
-  const deleteBet = async (betId: number) => {
-    requireAuthAction(async () => {
-      if (!confirm("Delete this paper bet?")) return;
-      await fetch(`${ML_API}/api/paper-bets/${betId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token || "guest"}` } });
-      void fetchBets();
-    });
-  };
-
-  return (
-    <div>
-      {summary && (
-        <div className="stats-grid">
-          <div className="stat-card accent">
-            <div className="stat-label">Total Staked</div>
-            <div className="stat-value">{fmt(summary.total_staked)}</div>
-            <div className="stat-sub">{summary.total_bets} bets tracked</div>
-          </div>
-          <div className="stat-card blue">
-            <div className="stat-label">Total Returned</div>
-            <div className="stat-value">{fmt(summary.total_returned)}</div>
-            <div className="stat-sub">{summary.settled_bets} settled bets</div>
-          </div>
-          <div className={`stat-card ${summary.net_profit >= 0 ? "green" : "red"}`}>
-            <div className="stat-label">Net P&amp;L</div>
-            <div className="stat-value" style={{ color: summary.net_profit >= 0 ? "var(--green)" : "var(--red)" }}>{formatSignedCurrency(summary.net_profit)}</div>
-            <div className="stat-sub">{summary.pending_bets} active · {formatPct(summary.roi)} ROI</div>
-          </div>
-          <div className="stat-card yellow">
-            <div className="stat-label">Win Rate</div>
-            <div className="stat-value">{formatPct(summary.win_rate)}</div>
-            <div className="stat-sub">{summary.won_bets}W / {summary.lost_bets}L / {summary.void_bets}V</div>
-          </div>
-        </div>
-      )}
-
-      <div className="paper-bet-controls">
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
-          <div>
-            <h3 style={{ marginBottom: "0.2rem" }}>Bankroll</h3>
-            <p className="muted-copy">Track logged bets, outcomes, and history in one place.</p>
-          </div>
-          <div className="paper-bet-tabs">
-            {(["active", "settled"] as const).map((candidate) => (
-              <button
-                key={candidate}
-                className={`btn btn-sm ${tab === candidate ? "btn-primary" : "btn-secondary"}`}
-                onClick={() => setTab(candidate)}
-              >
-                {candidate === "active" ? "Active" : "Settled"}
-              </button>
-            ))}
-          </div>
-          <div className="paper-bet-filter-row">
-            <select className="form-input paper-bet-filter" value={sportFilter} onChange={(event) => setSportFilter(event.target.value)}>
-              <option value="all">All Sports</option>
-              {collectSports(bets).map((sport) => (
-                <option key={sport} value={sport}>{formatSport(sport)}</option>
-              ))}
-            </select>
-            <select className="form-input paper-bet-filter" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}>
-              <option value="all">All Sources</option>
-              <option value="manual">Betslip</option>
-              <option value="strategy_copy">Strategy Copy</option>
-            </select>
-            <input className="form-input paper-bet-filter" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
-            <input className="form-input paper-bet-filter" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
-          </div>
-        </div>
-      </div>
-
-      {error && <div className="error-message">{error}</div>}
-
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-          {[1, 2, 3].map((i) => <div key={i} className="card"><div className="skeleton" style={{ height: 60 }} /></div>)}
-        </div>
-      ) : filteredBets({ bets, tab, sportFilter, sourceFilter, fromDate, toDate }).length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon"><ListIcon size={48} /></div>
-          <h4>No bankroll entries found</h4>
-          <p>Paper bets are automatically logged here when you place bets in the Betslip or copy strategy cards.</p>
-        </div>
-      ) : (
-        <div className="bet-list">
-          {filteredBets({ bets, tab, sportFilter, sourceFilter, fromDate, toDate }).map((bet) => {
-            const source = sourceLabel(bet);
-            const strategyDetails = parseStrategyDetails(bet);
-            const isExpanded = expandedReasoning.has(bet.id);
-
-            return (
-              <div key={bet.id} className="paper-bet-card">
-                <div className="bet-row">
-                  <div className="bet-info">
-                    <h4>{bet.selection} <span className={`badge ${statusBadge[bet.status]}`}>{bet.status}</span></h4>
-                    <p>{formatSport(bet.sport)} · {bet.event_name} · {formatSport(bet.bet_type)} @ {bet.odds.toFixed(2)}</p>
-                    <div className="paper-bet-meta-row">
-                      <span className="badge badge-muted">Stake {fmt(bet.stake)}</span>
-                      <span className={`badge ${source.badgeClass}`}>{source.label}</span>
-                      <span className="badge badge-muted">{new Date(bet.created_at).toLocaleDateString("en-AU")}</span>
-                    </div>
-                  </div>
-                  <div className="bet-amounts">
-                    <div className="stake">{fmt(bet.stake)}</div>
-                    {bet.payout != null && (
-                      <div className="payout" style={{ color: (bet.profit ?? 0) >= 0 ? "var(--green)" : "var(--red)" }}>
-                        {formatSignedCurrency(bet.profit ?? 0)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="bet-actions">
-                    {bet.status === "PENDING" && (
-                      <>
-                        <button className="btn btn-sm btn-secondary" title="Won" onClick={() => settle(bet.id, "WON")} style={{ color: "var(--green)" }}><Check size={14} /></button>
-                        <button className="btn btn-sm btn-secondary" title="Lost" onClick={() => settle(bet.id, "LOST")} style={{ color: "var(--red)" }}><X size={14} /></button>
-                        <button className="btn btn-sm btn-secondary" title="Void" onClick={() => settle(bet.id, "VOID")}><RotateCcw size={14} /></button>
-                      </>
-                    )}
-                    <button className="btn btn-sm btn-danger" title="Delete" onClick={() => deleteBet(bet.id)}><Trash2 size={14} /></button>
-                  </div>
-                </div>
-
-                {source.kind === "strategy_copy" && (
-                  <div className="strategy-reasoning">
-                    <button
-                      className="strategy-reasoning-toggle"
-                      onClick={() => setExpandedReasoning((existing) => {
-                        const clone = new Set(existing);
-                        if (clone.has(bet.id)) clone.delete(bet.id);
-                        else clone.add(bet.id);
-                        return clone;
-                      })}
-                    >
-                      <span>Strategy reasoning</span>
-                      {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-                    </button>
-                    {isExpanded && (
-                      <div className="strategy-reasoning-body">
-                        <div className="strategy-reasoning-summary">
-                          <span className="badge badge-blue">{strategyDetails.strategyName}</span>
-                          <span className="badge badge-accent">Confidence: {strategyDetails.confidence}</span>
-                        </div>
-                        <ul>
-                          {strategyDetails.snapshot.map((point) => (
-                            <li key={`${bet.id}-${point.label}`}>
-                              <strong>{point.label}:</strong> {point.value}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function formatPct(value: number): string {
-  return `${(value * 100).toFixed(1)}%`;
-}
-
-function formatSport(value: string): string {
-  return value.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-function formatSignedCurrency(value: number): string {
-  const formatted = fmt(Math.abs(value));
-  if (value === 0) return formatted;
-  return `${value > 0 ? "+" : "-"}${formatted}`;
-}
-
-function collectSports(bets: PaperBet[]): string[] {
-  return [...new Set(bets.map((bet) => bet.sport))].sort();
-}
-
-function filteredBets({
-  bets,
-  tab,
-  sportFilter,
-  sourceFilter,
-  fromDate,
-  toDate,
-}: {
-  bets: PaperBet[];
-  tab: "active" | "settled";
-  sportFilter: string;
-  sourceFilter: string;
-  fromDate: string;
-  toDate: string;
-}): PaperBet[] {
-  const fromValue = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null;
-  const toValue = toDate ? new Date(`${toDate}T23:59:59`).getTime() : null;
-
-  return bets.filter((bet) => {
-    const isActive = bet.status === "PENDING";
-    if (tab === "active" && !isActive) return false;
-    if (tab === "settled" && isActive) return false;
-    if (sportFilter !== "all" && bet.sport !== sportFilter) return false;
-
-    const source = sourceLabel(bet).kind;
-    if (sourceFilter !== "all" && source !== sourceFilter) return false;
-
-    const createdAt = new Date(bet.created_at).getTime();
-    if (fromValue && createdAt < fromValue) return false;
-    if (toValue && createdAt > toValue) return false;
-    return true;
-  });
-}
-
-function sourceLabel(bet: PaperBet): { label: string; badgeClass: string; kind: "manual" | "strategy_copy" } {
-  const origin = (bet.origin ?? "user").toLowerCase();
-  const notes = parseNotes(bet.notes);
-  if (origin.includes("strategy") || (notes && typeof notes.strategy_name === "string")) {
-    return { label: "Strategy Copy", badgeClass: "badge-blue", kind: "strategy_copy" };
-  }
-  return { label: "Manual", badgeClass: "badge-muted", kind: "manual" };
-}
-
-function parseStrategyDetails(bet: PaperBet): { strategyName: string; confidence: string; snapshot: Array<{ label: string; value: string }> } {
-  const notes = parseNotes(bet.notes);
-  const payload = bet.prediction?.payload && typeof bet.prediction.payload === "object" ? bet.prediction.payload : {};
-  const strategyName = asString(notes?.strategy_name) ?? asString(payload?.strategy_name) ?? "Strategy Copy";
-  const confidence = asString(notes?.confidence) ?? asString(payload?.confidence) ?? "N/A";
-  const snapshot = [
-    { label: "Event", value: bet.event_name },
-    { label: "Selection", value: bet.selection },
-    { label: "Bet type", value: formatSport(bet.bet_type) },
-    { label: "Odds at copy", value: bet.odds.toFixed(2) },
-    { label: "Stake", value: fmt(bet.stake) },
-    { label: "Model probability", value: bet.prediction?.probability != null ? formatPct(bet.prediction.probability) : "N/A" },
-    { label: "Model fair odds", value: bet.prediction?.fair_odds != null ? bet.prediction.fair_odds.toFixed(2) : "N/A" },
-  ];
-
-  if (notes?.snapshot && typeof notes.snapshot === "object") {
-    Object.entries(notes.snapshot).slice(0, 4).forEach(([label, value]) => {
-      snapshot.push({ label: formatSport(label), value: String(value) });
-    });
-  }
-
-  return { strategyName, confidence, snapshot };
-}
-
-function parseNotes(notes: string | null): Record<string, any> | null {
-  if (!notes) return null;
-  if (!notes.trim().startsWith("{")) return null;
-  try {
-    const parsed = JSON.parse(notes);
-    return typeof parsed === "object" && parsed ? parsed as Record<string, any> : null;
-  } catch {
-    return null;
-  }
-}
-
-function asString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
 
 export default function BetsPage() {
+  const { bets: activeBetslipItems } = usePaperBetslip();
+  const { token, user } = useAuth();
+  const { isSaved, addToBlackbook } = useBlackbookQuickAdd();
+
+  const [tab, setTab] = useState<"all" | "active" | "settled">("active");
+  const [historyBets, setHistoryBets] = useState<BetRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch placed/settled bets from API if user is authenticated
+  useEffect(() => {
+    async function fetchBetHistory() {
+      if (!user || user.id === "guest" || !token) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await fetch(`${API_BASE}/bets/history`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await safeResponseJson(res);
+          setHistoryBets(data?.bets || []);
+        }
+      } catch (err) {
+        console.error("Failed to load bet history", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    void fetchBetHistory();
+  }, [token, user]);
+
+  // Combine local active paper betslip items with backend history bets
+  const activePaperBets: BetRecord[] = activeBetslipItems.map((b) => ({
+    id: b.id,
+    selection: b.selection,
+    event_name: b.event_name,
+    sport: b.sport,
+    bet_type: b.bet_type,
+    odds: b.odds || 1.0,
+    stake: b.stake,
+    status: "active",
+    placed_at: b.added_at,
+  }));
+
+  const allBets: BetRecord[] = [...activePaperBets, ...historyBets];
+
+  const filteredBets = allBets.filter((bet) => {
+    if (tab === "active") return bet.status === "active" || bet.status === "pending";
+    if (tab === "settled") return bet.status === "won" || bet.status === "lost" || bet.status === "settled";
+    return true;
+  });
+
+  const activeCount = allBets.filter((b) => b.status === "active" || b.status === "pending").length;
+  const settledCount = allBets.filter((b) => b.status === "won" || b.status === "lost" || b.status === "settled").length;
+
   return (
-    <Suspense fallback={<div className="card"><div className="skeleton" style={{ height: 300 }} /></div>}>
-      <BetsContent />
-    </Suspense>
+    <ErrorBoundary sectionName="My Bets">
+      <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <div>
+            <h1 className="text-2xl font-black text-slate-100 flex items-center gap-2">
+              <History className="text-purple-400" size={24} /> My Bets & Bet History
+            </h1>
+            <p className="text-xs text-slate-400 mt-1">
+              Track active paper bets, settled outcomes, and quick-bookmark selections to your Blackbook.
+            </p>
+          </div>
+
+          <Link
+            href="/racing"
+            className="btn btn-sm bg-purple-600 hover:bg-purple-500 text-white font-semibold flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs self-start md:self-auto"
+          >
+            <span>Explore Races</span>
+            <ArrowRight size={14} />
+          </Link>
+        </div>
+
+        {/* Stats bar */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+            <span className="text-[11px] font-medium text-slate-400">Active Bets</span>
+            <div className="text-xl font-bold text-purple-400 mt-0.5">{activeCount}</div>
+          </div>
+
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+            <span className="text-[11px] font-medium text-slate-400">Settled Bets</span>
+            <div className="text-xl font-bold text-slate-200 mt-0.5">{settledCount}</div>
+          </div>
+
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+            <span className="text-[11px] font-medium text-slate-400">Total Selections</span>
+            <div className="text-xl font-bold text-slate-200 mt-0.5">{allBets.length}</div>
+          </div>
+
+          <div className="card p-3 bg-slate-950/80 border border-slate-800 rounded-xl">
+            <span className="text-[11px] font-medium text-slate-400">Blackbook Ready</span>
+            <div className="text-xl font-bold text-emerald-400 mt-0.5 flex items-center gap-1">
+              <Bookmark size={16} /> Quick-Add
+            </div>
+          </div>
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+          <button
+            type="button"
+            onClick={() => setTab("active")}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              tab === "active"
+                ? "bg-purple-900/50 text-purple-200 border border-purple-500/40"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            Active Bets ({activeCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("settled")}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              tab === "settled"
+                ? "bg-purple-900/50 text-purple-200 border border-purple-500/40"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            Settled Bets ({settledCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setTab("all")}
+            className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+              tab === "all"
+                ? "bg-purple-900/50 text-purple-200 border border-purple-500/40"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            All History ({allBets.length})
+          </button>
+        </div>
+
+        {/* Bet list or empty state */}
+        {loading ? (
+          <div className="space-y-3">
+            <div className="skeleton h-20 w-full rounded-xl" />
+            <div className="skeleton h-20 w-full rounded-xl" />
+          </div>
+        ) : filteredBets.length === 0 ? (
+          <div className="card p-8 text-center bg-slate-950/40 border border-slate-800/80 rounded-xl space-y-3">
+            <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mx-auto text-slate-400">
+              <History size={24} />
+            </div>
+            <h3 className="text-base font-bold text-slate-200">No {tab} bets found</h3>
+            <p className="text-xs text-slate-400 max-w-md mx-auto">
+              Add selections to your paper betslip from live racecards or match markets to build your history.
+            </p>
+            <Link
+              href="/racing"
+              className="inline-flex items-center gap-1.5 btn btn-sm bg-purple-600 hover:bg-purple-500 text-white text-xs px-4 py-2 rounded-lg font-semibold"
+            >
+              Browse Next Races
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filteredBets.map((bet) => {
+              const saved = isSaved(bet.selection);
+
+              return (
+                <div
+                  key={bet.id}
+                  className="card p-4 bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all"
+                >
+                  {/* Left: Selection & Event */}
+                  <div className="space-y-1 flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Selection Name */}
+                      <span className="font-bold text-base text-slate-100">{bet.selection}</span>
+
+                      {/* Inline + Bookmark Star/Plus Icon */}
+                      {saved ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-950/40 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                          <Check size={11} /> Saved ✓
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            addToBlackbook({
+                              runner: bet.selection,
+                              type: "selection",
+                              sport: bet.sport || "racing",
+                            })
+                          }
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-300 hover:text-purple-100 bg-purple-950/40 hover:bg-purple-900/60 border border-purple-500/30 px-2 py-0.5 rounded-full transition-colors"
+                          title="Save selection to Blackbook"
+                        >
+                          <Plus size={12} className="text-purple-400" />
+                          <span>Blackbook</span>
+                        </button>
+                      )}
+
+                      {/* Status Badge */}
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                          bet.status === "active" || bet.status === "pending"
+                            ? "bg-purple-950/60 text-purple-300 border border-purple-500/30 animate-pulse"
+                            : bet.status === "won"
+                            ? "bg-emerald-950/60 text-emerald-400 border border-emerald-500/30"
+                            : bet.status === "lost"
+                            ? "bg-rose-950/60 text-rose-400 border border-rose-500/30"
+                            : "bg-slate-800 text-slate-300 border border-slate-700"
+                        }`}
+                      >
+                        {bet.status}
+                      </span>
+                    </div>
+
+                    <div className="text-xs text-slate-400 flex items-center gap-2 flex-wrap">
+                      <span>{bet.event_name}</span>
+                      <span>•</span>
+                      <span className="uppercase text-[10px] text-slate-500 font-semibold">{bet.sport}</span>
+                      <span>•</span>
+                      <span className="capitalize">{bet.bet_type}</span>
+                    </div>
+                  </div>
+
+                  {/* Right: Odds, Stake, Payout */}
+                  <div className="flex items-center gap-6 text-right self-end md:self-auto">
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-medium">Odds</div>
+                      <div className="text-sm font-bold text-slate-200">${bet.odds.toFixed(2)}</div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-medium">Stake</div>
+                      <div className="text-sm font-bold text-slate-200">${bet.stake.toFixed(2)}</div>
+                    </div>
+
+                    <div>
+                      <div className="text-[10px] text-slate-400 font-medium">Est. Return</div>
+                      <div className="text-sm font-bold text-emerald-400">
+                        ${(bet.stake * bet.odds).toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 }

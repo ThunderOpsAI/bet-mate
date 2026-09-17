@@ -14,7 +14,7 @@ from app.time_utils import is_melbourne_premium_day
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
-MOCK_EVENT_ID_PATTERNS = (
+LEGACY_SYNTHETIC_EVENT_ID_PATTERNS = (
     re.compile(r"^r_\d+_\d+$"),
     re.compile(r"^afl_game_\d+$"),
     re.compile(r"^nba_game_\d+$"),
@@ -48,7 +48,7 @@ class StrategyService:
             for profile_key, card in existing.items()
             if card_requires_refresh(card)
         }
-        if len(existing) == len(profiles) and not profiles_needing_refresh:
+        if all(profile["profile_key"] in existing and profile["profile_key"] not in profiles_needing_refresh for profile in profiles):
             return [existing[profile["profile_key"]] for profile in profiles]
 
         candidates = self.collect_candidates_for_date(run_date)
@@ -66,7 +66,13 @@ class StrategyService:
         candidates.extend(self._racing_candidates(run_date))
         candidates.extend(self._afl_candidates(run_date))
         candidates.extend(self._nba_candidates(run_date))
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
+
 
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
         races = racing_scraper.fetch_today_races(run_date=run_date)
@@ -155,6 +161,11 @@ class StrategyService:
             )
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -198,6 +209,11 @@ class StrategyService:
                 build_head_to_head_candidate("afl", game, game["home_team"], home_probability, baseline_home),
                 build_head_to_head_candidate("afl", game, game["away_team"], away_probability, baseline_away),
             ])
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -241,6 +257,11 @@ class StrategyService:
                 build_head_to_head_candidate("nba", game, game["home_team"], home_probability, home_baseline),
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
             ])
+        if hasattr(self, "_racing_logs") and self._racing_logs:
+            import threading
+            logs_copy = self._racing_logs[:]
+            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            self._racing_logs = []
         return candidates
 
 
@@ -264,7 +285,7 @@ def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: st
 def card_requires_refresh(card: Dict[str, Any]) -> bool:
     for bet in card.get("selected_bets", []):
         event_id = str(bet.get("event_id", "")).strip()
-        if any(pattern.match(event_id) for pattern in MOCK_EVENT_ID_PATTERNS):
+        if any(pattern.match(event_id) for pattern in LEGACY_SYNTHETIC_EVENT_ID_PATTERNS):
             return True
     return False
 
@@ -321,9 +342,28 @@ def build_quinella_candidates(race: Dict[str, Any], ranked: List[Dict[str, Any]]
 
 def build_strategy_card(profile: Dict[str, Any], candidates: List[Dict[str, Any]], run_date: str) -> Dict[str, Any]:
     rule_set = profile["rule_set"]
+    # Enforce at least 3 bets per day in the rule set
+    if int(rule_set.get("max_bets_per_day", 0)) < 3:
+        rule_set["max_bets_per_day"] = 3
+        
     bankroll_available = storage.DEFAULT_PREMIUM_BANKROLL if is_melbourne_premium_day(run_date) else storage.DEFAULT_STANDARD_BANKROLL
     qualified, skipped = qualify_candidates(candidates, rule_set)
     selected = allocate_candidates(qualified, rule_set, bankroll_available)
+    
+    if len(selected) < 3:
+        relaxed_rule_set = dict(rule_set)
+        relaxed_rule_set["min_edge"] = 0.01
+        relaxed_rule_set["min_confidence"] = "low"
+        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set)
+        selected = allocate_candidates(qualified, relaxed_rule_set, bankroll_available)
+        
+    if len(selected) < 3:
+        relaxed_rule_set2 = dict(rule_set)
+        relaxed_rule_set2["min_edge"] = -0.05
+        relaxed_rule_set2["min_confidence"] = "low"
+        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set2)
+        selected = allocate_candidates(qualified, relaxed_rule_set2, bankroll_available)
+
     total_allocated = round(sum(bet["stake"] for bet in selected), 2)
     sport_mix = summarize_sport_mix(selected, total_allocated)
     expected_edge = round(sum(bet["edge"] * bet["stake"] for bet in selected) / total_allocated, 4) if total_allocated > 0 else 0.0
@@ -385,7 +425,18 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
         for sport in ("racing", "afl", "nba")
     }
     per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba")}
-    selection_pool = list(candidates)
+    selection_pool = []
+    
+    # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
+    is_multi_only = rule_set.get("allow_multis") and (
+        "sgm_exclusive" in rule_set["profile_key"] or 
+        "multi" in rule_set["profile_key"] or
+        rule_set.get("allowed_markets") == ["multi", "sgm"]
+    )
+
+    if not is_multi_only:
+        selection_pool.extend(candidates)
+        
     selection_pool.extend(build_multi_candidates(candidates, rule_set))
     selection_pool.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     remaining_bankroll = bankroll_available
@@ -583,6 +634,91 @@ def build_multi_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
     }
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+from app.sgm import calculate_sgm_odds
+
+def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not legs:
+        return None
+    sport = str(legs[0].get("sport", "")).strip().lower()
+    
+    model_legs = []
+    market_legs = []
+    sport_counts: Dict[str, int] = {}
+    normalized_legs = []
+
+    for index, leg in enumerate(legs, start=1):
+        leg_odds = effective_odds(leg)
+        if not leg_odds:
+            return None
+            
+        leg_market = str(leg.get("market_type", "head_to_head"))
+        # Price using the model's derived probability
+        model_legs.append({
+            "probability": _clamp_probability(leg.get("model_probability", 1 / leg_odds)),
+            "market_type": leg_market
+        })
+        # Price using market offered odds
+        market_legs.append({
+            "odds": leg_odds,
+            "market_type": leg_market
+        })
+
+        leg_sport = str(leg.get("sport", "")).strip().lower()
+        if leg_sport in {"racing", "afl", "nba"}:
+            sport_counts[leg_sport] = sport_counts.get(leg_sport, 0) + 1
+            
+        normalized_legs.append(
+            {
+                "sport": leg_sport or "multi",
+                "event_id": str(leg.get("event_id", f"leg-{index}")),
+                "event_name": str(leg.get("event_name", leg.get("selection", f"Leg {index}"))),
+                "market_type": leg_market,
+                "selection": str(leg.get("selection", f"Leg {index}")),
+                "odds_used": leg_odds,
+                "odds_source": leg["odds_source"],
+            }
+        )
+
+    try:
+        model_pricing = calculate_sgm_odds(model_legs, sport)
+        market_pricing = calculate_sgm_odds(market_legs, sport)
+    except Exception as e:
+        logger.error(f"SGM pricing failed: {e}")
+        return None
+
+    combined_probability = model_pricing["adjusted_probability"]
+    odds = market_pricing["adjusted_odds"]
+    implied_probability = market_pricing["adjusted_probability"]
+    
+    odds_sources = [leg["odds_source"] for leg in normalized_legs]
+    leg_count = len(normalized_legs)
+    combined_edge = round(combined_probability - implied_probability, 4)
+    
+    return {
+        "sport": "sgm",
+        "event_id": f"sgm:{'|'.join(leg['event_id'] for leg in normalized_legs)}",
+        "event_name": " + ".join(leg["event_name"] for leg in normalized_legs),
+        "market_type": "sgm",
+        "selection": " + ".join(leg["selection"] for leg in normalized_legs),
+        "model_probability": round(combined_probability, 4),
+        "market_odds": None,
+        "derived_odds": round(odds, 2),
+        "odds_source": odds_sources[0] if len(set(odds_sources)) == 1 else "composite",
+        "edge": combined_edge,
+        "confidence": confidence_bucket(combined_probability, combined_edge),
+        "legs": normalized_legs,
+        "sport_allocation": {
+            s: round(count / leg_count, 4)
+            for s, count in sport_counts.items()
+        },
+        "odds_used": round(odds, 2),
+        "odds_sources": odds_sources,
+    }
+
+
 def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not rule_set.get("allow_multis"):
         return []
@@ -592,15 +728,31 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
     if len(eligible) < 2:
         return []
 
-    top_candidates = eligible[: max(4, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
+    # Cap the number of items heavily to prevent combinatorial explosion that crashes the server
+    top_candidates = eligible[: max(15, min(len(eligible), int(rule_set["max_bets_per_day"]) * 3))]
+    # Hard cap at 20 candidates to keep combinations small (C(20,4)=4845)
+    top_candidates = top_candidates[:20]
     multis = []
+    
     for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):
         for legs in combinations(top_candidates, leg_count):
-            if len({leg["event_id"] for leg in legs}) != leg_count:
-                continue
-            multi = build_multi_candidate(list(legs))
-            if multi and multi["edge"] > 0:
-                multis.append(multi)
+            try:
+                event_ids = {leg["event_id"] for leg in legs}
+                
+                # Check for SGMs vs Traditional Multis
+                if len(event_ids) == 1:
+                    multi = build_sgm_candidate(list(legs))
+                elif len(event_ids) == leg_count:
+                    multi = build_multi_candidate(list(legs))
+                else:
+                    # Ignore mixed multis (SGM + external legs)
+                    continue
+                    
+                if multi and multi["edge"] > 0:
+                    multis.append(multi)
+            except Exception as e:
+                # Catch failures so we avoid silent errors skipping the rest of the generation.
+                logger.error(f"Failed to build multi/sgm for legs: {[leg.get('event_id') for leg in legs]}. Error: {e}")
 
     multis.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     return multis[: max(1, int(rule_set["max_bets_per_day"]))]

@@ -4,6 +4,9 @@ BetMate is an AI-powered multi-sport prediction and betting analytics platform f
 
 The application provides data-driven predictions, explainable AI insights via Gemini, exotic bet calculators, automated strategy tuning, paper bet tracking, and bankroll performance analytics.
 
+> **MVP V1 Baseline:**  
+> This version represents the stable **MVP V1** release baseline (Commit: `9a26f8db30987aed7e9cc1715cd363780cfbbbd4`). If issues arise in future development, reference/revert to this commit. **All further feature development or refactoring MUST be performed on a separate feature branch.**
+
 > **Important Disclaimer:**  
 > BetMate does **not** accept wagers or handle payments. Users place bets through their own licensed bookmaker platforms. This application is strictly for information, analysis, and tracking purposes. Please gamble responsibly (18+). Australian users: [Gambling Help Online](https://www.gamblinghelponline.org.au).
 
@@ -29,15 +32,12 @@ BetMate is structured as a pnpm + Turborepo monorepo:
 bet-mate/
 ├── apps/
 │   ├── web/                  # Next.js 16 frontend app (deployed on Vercel)
-│   ├── api/                  # Express API backend with Prisma (deployed on Vercel Serverless)
-│   └── mobile/               # Mobile client workspace (planned)
+│   └── api/                  # Express API backend with Prisma (deployed on Vercel Serverless)
 ├── services/
-│   ├── prediction-engine/    # Python FastAPI ML engine (runs locally & on Modal)
-│   └── ai-service/           # AI insights integration service
+│   └── prediction-engine/    # Python FastAPI ML engine (runs locally & on Modal)
 ├── packages/
 │   ├── prisma/               # Database schema & Neon Serverless PostgreSQL client
 │   ├── types/                # Shared TypeScript type definitions
-│   ├── ui/                   # Shared UI component library
 │   └── utils/                # Shared utility functions
 ├── scripts/                  # Development automation scripts (e.g. dev-stack.mjs)
 ├── docs/                     # Domain documentation, weights configuration, and media

@@ -51,11 +51,20 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
+import { readFileSync } from "node:fs";
+
+let databaseUrl = process.env.DATABASE_URL;
+try {
+  const envFile = readFileSync(resolve(rootDir, "packages/prisma/.env"), "utf-8");
+  const match = envFile.match(/DATABASE_URL="([^"]+)"/);
+  if (match) databaseUrl = match[1];
+} catch (e) {}
+
 start(
   "ml-engine",
   pythonBin,
   ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"],
-  { env: {}, cwd: resolve(rootDir, "services/prediction-engine") },
+  { env: { DATABASE_URL: databaseUrl }, cwd: resolve(rootDir, "services/prediction-engine") },
 );
 
 start(

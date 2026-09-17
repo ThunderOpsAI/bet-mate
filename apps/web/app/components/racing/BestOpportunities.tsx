@@ -13,7 +13,6 @@ export default function BestRacingOpportunities({
   return (
     <OpportunitySection
       title="Racing opportunities"
-      description="Value spots only show when the live market is paying longer than the model fair odds."
       opportunities={opportunities}
       emptyMessage="No positive racing value gap is attached right now. You can still use the race cards below for model-only reads."
       href="/racing"

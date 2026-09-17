@@ -19,6 +19,7 @@ import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
 import { ML_API } from "../lib/mlApi";
+import { safeResponseJson } from "../lib/api";
 import {
   getMlCacheDateKey,
   getMlDataCacheKey,
@@ -29,7 +30,6 @@ import {
   scheduleMlDataCacheRetry,
 } from "../lib/cache/mlDataCache";
 import {
-  getCachedViewStatus,
   trackRefreshOutcome,
   trackStaleCache,
 } from "../lib/monitoring/performance";
@@ -40,7 +40,10 @@ import {
 import { rankOpportunities } from "../lib/opportunityScore";
 import PaperBetAction from "../components/PaperBetAction";
 import FeedbackButtons from "../components/FeedbackButtons";
-import { deriveFallbackWinProb } from "../lib/fallbackProbability";
+import SportCodeFilter from "../components/sport/SportCodeFilter";
+import SportCard from "../components/sport/SportCard";
+import SportMatchupDrawer, { type MatchupDrawerData } from "../components/sport/SportMatchupDrawer";
+
 
 type MMAMatchup = {
   game_id: string;
@@ -110,7 +113,7 @@ async function fetchTodayMmaGames() {
       throw new Error(`MMA fixtures request failed with ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await safeResponseJson(response);
     return (data?.games ?? []) as MMAMatchup[];
   } catch (error) {
     console.error("fetchTodayMmaGames failed:", error);
@@ -134,7 +137,9 @@ async function fetchMmaPredictions(games: MMAMatchup[]) {
           return null;
         }
 
-        return [game.game_id, await response.json()] as const;
+        const predData = await safeResponseJson(response);
+        if (!predData) return null;
+        return [game.game_id, predData] as const;
       } catch {
         return null;
       }
@@ -158,6 +163,7 @@ export default function MMAPage() {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [nextRefreshAt, setNextRefreshAt] = useState<number | null>(null);
   const [expandedGame, setExpandedGame] = useState<string | null>(null);
+  const [drawerMatchup, setDrawerMatchup] = useState<MatchupDrawerData | null>(null);
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
@@ -342,40 +348,24 @@ export default function MMAPage() {
   ).slice(0, 5);
 
   const hasMmaData = games.length > 0 || Object.keys(predictions).length > 0;
-  const mmaStatus = getCachedViewStatus({
-    resourceLabel: "MMA data",
-    hasData: hasMmaData,
-    lastUpdated,
-    isRefreshing: refreshing,
-    refreshFailed,
-  });
+
 
   return (
-    <div>
+    <div className="space-y-5 px-4 sm:px-6 py-6 max-w-7xl mx-auto">
       <ExplainDrawer
         open={activeExplanation !== null}
         explanation={activeExplanation}
         onClose={() => setActiveExplanation(null)}
       />
-      <RefreshControls
-        lastUpdated={lastUpdated}
-        nextRefreshAt={nextRefreshAt}
-        isRefreshing={refreshing}
-        onRefresh={refreshPage}
-      />
-
-      {mmaStatus ? (
-        <div className="status-stack">
-          <ErrorState
-            title={mmaStatus.title}
-            message={mmaStatus.message}
-            tone={mmaStatus.tone}
-            actionLabel="Refresh now"
-            onAction={() => void refreshPage()}
-            compact
-          />
-        </div>
-      ) : null}
+      <div className="flex items-center justify-end gap-3 flex-wrap mb-3">
+        <RefreshControls
+          lastUpdated={lastUpdated}
+          nextRefreshAt={nextRefreshAt}
+          isRefreshing={refreshing}
+          onRefresh={refreshPage}
+        />
+      </div>
+      <SportCodeFilter activeSport="mma" />
 
       {!hasMmaData && refreshFailed ? (
         <ErrorState
@@ -398,185 +388,75 @@ export default function MMAPage() {
                 const gameComplete = Number(game.complete ?? 0);
                 const scoreLabel = gameComplete >= 100 ? "Final Fight Result" : null;
 
-                const fallback = deriveFallbackWinProb(game.home_team, game.away_team);
-                const homePct = prediction?.predictions?.home_win_probability ?? fallback.homePct;
-                const awayPct = prediction?.predictions?.away_win_probability ?? fallback.awayPct;
-                const homeWins = homePct > awayPct;
-                const isExpanded = expandedGame === game.game_id;
-                const confidenceSignal = prediction
-                  ? getConfidenceSignal(prediction.ai_insights_context)
-                  : null;
+                if (!prediction) {
+                  return (
+                    <div key={game.game_id} className="game-prediction-card flex items-center justify-center p-4 border border-white/5 rounded-xl bg-white/5 mb-3">
+                      <span className="text-slate-400 font-bold text-xs">{game.home_team} vs {game.away_team} - <span className="text-slate-500 font-normal">Pending Data</span></span>
+                    </div>
+                  );
+                }
+
+                const homePct = prediction.predictions.home_win_probability;
+                const awayPct = prediction.predictions.away_win_probability;
+                const confidenceSignal = getConfidenceSignal(prediction.ai_insights_context);
                 const urgencySignal = getUrgencySignal({
                   startTime: game.date,
                   isClosed: gameComplete > 0 && gameComplete < 100,
                   isResultPending: gameComplete >= 100,
                 });
 
+                const startDateLabel = game.date
+                  ? new Date(game.date).toLocaleString("en-AU", { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                  : "Bout time pending";
+
+                const matchupData: MatchupDrawerData = {
+                  id: game.game_id,
+                  sport: "mma",
+                  title: `${game.home_team} vs ${game.away_team}`,
+                  subTitle: scoreLabel ?? startDateLabel,
+                  date: game.date,
+                  venue: game.venue,
+                  roundOrLeague: game.weight_class,
+                  outcomes: [
+                    {
+                      name: game.home_team,
+                      isHome: true,
+                      winProb: homePct,
+                      fairOdds: prediction.predictions.fair_odds_home,
+                      marketOdds: prediction.predictions.market_odds_home,
+                    },
+                    {
+                      name: game.away_team,
+                      isAway: true,
+                      winProb: awayPct,
+                      fairOdds: prediction.predictions.fair_odds_away,
+                      marketOdds: prediction.predictions.market_odds_away,
+                    },
+                  ],
+                  metadata: {
+                    confidenceSignal,
+                    urgencySignal,
+                  },
+                  featureImpact: prediction.feature_impact,
+                  aiInsightsContext: prediction.ai_insights_context,
+                  modelMetadata: prediction.model_metadata,
+                };
+
                 return (
-                  <div
+                  <SportCard
                     key={game.game_id}
-                    className={`game-prediction-card ${isExpanded ? "expanded" : ""}`}
-                    onClick={() => setExpandedGame(isExpanded ? null : game.game_id)}
-                  >
-                    <div className="game-matchup-header">
-                      <div className={`team-block ${homeWins ? "favoured" : ""}`}>
-                        <span className="team-label">FIGHTER 1</span>
-                        <span className="team-name-lg">{game.home_team}</span>
-                        <span className="team-prob-lg">{homePct.toFixed(1)}%</span>
-                        {prediction ? (
-                          <span className="team-odds">
-                            Fair: ${prediction.predictions.fair_odds_home.toFixed(2)}
-                          </span>
-                        ) : null}
-                        {prediction?.predictions.market_odds_home ? (
-                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_home.toFixed(2)}</span>
-                        ) : null}
-                        {prediction ? (
-                          <PaperBetAction
-                            variant="phase1"
-                            label="Log Selection Fighter 1"
-                            loggedLabel="Fighter 1 Logged"
-                            cancelLabel="Cancel"
-                            openBetslipOnAdd={false}
-                            fullWidth
-                            bet={{
-                              sport: "mma",
-                              event_id: game.game_id,
-                              event_name: `${game.home_team} vs ${game.away_team}`,
-                              selection: game.home_team,
-                              odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                              bet_type: "head_to_head",
-                              stake: 10,
-                              odds_source: prediction.predictions.market_odds_home ? "market" : "model_fair",
-                              current_odds: prediction.predictions.market_odds_home ?? prediction.predictions.fair_odds_home,
-                              can_compare_odds: Boolean(prediction.predictions.market_odds_home && prediction.predictions.market_odds_home > 1),
-                              event_start_time: game.date,
-                              is_closed: gameComplete > 0 && gameComplete < 100,
-                            }}
-                          />
-                        ) : null}
-                      </div>
-
-                      <div className="matchup-center-block">
-                        <span className="matchup-center-kicker">MMA Bout</span>
-                        <span className="matchup-center-title">
-                          {game.home_team} vs {game.away_team}
-                        </span>
-                        <span className="matchup-center-subtitle">
-                          {scoreLabel ?? (game.date ? new Date(game.date).toLocaleString("en-AU", { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : "Bout time pending")}
-                        </span>
-                      </div>
-
-                      <div className={`team-block ${!homeWins ? "favoured" : ""}`}>
-                        <span className="team-label">FIGHTER 2</span>
-                        <span className="team-name-lg">{game.away_team}</span>
-                        <span className="team-prob-lg">{awayPct.toFixed(1)}%</span>
-                        {prediction ? (
-                          <span className="team-odds">
-                            Fair: ${prediction.predictions.fair_odds_away.toFixed(2)}
-                          </span>
-                        ) : null}
-                        {prediction?.predictions.market_odds_away ? (
-                          <span className="team-odds market">Betfair: ${prediction.predictions.market_odds_away.toFixed(2)}</span>
-                        ) : null}
-                        {prediction ? (
-                          <PaperBetAction
-                            variant="phase1"
-                            label="Log Selection Fighter 2"
-                            loggedLabel="Fighter 2 Logged"
-                            cancelLabel="Cancel"
-                            openBetslipOnAdd={false}
-                            fullWidth
-                            bet={{
-                              sport: "mma",
-                              event_id: game.game_id,
-                              event_name: `${game.home_team} vs ${game.away_team}`,
-                              selection: game.away_team,
-                              odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                              bet_type: "head_to_head",
-                              stake: 10,
-                              odds_source: prediction.predictions.market_odds_away ? "market" : "model_fair",
-                              current_odds: prediction.predictions.market_odds_away ?? prediction.predictions.fair_odds_away,
-                              can_compare_odds: Boolean(prediction.predictions.market_odds_away && prediction.predictions.market_odds_away > 1),
-                              event_start_time: game.date,
-                              is_closed: gameComplete > 0 && gameComplete < 100,
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="game-prob-bar large">
-                      <div className="prob-fill home" style={{ width: `${homePct}%` }} />
-                      <div className="prob-fill away" style={{ width: `${awayPct}%` }} />
-                    </div>
-
-                    <div className="game-context-row">
-                      {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
-                      {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
-                      {game.weight_class ? <span className="context-chip">⚖️ {game.weight_class}</span> : null}
-                      {game.venue ? <span className="context-chip">📍 {game.venue}</span> : null}
-                      {prediction ? (
-                        <>
-                          <button
-                            type="button"
-                            className="why-pick-button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setActiveExplanation(
-                                buildBobExplanation({
-                                  sport: "mma",
-                                  selectionName: homeWins ? game.home_team : game.away_team,
-                                  opponentName: homeWins ? game.away_team : game.home_team,
-                                  probability: homeWins ? homePct : awayPct,
-                                  fairOdds: homeWins
-                                    ? prediction.predictions.fair_odds_home
-                                    : prediction.predictions.fair_odds_away,
-                                  featureImpact: prediction.feature_impact,
-                                  aiInsightsContext: prediction.ai_insights_context,
-                                  modelMetadata: prediction.model_metadata,
-                                }),
-                              );
-                            }}
-                          >
-                            <Brain size={14} /> Why {homeWins ? game.home_team : game.away_team}?
-                          </button>
-                          <div onClick={(event) => event.stopPropagation()} style={{ marginLeft: 'auto' }}>
-                            <FeedbackButtons 
-                              sport="mma" 
-                              eventId={game.game_id} 
-                              selection={homeWins ? game.home_team : game.away_team}
-                            />
-                          </div>
-                        </>
-                      ) : null}
-                    </div>
-
-                    {isExpanded && prediction ? (
-                      <div className="game-expanded-section">
-                        <div className="feature-impact-section">
-                          <h4>
-                            <BarChart3 size={16} /> Bob explainability
-                          </h4>
-                          <p className="muted-copy">
-                            Open the "Why" drawer for the model lean to see what is helping,
-                            what is dragging, and how much trust Bob is putting in the read.
-                          </p>
-                        </div>
-
-                        <div className="explain-inline-card">
-                          <span>
-                            Model lean: {homeWins ? game.home_team : game.away_team} at{" "}
-                            {(homeWins ? homePct : awayPct).toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
+                    matchup={matchupData}
+                    onOpenDrawer={(m) => setDrawerMatchup(m)}
+                  />
                 );
               })}
             </div>
           </ErrorBoundary>
+          <SportMatchupDrawer
+            isOpen={drawerMatchup !== null}
+            onClose={() => setDrawerMatchup(null)}
+            matchup={drawerMatchup}
+          />
         </>
       )}
 

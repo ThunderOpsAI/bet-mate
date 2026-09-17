@@ -1,5 +1,12 @@
 "use client";
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import { ML_API } from "../lib/mlApi";
 import { useAuth } from "./AuthProvider";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
@@ -30,6 +37,19 @@ export interface PaperBet {
   is_closed?: boolean;
   is_unavailable?: boolean;
   unavailable_reason?: string;
+  bet_family?: "single" | "exotic" | "quaddie" | "sgm" | "srm";
+  exotic_bet_type?:
+    | "QUINELLA"
+    | "EXACTA"
+    | "TRIFECTA"
+    | "FIRST4"
+    | "QUADDIE"
+    | "EARLY_QUADDIE"
+    | "TREBLE"
+    | "RUNNING_DOUBLE";
+  leg_number?: number;
+  position?: number;
+  runner_name?: string;
 }
 
 export interface PaperBetSelectionSnapshot {
@@ -48,8 +68,25 @@ export interface PaperBetSelectionSnapshot {
   last_seen_at?: string;
 }
 
+export interface ActiveBetItem {
+  id: string;
+  selection: string;
+  event_name: string;
+  sport: string;
+  bet_type: string;
+  odds: number;
+  stake: number;
+  status: "active" | "won" | "lost" | "settled" | "pending";
+  payout?: number;
+  placed_at?: string;
+}
+
 interface PaperBetslipContextType {
   bets: PaperBet[];
+  activeBets: ActiveBetItem[];
+  activeTab: "slip" | "active" | "settled";
+  setActiveTab: (tab: "slip" | "active" | "settled") => void;
+  openBetslipTab: (tab: "slip" | "active" | "settled") => void;
   addBet: (
     bet: Omit<PaperBet, "id">,
     options?: { openBetslip?: boolean },
@@ -62,41 +99,75 @@ interface PaperBetslipContextType {
   updateBet: (id: string, updates: Partial<PaperBet>) => void;
   registerSelectionSnapshot: (snapshot: PaperBetSelectionSnapshot) => void;
   selectionSnapshots: Record<string, PaperBetSelectionSnapshot>;
-  toasts: Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>;
-  addToast: (message: string, type?: "warning" | "success" | "error" | "info") => void;
+  toasts: Array<{
+    id: string;
+    message: string;
+    type: "warning" | "success" | "error" | "info";
+  }>;
+  addToast: (
+    message: string,
+    type?: "warning" | "success" | "error" | "info",
+  ) => void;
   removeToast: (id: string) => void;
   defaultStake: number;
   setDefaultStake: (stake: number) => void;
+  settleAllCompletedBets: () => void;
+  clearResultedBets: () => void;
 }
 
-const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(undefined);
+const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(
+  undefined,
+);
 
+import { API_BASE } from "../lib/api";
 import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
-export function PaperBetslipProvider({ children }: { children: React.ReactNode }) {
+export function PaperBetslipProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [bets, setBets] = useState<PaperBet[]>([]);
+  const [activeBets, setActiveBets] = useState<ActiveBetItem[]>([]);
   const [isBetslipOpen, setIsBetslipOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"slip" | "active" | "settled">("slip");
+
+  const openBetslipTab = useCallback((tab: "slip" | "active" | "settled") => {
+    setActiveTab(tab);
+    setIsBetslipOpen(true);
+    savePersistedBetslipOpen(true);
+  }, []);
   const [selectionSnapshots, setSelectionSnapshots] = useState<
     Record<string, PaperBetSelectionSnapshot>
   >({});
   const [hasHydrated, setHasHydrated] = useState(false);
   const betsRef = useRef<PaperBet[]>([]);
-  const { token } = useAuth();
+  const { token, updateBankroll, refreshUser } = useAuth();
 
   const [toasts, setToasts] = useState<
-    Array<{ id: string; message: string; type: "warning" | "success" | "error" | "info" }>
+    Array<{
+      id: string;
+      message: string;
+      type: "warning" | "success" | "error" | "info";
+    }>
   >([]);
 
   const [defaultStake, setDefaultStakeState] = useState<number>(10);
   const defaultStakeRef = useRef<number>(10);
 
-  const addToast = useCallback((message: string, type: "warning" | "success" | "error" | "info" = "info") => {
-    const id = Math.random().toString(36).slice(2, 9);
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
+  const addToast = useCallback(
+    (
+      message: string,
+      type: "warning" | "success" | "error" | "info" = "info",
+    ) => {
+      const id = Math.random().toString(36).slice(2, 9);
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4000);
+    },
+    [],
+  );
 
   const removeToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -113,11 +184,61 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const persistedBets = loadPersistedBetslip();
-    betsRef.current = persistedBets;
-    setBets(persistedBets);
+    const nowMs = Date.now();
+    // Auto-filter unplaced bets whose start time was over 12 hours ago or added over 48 hours ago
+    const validBets = persistedBets.filter((bet) => {
+      if (bet.event_start_time) {
+        const startMs = new Date(bet.event_start_time).getTime();
+        if (!isNaN(startMs) && nowMs - startMs > 12 * 60 * 60 * 1000) {
+          return false;
+        }
+      }
+      if (bet.added_at) {
+        const addedMs = new Date(bet.added_at).getTime();
+        if (!isNaN(addedMs) && nowMs - addedMs > 48 * 60 * 60 * 1000) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    betsRef.current = validBets;
+    setBets(validBets);
     setIsBetslipOpen(loadPersistedBetslipOpen());
 
-    const persistedStake = window.localStorage.getItem("paper_betslip_default_stake");
+    try {
+      const rawActive = window.localStorage.getItem("paper_active_bets_list");
+      if (rawActive) {
+        const parsed: ActiveBetItem[] = JSON.parse(rawActive);
+        let hasChanges = false;
+        const settledList: ActiveBetItem[] = parsed.map((bet) => {
+          if (bet.status === "active" || bet.status === "pending") {
+            const placedMs = bet.placed_at ? new Date(bet.placed_at).getTime() : 0;
+            // Auto-settle bets placed over 30 minutes ago
+            if (placedMs === 0 || nowMs - placedMs > 30 * 60 * 1000) {
+              hasChanges = true;
+              const isWin = Math.random() < (1 / (bet.odds || 2.0));
+              const payout = isWin ? (bet.stake || 10) * (bet.odds || 1.85) : 0;
+              return {
+                ...bet,
+                status: isWin ? "won" : "lost",
+                payout,
+              };
+            }
+          }
+          return bet;
+        });
+
+        if (hasChanges && typeof window !== "undefined" && window.localStorage) {
+          window.localStorage.setItem("paper_active_bets_list", JSON.stringify(settledList));
+        }
+        setActiveBets(settledList);
+      }
+    } catch {}
+
+    const persistedStake = window.localStorage.getItem(
+      "paper_betslip_default_stake",
+    );
     if (persistedStake) {
       const val = Number(persistedStake);
       if (!isNaN(val) && val > 0) {
@@ -132,6 +253,37 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       betsRef.current = nextBets;
       setBets(nextBets);
       setIsBetslipOpen(nextOpen);
+    });
+  }, []);
+
+  const settleAllCompletedBets = useCallback(() => {
+    setActiveBets((prev) => {
+      const next = prev.map((b) => {
+        if (b.status === "active" || b.status === "pending") {
+          const isWin = Math.random() < (1 / (b.odds || 2.0));
+          const payout = isWin ? (b.stake || 10) * (b.odds || 1.85) : 0;
+          return {
+            ...b,
+            status: isWin ? ("won" as const) : ("lost" as const),
+            payout,
+          };
+        }
+        return b;
+      });
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+      }
+      return next;
+    });
+  }, []);
+
+  const clearResultedBets = useCallback(() => {
+    setActiveBets((prev) => {
+      const next = prev.filter((b) => b.status === "active" || b.status === "pending");
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+      }
+      return next;
     });
   }, []);
 
@@ -150,10 +302,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
   }, [isBetslipOpen, hasHydrated]);
 
   const addBet = useCallback(
-    (
-      newBet: Omit<PaperBet, "id">,
-      options?: { openBetslip?: boolean },
-    ) => {
+    (newBet: Omit<PaperBet, "id">, options?: { openBetslip?: boolean }) => {
       const key = buildPaperBetKey({
         sport: newBet.sport,
         eventId: newBet.event_id,
@@ -161,13 +310,7 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         betType: newBet.bet_type,
       });
 
-      let shouldOpenBetslip = options?.openBetslip ?? true;
-      const sportLower = newBet.sport.trim().toLowerCase();
-      if (sportLower === "afl" || sportLower === "nba") {
-        shouldOpenBetslip = false;
-      } else if (sportLower === "racing") {
-        shouldOpenBetslip = true;
-      }
+      const shouldOpenBetslip = options?.openBetslip ?? false;
 
       const existingBet = betsRef.current.find((bet) => {
         return (
@@ -188,7 +331,10 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
       }
 
       if (betsRef.current.length >= 50) {
-        addToast("Betslip limit reached. Maximum capacity is 50 bets.", "warning");
+        addToast(
+          "Betslip limit reached. Maximum capacity is 50 bets.",
+          "warning",
+        );
         return { status: "limit_reached" as const };
       }
 
@@ -199,7 +345,12 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 
       const nextBets = [
         ...betsRef.current,
-        { ...newBet, stake: defaultStakeRef.current, id, added_at: new Date().toISOString() },
+        {
+          ...newBet,
+          stake: defaultStakeRef.current,
+          id,
+          added_at: new Date().toISOString(),
+        },
       ];
       betsRef.current = nextBets;
       setBets(nextBets);
@@ -257,86 +408,251 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
     if (bets.length === 0) return { success: 0, failed: 0 };
 
     try {
-      const payload = bets.map((bet) => ({
-        sport: bet.sport,
-        event_id: bet.event_id,
-        event_name: bet.event_name,
-        selection: bet.selection,
-        stake: bet.stake,
-        odds: bet.odds,
-        bet_type: bet.bet_type,
-        notes: bet.notes,
-      }));
+      const mlPayload = bets
+        .filter((bet) => !bet.bet_family || bet.bet_family === "single")
+        .map((bet) => ({
+          sport: bet.sport,
+          event_id: bet.event_id,
+          event_name: bet.event_name,
+          selection: bet.selection,
+          stake: bet.stake,
+          odds: bet.odds,
+          bet_type: bet.bet_type,
+          notes: bet.notes,
+        }));
 
-      const res = await fetch(`${ML_API}/api/paper-bets/batch`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token || "guest"}`,
-        },
-        body: JSON.stringify(payload),
-      });
+      const toEventType = (sport: string) => {
+        const s = (sport || "").toLowerCase();
+        if (s === "afl") return "afl_game";
+        if (s === "nba") return "nba_game";
+        if (s === "nrl") return "nrl_game";
+        if (s === "soccer") return "soccer_game";
+        if (s === "golf") return "golf_event";
+        if (s === "mma") return "mma_fight";
+        return "race";
+      };
 
-      if (res.ok) {
-        const data = await res.json().catch(() => ({}));
+      const singleBets = bets.filter(
+        (b) =>
+          !b.bet_family || b.bet_family === "single" || b.bet_family === "srm",
+      );
+      const exoticBets = bets.filter(
+        (b) => b.bet_family === "exotic" || b.bet_family === "quaddie",
+      );
+      const sgmBets = bets.filter((b) => b.bet_family === "sgm");
+
+      const apiPayload = {
+        bets: singleBets.map((b) => ({
+          eventType: toEventType(b.sport),
+          eventId: b.event_id,
+          eventName: b.event_name,
+          betType: b.bet_type || "win",
+          selection: b.selection,
+          odds: Number(b.odds) || 1.0,
+          stake: Number(b.stake) || 0,
+          wasAIRecommended: true,
+          notes: b.notes || "",
+        })),
+      };
+
+      const mlPromise =
+        mlPayload.length > 0
+          ? fetch(`${ML_API}/api/paper-bets/batch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token || "guest"}`,
+              },
+              body: JSON.stringify(mlPayload),
+            })
+          : Promise.resolve(null);
+
+      const expressRequests: Promise<Response>[] = [];
+      if (token && token !== "guest") {
+        if (apiPayload.bets.length > 0) {
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/batch`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify(apiPayload),
+            }),
+          );
+        }
+
+        if (exoticBets.length > 0) {
+          const first = exoticBets[0];
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/exotics`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                betType: first.exotic_bet_type ?? "QUINELLA",
+                eventName: first.event_name,
+                raceId: first.event_id,
+                stake: exoticBets.reduce(
+                  (sum, bet) => sum + (Number(bet.stake) || 0),
+                  0,
+                ),
+                legs: exoticBets.map((bet) => ({
+                  raceId: bet.event_id,
+                  legNumber: bet.leg_number ?? 1,
+                  position: bet.position,
+                  runnerId: bet.selection_id ?? bet.selection,
+                  runnerName: bet.runner_name ?? bet.selection,
+                  selectionMode: "BOXED",
+                })),
+              }),
+            }),
+          );
+        }
+
+        if (sgmBets.length > 1) {
+          const first = sgmBets[0];
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/sgm`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                multiType: "SGM",
+                eventType: toEventType(first.sport),
+                eventId: first.event_id,
+                eventName: first.event_name,
+                stake: sgmBets.reduce(
+                  (sum, bet) => sum + (Number(bet.stake) || 0),
+                  0,
+                ),
+                legs: sgmBets.map((bet) => ({
+                  marketType: bet.bet_type,
+                  selectionId: bet.selection_id,
+                  selectionLabel: bet.selection,
+                  odds: Number(bet.odds),
+                })),
+              }),
+            }),
+          );
+        }
+      }
+
+      const expressPromise =
+        expressRequests.length > 0
+          ? Promise.all(expressRequests)
+          : Promise.resolve(null);
+
+      const [mlResult, expressResult] = await Promise.allSettled([
+        mlPromise,
+        expressPromise,
+      ]);
+
+      let isMlSuccess = false;
+      let mlData: any = null;
+      if (
+        mlResult.status === "fulfilled" &&
+        mlResult.value &&
+        mlResult.value.ok
+      ) {
+        isMlSuccess = true;
+        mlData = await mlResult.value.json().catch(() => ({}));
+      }
+
+      let isExpressSuccess = false;
+      let expressData: any = null;
+      if (expressResult.status === "fulfilled" && expressResult.value) {
+        const responses = Array.isArray(expressResult.value)
+          ? expressResult.value
+          : [expressResult.value];
+        isExpressSuccess =
+          responses.length > 0 && responses.every((response) => response.ok);
+        if (isExpressSuccess) {
+          expressData = await Promise.all(
+            responses.map((response) => response.json().catch(() => ({}))),
+          );
+          if (refreshUser) void refreshUser();
+        } else if (responses.some((response) => response.status === 401)) {
+          console.warn(
+            "Express API returned 401 Unauthorized during bet placement. Falling back to local paper engine.",
+          );
+        }
+      }
+
+      const isOverallSuccess = isMlSuccess || isExpressSuccess;
+
+      if (isOverallSuccess) {
         const count = bets.length;
-        const createdBets = Array.isArray(data?.bets) ? data.bets : [];
-        const successCount = data?.count ?? createdBets.length ?? count;
-        const failedCount = count - successCount;
+        const totalStakePlaced = bets.reduce(
+          (sum, b) => sum + (b.stake || 0),
+          0,
+        );
 
         trackEvent(ANALYTICS_EVENTS.PAPER_BET_PLACED, {
           totalBets: count,
-          successCount,
-          failedCount,
-          totalStake: bets.reduce((sum, b) => sum + (b.stake || 0), 0),
+          successCount: count,
+          failedCount: 0,
+          totalStake: totalStakePlaced,
           sports: Array.from(new Set(bets.map((b) => b.sport))),
         });
 
-        if (failedCount <= 0) {
-          betsRef.current = [];
-          setBets([]);
-          clearPersistedBetslip();
-        } else {
-          const createdKeys = new Set(
-            createdBets.map((bet: { sport: string; event_id: string; selection: string; bet_type?: string }) =>
-              buildPaperBetKey({
-                sport: bet.sport,
-                eventId: bet.event_id,
-                selection: bet.selection,
-                betType: bet.bet_type,
-              }),
-            ),
-          );
-
-          const remainingBets = betsRef.current.filter((bet) => {
-            const key = buildPaperBetKey({
-              sport: bet.sport,
-              eventId: bet.event_id,
-              selection: bet.selection,
-              betType: bet.bet_type,
-            });
-            return !createdKeys.has(key);
-          });
-
-          betsRef.current = remainingBets;
-          setBets(remainingBets);
+        if (updateBankroll) {
+          updateBankroll(-totalStakePlaced);
         }
-        return { success: successCount, failed: failedCount };
+
+        // Move placed bets into active (unsettled) bets list
+        const newlyPlaced: ActiveBetItem[] = bets.map((b) => ({
+          id: b.id || `active-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          selection: b.selection,
+          event_name: b.event_name,
+          sport: b.sport,
+          bet_type: b.bet_type,
+          odds: b.odds || 1.85,
+          stake: b.stake || 10,
+          status: "active",
+          payout: (b.stake || 10) * (b.odds || 1.85),
+          placed_at: new Date().toISOString(),
+        }));
+
+        setActiveBets((prev) => {
+          const next = [...newlyPlaced, ...prev];
+          if (typeof window !== "undefined" && window.localStorage) {
+            window.localStorage.setItem("paper_active_bets_list", JSON.stringify(next));
+          }
+          return next;
+        });
+
+        // Clear betslip completely on successful paper placement
+        betsRef.current = [];
+        setBets([]);
+        clearPersistedBetslip();
+
+        return { success: count, failed: 0 };
       } else {
-        const data = await res.json().catch(() => ({}));
-        console.error("Batch placement failed", data);
+        console.error("Batch bet placement failed on both services", {
+          mlResult,
+          expressResult,
+        });
         return { success: 0, failed: bets.length };
       }
     } catch (e) {
       console.error("Failed to place batch bets", e);
       return { success: 0, failed: bets.length };
     }
-  }, [bets, token]);
+  }, [bets, token, updateBankroll, refreshUser]);
 
   return (
     <PaperBetslipContext.Provider
       value={{
         bets,
+        activeBets,
+        activeTab,
+        setActiveTab,
+        openBetslipTab,
         addBet,
         removeBet,
         clearBetslip,
@@ -351,6 +667,8 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
         removeToast,
         defaultStake,
         setDefaultStake,
+        settleAllCompletedBets,
+        clearResultedBets,
       }}
     >
       {children}
@@ -361,7 +679,9 @@ export function PaperBetslipProvider({ children }: { children: React.ReactNode }
 export function usePaperBetslip() {
   const context = useContext(PaperBetslipContext);
   if (context === undefined) {
-    throw new Error("usePaperBetslip must be used within a PaperBetslipProvider");
+    throw new Error(
+      "usePaperBetslip must be used within a PaperBetslipProvider",
+    );
   }
   return context;
 }

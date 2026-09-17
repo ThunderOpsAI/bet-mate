@@ -80,7 +80,7 @@ def _get_pg_pool():
 
         _pg_pool = psycopg2.pool.ThreadedConnectionPool(
             minconn=1,
-            maxconn=5,
+            maxconn=50,
             dsn=conn_str,
         )
         print(f"[Database] PostgreSQL pool created (Neon)")
@@ -112,8 +112,8 @@ class _PgCursorWrapper:
 
     def executemany(self, sql: str, params_list):
         sql = _translate_sql(sql)
-        for params in params_list:
-            self._cursor.execute(sql, params)
+        import psycopg2.extras
+        psycopg2.extras.execute_batch(self._cursor, sql, params_list)
         return self
 
     def fetchone(self):
@@ -174,6 +174,10 @@ def _translate_sql(sql: str) -> str:
     """
     # Replace ? with %s for parameter binding
     result = sql.replace("?", "%s")
+    # Handle AUTOINCREMENT
+    result = result.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "SERIAL PRIMARY KEY")
+    result = result.replace("AUTOINCREMENT", "")
+    result = result.replace("ADD COLUMN", "ADD COLUMN IF NOT EXISTS")
     return result
 
 
@@ -188,6 +192,25 @@ def get_connection():
     if DB_BACKEND == "postgresql":
         pool = _get_pg_pool()
         conn = pool.getconn()
+        # Verify pooled connection is alive; if closed or broken, replace with fresh connection
+        if conn.closed != 0:
+            try:
+                pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            conn = pool.getconn()
+        else:
+            try:
+                with conn.cursor() as test_cur:
+                    test_cur.execute("SELECT 1")
+            except Exception:
+                try:
+                    pool.putconn(conn, close=True)
+                except Exception:
+                    pass
+                conn = pool.getconn()
+
+        is_broken = False
         try:
             user_id = user_id_ctx.get()
             if user_id is not None:
@@ -197,10 +220,17 @@ def get_connection():
             yield wrapper
             conn.commit()
         except Exception:
-            conn.rollback()
+            is_broken = True
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             raise
         finally:
-            pool.putconn(conn)
+            try:
+                pool.putconn(conn, close=is_broken or conn.closed != 0)
+            except Exception:
+                pass
     else:
         dir_name = os.path.dirname(BETMATE_DB_PATH)
         if dir_name:

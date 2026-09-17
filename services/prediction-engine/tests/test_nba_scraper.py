@@ -49,9 +49,9 @@ def test_fetch_today_nba_scopes_to_requested_run_date(monkeypatch):
     assert nba_scraper.fetch_today_nba(run_date="2026-04-11") == []
 
 
-def test_fetch_today_nba_can_disable_mock_fallback(monkeypatch):
+def test_fetch_today_nba_returns_empty_when_api_key_missing(monkeypatch):
     monkeypatch.setattr(nba_scraper, "BDL_API_KEY", "")
 
-    games = nba_scraper.fetch_today_nba(run_date=today_melbourne().isoformat(), allow_mock=False)
+    games = nba_scraper.fetch_today_nba(run_date=today_melbourne().isoformat())
 
     assert games == []

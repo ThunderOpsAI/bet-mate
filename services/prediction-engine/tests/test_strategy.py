@@ -224,8 +224,8 @@ def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
     observed = {}
 
     def record_run_date(sport):
-        def inner(run_date=None, allow_mock=None):
-            observed[sport] = {"run_date": run_date, "allow_mock": allow_mock}
+        def inner(run_date=None):
+            observed[sport] = {"run_date": run_date}
             return []
         return inner
 
@@ -247,9 +247,9 @@ def test_collect_candidates_passes_run_date_to_all_scrapers(monkeypatch):
 
     assert candidates == []
     assert observed == {
-        "racing": {"run_date": "2026-04-10", "allow_mock": None},
-        "afl": {"run_date": "2026-04-10", "allow_mock": None},
-        "nba": {"run_date": "2026-04-10", "allow_mock": None},
+        "racing": {"run_date": "2026-04-10"},
+        "afl": {"run_date": "2026-04-10"},
+        "nba": {"run_date": "2026-04-10"},
     }
 
 

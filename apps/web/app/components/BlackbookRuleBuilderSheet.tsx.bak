@@ -1,0 +1,397 @@
+"use client";
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { X, Star, Link as LinkIcon, Save } from "lucide-react";
+import { TrackPicker } from "./TrackPicker";
+import { SearchResult } from "./BlackbookSearchModal";
+
+interface Props {
+  isOpen: boolean;
+  onClose: () => void;
+  entity: SearchResult | null;
+  onSave: () => void;
+}
+
+export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, onSave }: Props) {
+  const [notes, setNotes] = useState("");
+  const [rating, setRating] = useState(0);
+  const [conditions, setConditions] = useState({
+    favourite: false,
+    tracks: [] as string[],
+    minOdds: "",
+    raceType: "",
+    metroOnly: false,
+    maxWeight: "",
+    barrierMin: "",
+    barrierMax: "",
+    classLevel: "",
+    firstUp: "",
+    daysSinceLastRun: "",
+    distanceMin: "",
+    distanceMax: "",
+    trackCondition: "",
+    comboJockeyTrainer: false,
+    comboJockeyTrainer_jockey: "",
+    comboJockeyTrainer_trainer: "",
+    comboJockeyHorse: false,
+    comboJockeyHorse_jockey: "",
+    comboJockeyHorse_horse: "",
+    comboTrainerTrack: false,
+    comboTrainerTrack_trainer: "",
+    comboTrainerTrack_track: "",
+    comboJockeyTrack: false,
+    comboJockeyTrack_jockey: "",
+    comboJockeyTrack_track: "",
+    comboHorseFavourite: false,
+    comboDogBox: false,
+    comboDogBox_box: "",
+  });
+  const [alerts, setAlerts] = useState({ push: true, email: true, pushover: false });
+  const [saving, setSaving] = useState(false);
+
+  const [ruleRequestOpen, setRuleRequestOpen] = useState(false);
+  const [ruleRequestText, setRuleRequestText] = useState("");
+  const [ruleRequestStatus, setRuleRequestStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+
+  const handleRequestRule = async () => {
+    if (!ruleRequestText.trim()) return;
+    setRuleRequestStatus("submitting");
+    try {
+      const res = await fetch("/api/blackbook/admin/rule-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: ruleRequestText }),
+      });
+      if (res.ok) {
+        setRuleRequestStatus("success");
+        setTimeout(() => {
+          setRuleRequestOpen(false);
+          setRuleRequestStatus("idle");
+          setRuleRequestText("");
+        }, 3000);
+      } else {
+        setRuleRequestStatus("error");
+      }
+    } catch (e) {
+      setRuleRequestStatus("error");
+    }
+  };
+
+  const handleSave = async () => {
+    if (!entity) return;
+    setSaving(true);
+    try {
+      await fetch("/api/blackbook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entity,
+          notes,
+          rating,
+          conditions,
+          alerts,
+        }),
+      });
+      onSave();
+      onClose();
+    } catch (e) {
+      console.error(e);
+      alert("Failed to save rule");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && entity && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 z-50 flex justify-center items-end sm:items-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
+        >
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="w-full max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-xl overflow-hidden max-h-[90vh] flex flex-col"
+          >
+            <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">{entity.name}</h2>
+                <span className="inline-block px-2 py-0.5 mt-1 bg-cyan-100 text-cyan-800 text-xs font-semibold rounded-full capitalize">
+                  {entity.type}
+                </span>
+              </div>
+              <button onClick={onClose} className="p-2 text-gray-400 hover:bg-gray-200 rounded-full">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 space-y-6">
+              {/* Notes & Rating */}
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Notes</label>
+                  <textarea
+                    maxLength={150}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-cyan-500 outline-none resize-none"
+                    rows={3}
+                    placeholder="Why are you following this?"
+                  />
+                  <div className="text-right text-xs text-gray-400 mt-1">{notes.length}/150</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-700">Rating:</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button key={star} onClick={() => setRating(star)}>
+                        <Star size={20} className={star <= rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Alert Conditions */}
+              <div>
+                <h3 className="font-semibold text-gray-900 border-b border-gray-100 pb-2 mb-3">Alert Conditions</h3>
+                <div className="space-y-3 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={conditions.favourite} onChange={e => setConditions(c => ({...c, favourite: e.target.checked}))} className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500" />
+                    Only if starting favourite
+                  </label>
+                  
+                  <div>
+                    <span className="block mb-1 text-gray-700">Only at track(s):</span>
+                    <TrackPicker value="" onChange={(t) => { if (t) setConditions(c => ({...c, tracks: [...new Set([...c.tracks, t])]})) }} placeholder="Add a track..." />
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {conditions.tracks.map(t => (
+                        <span key={t} className="bg-gray-100 px-2 py-1 rounded-md text-xs flex items-center gap-1">
+                          {t} <button onClick={() => setConditions(c => ({...c, tracks: c.tracks.filter(tr => tr !== t)}))}><X size={12} /></button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">Only if odds ≥ $</span>
+                    <input type="number" value={conditions.minOdds} onChange={e => setConditions(c => ({...c, minOdds: e.target.value}))} className="w-20 border border-gray-200 rounded p-1" />
+                  </div>
+
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={conditions.metroOnly} onChange={e => setConditions(c => ({...c, metroOnly: e.target.checked}))} className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500" />
+                    Only on metro tracks
+                  </label>
+
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <span className="block mb-1 text-gray-700">Race Type:</span>
+                      <select value={conditions.raceType} onChange={e => setConditions(c => ({...c, raceType: e.target.value}))} className="w-full border border-gray-200 rounded p-1.5 bg-white">
+                        <option value="">Any</option>
+                        <option value="thoroughbred">Thoroughbred</option>
+                        <option value="greyhound">Greyhound</option>
+                        <option value="harness">Harness</option>
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <span className="block mb-1 text-gray-700">Class Level:</span>
+                      <select value={conditions.classLevel} onChange={e => setConditions(c => ({...c, classLevel: e.target.value}))} className="w-full border border-gray-200 rounded p-1.5 bg-white">
+                        <option value="">Any</option>
+                        <option value="Group 1">Group 1</option>
+                        <option value="Listed">Listed</option>
+                        <option value="Open">Open</option>
+                        <option value="Maiden">Maiden</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">Max Weight:</span>
+                    <input type="number" value={conditions.maxWeight} onChange={e => setConditions(c => ({...c, maxWeight: e.target.value}))} className="w-16 border border-gray-200 rounded p-1" /> kg
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">Barrier:</span>
+                    <input type="number" value={conditions.barrierMin} onChange={e => setConditions(c => ({...c, barrierMin: e.target.value}))} className="w-16 border border-gray-200 rounded p-1" placeholder="Min" />
+                    <span>–</span>
+                    <input type="number" value={conditions.barrierMax} onChange={e => setConditions(c => ({...c, barrierMax: e.target.value}))} className="w-16 border border-gray-200 rounded p-1" placeholder="Max" />
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="flex-1">
+                      <span className="block mb-1 text-gray-700">First/Second Up:</span>
+                      <select value={conditions.firstUp} onChange={e => setConditions(c => ({...c, firstUp: e.target.value}))} className="w-full border border-gray-200 rounded p-1.5 bg-white">
+                        <option value="">Any</option>
+                        <option value="first-up">First-up</option>
+                        <option value="second-up">Second-up</option>
+                        <option value="either">Either</option>
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <span className="block mb-1 text-gray-700">Track Condition:</span>
+                      <select value={conditions.trackCondition} onChange={e => setConditions(c => ({...c, trackCondition: e.target.value}))} className="w-full border border-gray-200 rounded p-1.5 bg-white">
+                        <option value="">Any</option>
+                        <option value="good">Good</option>
+                        <option value="soft7+">Soft 7+</option>
+                        <option value="heavy8+">Heavy 8+</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">Days since last run ≤</span>
+                    <input type="number" value={conditions.daysSinceLastRun} onChange={e => setConditions(c => ({...c, daysSinceLastRun: e.target.value}))} className="w-16 border border-gray-200 rounded p-1" />
+                    <span>days</span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-700">Distance:</span>
+                    <input type="number" value={conditions.distanceMin} onChange={e => setConditions(c => ({...c, distanceMin: e.target.value}))} className="w-20 border border-gray-200 rounded p-1" placeholder="Min m" />
+                    <span>–</span>
+                    <input type="number" value={conditions.distanceMax} onChange={e => setConditions(c => ({...c, distanceMax: e.target.value}))} className="w-20 border border-gray-200 rounded p-1" placeholder="Max m" />
+                  </div>
+                </div>
+
+                {!ruleRequestOpen ? (
+                  <button onClick={() => setRuleRequestOpen(true)} className="mt-4 text-xs font-semibold text-cyan-600 flex items-center gap-1 hover:underline">
+                    <LinkIcon size={12} /> Request a New Rule Condition
+                  </button>
+                ) : (
+                  <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <label className="block text-xs font-semibold text-gray-700 mb-2">Request a New Rule Condition</label>
+                    <textarea
+                      value={ruleRequestText}
+                      onChange={e => setRuleRequestText(e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-cyan-500 outline-none resize-none mb-2"
+                      rows={2}
+                      placeholder="Describe the condition you want..."
+                    />
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs">
+                        {ruleRequestStatus === "success" && <span className="text-green-600 font-medium">Request sent!</span>}
+                        {ruleRequestStatus === "error" && <span className="text-red-600 font-medium">Failed to send request.</span>}
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => setRuleRequestOpen(false)} className="px-3 py-1 text-xs text-gray-500 hover:text-gray-700">Cancel</button>
+                        <button 
+                          onClick={handleRequestRule} 
+                          disabled={ruleRequestStatus === "submitting" || !ruleRequestText.trim()}
+                          className="px-3 py-1 text-xs bg-cyan-600 text-white rounded-md hover:bg-cyan-700 disabled:opacity-50"
+                        >
+                          {ruleRequestStatus === "submitting" ? "Sending..." : "Submit"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Combo Rules */}
+              <div>
+                <h3 className="font-semibold text-gray-900 border-b border-gray-100 pb-2 mb-3">Combo Rules</h3>
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <label className="flex items-center gap-2 mb-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboJockeyTrainer} onChange={e => setConditions(c => ({...c, comboJockeyTrainer: e.target.checked}))} className="rounded border-gray-300" /> Jockey + Trainer
+                    </label>
+                    {conditions.comboJockeyTrainer && (
+                      <div className="pl-6 flex gap-2">
+                        <input type="text" placeholder="Jockey name" value={conditions.comboJockeyTrainer_jockey} onChange={e => setConditions(c => ({...c, comboJockeyTrainer_jockey: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                        <input type="text" placeholder="Trainer name" value={conditions.comboJockeyTrainer_trainer} onChange={e => setConditions(c => ({...c, comboJockeyTrainer_trainer: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 mb-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboJockeyHorse} onChange={e => setConditions(c => ({...c, comboJockeyHorse: e.target.checked}))} className="rounded border-gray-300" /> Jockey + Horse
+                    </label>
+                    {conditions.comboJockeyHorse && (
+                      <div className="pl-6 flex gap-2">
+                        <input type="text" placeholder="Jockey name" value={conditions.comboJockeyHorse_jockey} onChange={e => setConditions(c => ({...c, comboJockeyHorse_jockey: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                        <input type="text" placeholder="Horse name" value={conditions.comboJockeyHorse_horse} onChange={e => setConditions(c => ({...c, comboJockeyHorse_horse: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 mb-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboTrainerTrack} onChange={e => setConditions(c => ({...c, comboTrainerTrack: e.target.checked}))} className="rounded border-gray-300" /> Trainer + Track
+                    </label>
+                    {conditions.comboTrainerTrack && (
+                      <div className="pl-6 flex gap-2">
+                        <input type="text" placeholder="Trainer name" value={conditions.comboTrainerTrack_trainer} onChange={e => setConditions(c => ({...c, comboTrainerTrack_trainer: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                        <div className="flex-1">
+                          <TrackPicker value={conditions.comboTrainerTrack_track} onChange={t => setConditions(c => ({...c, comboTrainerTrack_track: t}))} placeholder="Track name" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 mb-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboJockeyTrack} onChange={e => setConditions(c => ({...c, comboJockeyTrack: e.target.checked}))} className="rounded border-gray-300" /> Jockey + Track
+                    </label>
+                    {conditions.comboJockeyTrack && (
+                      <div className="pl-6 flex gap-2">
+                        <input type="text" placeholder="Jockey name" value={conditions.comboJockeyTrack_jockey} onChange={e => setConditions(c => ({...c, comboJockeyTrack_jockey: e.target.value}))} className="flex-1 border border-gray-200 rounded p-1.5" />
+                        <div className="flex-1">
+                          <TrackPicker value={conditions.comboJockeyTrack_track} onChange={t => setConditions(c => ({...c, comboJockeyTrack_track: t}))} placeholder="Track name" />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboHorseFavourite} onChange={e => setConditions(c => ({...c, comboHorseFavourite: e.target.checked}))} className="rounded border-gray-300" /> Horse + Favourite (Only if favourite)
+                    </label>
+                  </div>
+                  <div>
+                    <label className="flex items-center gap-2 mb-2 font-medium">
+                      <input type="checkbox" checked={conditions.comboDogBox} onChange={e => setConditions(c => ({...c, comboDogBox: e.target.checked}))} className="rounded border-gray-300" /> Dog + Box number
+                    </label>
+                    {conditions.comboDogBox && (
+                      <div className="pl-6">
+                        <input type="number" min="1" max="8" placeholder="Box 1-8" value={conditions.comboDogBox_box} onChange={e => setConditions(c => ({...c, comboDogBox_box: e.target.value}))} className="w-24 border border-gray-200 rounded p-1.5" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Alerts */}
+              <div>
+                <h3 className="font-semibold text-gray-900 border-b border-gray-100 pb-2 mb-3">Alert Channels</h3>
+                <div className="flex gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={alerts.push} onChange={e => setAlerts(a => ({...a, push: e.target.checked}))} className="rounded border-gray-300" />
+                    <span>Push</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={alerts.email} onChange={e => setAlerts(a => ({...a, email: e.target.checked}))} className="rounded border-gray-300" />
+                    <span>Email</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input type="checkbox" checked={alerts.pushover} onChange={e => setAlerts(a => ({...a, pushover: e.target.checked}))} className="rounded border-gray-300" />
+                    <span>Pushover</span>
+                  </label>
+                </div>
+              </div>
+
+
+            <div className="p-4 border-t border-gray-100 bg-white">
+              <button 
+                onClick={handleSave} 
+                disabled={saving}
+                className="w-full flex justify-center items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-4 rounded-xl transition-colors disabled:opacity-50"
+              >
+                <Save size={18} /> {saving ? "Saving..." : "Save to BlackBook"}
+              </button>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}

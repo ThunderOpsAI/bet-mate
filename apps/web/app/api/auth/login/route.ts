@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
+const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
 
 export async function POST(req: Request) {
   try {
@@ -14,7 +15,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetBase = process.env.API_PROXY_TARGET || process.env.NEXT_PUBLIC_API_URL || DEFAULT_LOCAL_API_TARGET;
+    const targetBase =
+      (process.env.API_PROXY_TARGET && process.env.API_PROXY_TARGET !== "/api" ? process.env.API_PROXY_TARGET : null) ||
+      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_API_TARGET : DEFAULT_LOCAL_API_TARGET);
 
     // Try forwarding to external API backend if available
     if (targetBase && targetBase !== "/api") {
@@ -28,9 +31,15 @@ export async function POST(req: Request) {
         if (proxyRes.ok) {
           const data = await proxyRes.json();
           return NextResponse.json(data, { status: 200 });
+        } else {
+          const errData = await proxyRes.json().catch(() => null);
+          return NextResponse.json(
+            { error: errData?.error || "Invalid credentials" },
+            { status: proxyRes.status }
+          );
         }
       } catch {
-        // Fall back to local Next.js authentication processing below
+        // Only fall back if the fetch itself fails (e.g. ECONNREFUSED)
       }
     }
 

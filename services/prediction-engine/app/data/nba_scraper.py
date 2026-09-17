@@ -250,29 +250,22 @@ def fetch_completed_nba_results(days_back=7, max_results=50):
     return results
 
 
-def fetch_today_nba(run_date=None, allow_mock=None):
-    """
-    Fetch today's NBA games from Ball Don't Lie API.
-    Falls back to mock data if API is unavailable or no key is set.
-    """
-    should_allow_mock = _should_allow_mock(allow_mock)
+def fetch_today_nba(run_date=None):
+    """Fetch today's NBA games from Ball Don't Lie API."""
     target_date = resolve_melbourne_date(run_date) if run_date else None
     if BDL_API_KEY:
         try:
-            return _fetch_live_nba(target_date=target_date, allow_mock=should_allow_mock)
-        except Exception as e:
-            print(f"[BallDontLie] Live fetch failed ({e})")
+            return _fetch_live_nba(target_date=target_date)
+        except Exception as exc:
+            print(f"[BallDontLie] Live fetch failed ({exc})")
 
     if target_date and target_date != today_melbourne():
         return []
-    return _fallback_games(
-        run_date=target_date.isoformat() if target_date else None,
-        allow_mock=should_allow_mock,
-        reason="missing API key or live fetch failed",
-    )
+    print("[BallDontLie] missing API key or live fetch failed, returning no games")
+    return []
 
 
-def _fetch_live_nba(target_date=None, allow_mock=True):
+def _fetch_live_nba(target_date=None):
     """Fetch real NBA games and team stats from Ball Don't Lie."""
     if target_date:
         query_dates = [target_date.strftime("%Y-%m-%d")]
@@ -295,7 +288,8 @@ def _fetch_live_nba(target_date=None, allow_mock=True):
         if target_date:
             print(f"[BallDontLie] No NBA games found for {target_date.isoformat()}")
             return []
-        return _fallback_games(None, allow_mock, reason="No upcoming NBA games found")
+        print("[BallDontLie] No upcoming NBA games found")
+        return []
     
     # Fetch season stats for team strength estimation
     season_anchor = target_date or datetime.now()
@@ -349,26 +343,6 @@ def _fetch_live_nba(target_date=None, allow_mock=True):
     return games
 
 
-def _should_allow_mock(allow_mock) -> bool:
-    if allow_mock is not None:
-        return bool(allow_mock)
-    raw = os.getenv("BETMATE_ALLOW_MOCK_DATA", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    raw = os.getenv("BETMATE_ALLOW_MOCK_NBA", "").strip().lower()
-    if raw:
-        return raw in TRUE_VALUES
-    return True
-
-
-def _fallback_games(run_date: str | None, allow_mock: bool, reason: str):
-    if allow_mock:
-        print(f"[BallDontLie] {reason}, using mock data")
-        return _generate_mock_nba(run_date=run_date)
-    print(f"[BallDontLie] {reason}, returning no games because mock data is disabled")
-    return []
-
-
 def _get_team_season_stats(season: int) -> dict:
     """
     Estimate team strength from recent game results.
@@ -417,37 +391,3 @@ def _get_team_season_stats(season: int) -> dict:
     
     return result
 
-
-def _generate_mock_nba(run_date: str | None = None):
-    """Fallback mock data when Ball Don't Lie API is unavailable."""
-    teams = [
-        "Los Angeles Lakers", "Golden State Warriors", "Boston Celtics",
-        "Milwaukee Bucks", "Phoenix Suns", "Denver Nuggets",
-        "Miami Heat", "Philadelphia 76ers", "Dallas Mavericks",
-        "LA Clippers", "New York Knicks", "Minnesota Timberwolves"
-    ]
-    random.shuffle(teams)
-    games = []
-    
-    for i in range(0, 10, 2):
-        games.append({
-            "game_id": f"nba_game_{i // 2 + 1}",
-            "home_team": teams[i],
-            "away_team": teams[i + 1],
-            "features": {
-                "home_b2b": random.choice([0, 0, 0, 1]),
-                "away_b2b": random.choice([0, 0, 0, 1]),
-                "home_win_pct": round(random.uniform(0.3, 0.75), 3),
-                "away_win_pct": round(random.uniform(0.3, 0.75), 3),
-                "home_ortg": round(random.uniform(105, 120), 1),
-                "home_drtg": round(random.uniform(105, 120), 1),
-                "away_ortg": round(random.uniform(105, 120), 1),
-                "away_drtg": round(random.uniform(105, 120), 1),
-                "home_injuries_impact": round(random.uniform(0, 10), 1),
-                "away_injuries_impact": round(random.uniform(0, 10), 1),
-            },
-            "date": f"{run_date or today_melbourne().isoformat()}T10:00:00Z",
-            "source": "mock",
-        })
-    
-    return games

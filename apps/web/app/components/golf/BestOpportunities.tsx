@@ -13,7 +13,6 @@ export default function BestGolfOpportunities({
   return (
     <OpportunitySection
       title="Golf opportunities"
-      description="These are the best current Golf model leans, using confidence and urgency without pretending we have a live market price where we do not."
       opportunities={opportunities}
       emptyMessage="No Golf opportunity cards are ready yet. Refresh for the latest slate."
       href="/golf"

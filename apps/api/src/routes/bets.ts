@@ -10,7 +10,15 @@ const prisma: any = new PrismaClient();
 router.use(requireAuth);
 
 const createBetSchema = z.object({
-  eventType: z.enum(["race", "nba_game", "afl_game", "nrl_game", "soccer_game", "golf_event", "mma_fight"]),
+  eventType: z.enum([
+    "race",
+    "nba_game",
+    "afl_game",
+    "nrl_game",
+    "soccer_game",
+    "golf_event",
+    "mma_fight",
+  ]),
   eventId: z.string().min(1),
   eventName: z.string().min(1),
   eventTime: z.string().datetime().optional(),
@@ -27,25 +35,330 @@ const settleSchema = z.object({
   payout: z.number().min(0).optional(),
 });
 
+const EXOTIC_TYPES = [
+  "QUINELLA",
+  "EXACTA",
+  "TRIFECTA",
+  "FIRST4",
+  "QUADDIE",
+  "EARLY_QUADDIE",
+  "TREBLE",
+  "RUNNING_DOUBLE",
+] as const;
+
+const exoticLegSchema = z.object({
+  raceId: z.string().min(1),
+  legNumber: z.number().int().positive().default(1),
+  position: z.number().int().positive().optional(),
+  runnerId: z.string().min(1),
+  runnerName: z.string().min(1),
+  selectionMode: z
+    .enum(["BOXED", "POSITIONAL", "WIN_LEG"])
+    .default("POSITIONAL"),
+});
+
+const createExoticBetSchema = z.object({
+  betType: z.enum(EXOTIC_TYPES),
+  eventName: z.string().min(1),
+  raceId: z.string().min(1).optional(),
+  meetingId: z.string().min(1).optional(),
+  stake: z.number().min(0.5),
+  legs: z.array(exoticLegSchema).min(1),
+  estimatedDividend: z.number().positive().optional(),
+});
+
+const multiLegSchema = z.object({
+  marketType: z.string().min(1),
+  selectionId: z.string().optional(),
+  selectionLabel: z.string().min(1),
+  odds: z.number().gt(1),
+  probability: z.number().gt(0).lt(1).optional(),
+  correlationGroup: z.string().optional(),
+  line: z.number().optional(),
+});
+
+const createMultiBetSchema = z.object({
+  multiType: z.enum(["SGM", "SRM"]),
+  eventType: z.string().min(1),
+  eventId: z.string().min(1),
+  eventName: z.string().min(1),
+  stake: z.number().positive(),
+  legs: z.array(multiLegSchema).min(2),
+});
+
+function uniqueCount(values: string[]) {
+  return new Set(values).size;
+}
+
+function product(values: number[]) {
+  return values.reduce((acc, value) => acc * value, 1);
+}
+
+function positionalCombinationCount(
+  legs: Array<z.infer<typeof exoticLegSchema>>,
+) {
+  const byPosition = new Map<number, Set<string>>();
+  for (const leg of legs) {
+    if (!leg.position) continue;
+    const runners = byPosition.get(leg.position) ?? new Set<string>();
+    runners.add(leg.runnerId);
+    byPosition.set(leg.position, runners);
+  }
+  const positions = Array.from(byPosition.keys()).sort((a, b) => a - b);
+  if (positions.length === 0) return 0;
+  let combos = 0;
+  const walk = (index: number, used: Set<string>) => {
+    if (index === positions.length) {
+      combos += 1;
+      return;
+    }
+    for (const runnerId of byPosition.get(positions[index]) ?? []) {
+      if (used.has(runnerId)) continue;
+      used.add(runnerId);
+      walk(index + 1, used);
+      used.delete(runnerId);
+    }
+  };
+  walk(0, new Set<string>());
+  return combos;
+}
+
+function calculateExoticCombinations(
+  betType: string,
+  legs: Array<z.infer<typeof exoticLegSchema>>,
+) {
+  const boxed = legs.some((leg) => leg.selectionMode === "BOXED");
+  const runnerCount = uniqueCount(legs.map((leg) => leg.runnerId));
+  if (betType === "QUINELLA")
+    return runnerCount >= 2 ? (runnerCount * (runnerCount - 1)) / 2 : 0;
+  if (betType === "EXACTA")
+    return boxed
+      ? runnerCount * (runnerCount - 1)
+      : positionalCombinationCount(legs);
+  if (betType === "TRIFECTA")
+    return boxed
+      ? runnerCount * (runnerCount - 1) * (runnerCount - 2)
+      : positionalCombinationCount(legs);
+  if (betType === "FIRST4")
+    return boxed
+      ? runnerCount * (runnerCount - 1) * (runnerCount - 2) * (runnerCount - 3)
+      : positionalCombinationCount(legs);
+
+  const legCounts = new Map<number, Set<string>>();
+  for (const leg of legs) {
+    const runners = legCounts.get(leg.legNumber) ?? new Set<string>();
+    runners.add(leg.runnerId);
+    legCounts.set(leg.legNumber, runners);
+  }
+  return product(Array.from(legCounts.values()).map((runners) => runners.size));
+}
+
+function priceMulti(legs: Array<z.infer<typeof multiLegSchema>>) {
+  const fairProbability = legs.reduce(
+    (acc, leg) => acc * (leg.probability ?? 1 / leg.odds),
+    1,
+  );
+  const correlationHaircut = Math.min(
+    Math.max(0.12 + (legs.length - 2) * 0.03, 0.12),
+    0.18,
+  );
+  const impliedProbability = Math.min(
+    fairProbability / (1 - correlationHaircut),
+    0.999999,
+  );
+  return {
+    fairOdds: fairProbability > 0 ? 1 / fairProbability : 0,
+    adjustedOdds: impliedProbability > 0 ? 1 / impliedProbability : 0,
+    impliedProbability,
+    correlationHaircut,
+  };
+}
+
+// POST /api/bets/exotics — log an exotic racing bet with server-side flexi maths
+router.post("/exotics", async (req: AuthRequest, res) => {
+  const parsed = createExoticBetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const userId = req.userId!;
+  const data = parsed.data;
+  const combinations = calculateExoticCombinations(data.betType, data.legs);
+  if (combinations <= 0) {
+    return res
+      .status(400)
+      .json({
+        error: "Invalid exotic selections",
+        poolStatus: "AWAITING_EXOTIC_POOL",
+      });
+  }
+  const flexiPercentage = data.stake / combinations;
+  if (flexiPercentage < 0.01) {
+    return res
+      .status(400)
+      .json({
+        error: "Minimum flexi percentage is 1%",
+        combinations,
+        flexiPercentage,
+      });
+  }
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (Number(user.currentBankroll) < data.stake)
+      return res.status(400).json({ error: "Insufficient bankroll" });
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      const bet = await tx.exoticBet.create({
+        data: {
+          userId,
+          betType: data.betType,
+          eventName: data.eventName,
+          raceId: data.raceId,
+          meetingId: data.meetingId,
+          stake: data.stake,
+          combinations,
+          flexiPercentage,
+          estimatedDividend: data.estimatedDividend,
+          estimatedCollect: data.estimatedDividend
+            ? data.estimatedDividend * flexiPercentage
+            : null,
+          poolStatus: data.estimatedDividend
+            ? "CALCULATED"
+            : "AWAITING_EXOTIC_POOL",
+          legs: { create: data.legs },
+        },
+        include: { legs: true },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { currentBankroll: { decrement: data.stake } },
+      });
+      await tx.bankrollHistory.create({
+        data: {
+          userId,
+          amount: -data.stake,
+          reason: `Exotic bet placed: ${data.betType} (${combinations} combos)`,
+        },
+      });
+      return bet;
+    });
+    return res
+      .status(201)
+      .json({
+        bet: result,
+        combinations,
+        flexiPercentage,
+        poolStatus: result.poolStatus,
+      });
+  } catch (err: any) {
+    console.error("Exotic bet creation error:", err);
+    return res.status(500).json({ error: "Failed to create exotic bet" });
+  }
+});
+
+// POST /api/bets/sgm — log same-game or same-race multi with correlation-adjusted odds
+router.post("/sgm", async (req: AuthRequest, res) => {
+  const parsed = createMultiBetSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
+  }
+
+  const userId = req.userId!;
+  const data = parsed.data;
+  const pricing = priceMulti(data.legs);
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+    if (Number(user.currentBankroll) < data.stake)
+      return res.status(400).json({ error: "Insufficient bankroll" });
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      const bet = await tx.multiBet.create({
+        data: {
+          userId,
+          multiType: data.multiType,
+          eventType: data.eventType,
+          eventId: data.eventId,
+          eventName: data.eventName,
+          stake: data.stake,
+          ...pricing,
+          legs: {
+            create: data.legs.map((leg) => ({
+              ...leg,
+              probability: leg.probability ?? 1 / leg.odds,
+            })),
+          },
+        },
+        include: { legs: true },
+      });
+      await tx.user.update({
+        where: { id: userId },
+        data: { currentBankroll: { decrement: data.stake } },
+      });
+      await tx.bankrollHistory.create({
+        data: {
+          userId,
+          amount: -data.stake,
+          reason: `${data.multiType} placed: ${data.legs.length} legs @ ${pricing.adjustedOdds.toFixed(2)}`,
+        },
+      });
+      return bet;
+    });
+    return res
+      .status(201)
+      .json({ bet: result, pricing, calculationStatus: "CALCULATED" });
+  } catch (err: any) {
+    console.error("Multi bet creation error:", err);
+    return res.status(500).json({ error: "Failed to create multi bet" });
+  }
+});
+
 // POST /api/bets — log a new bet
 router.post("/", async (req: AuthRequest, res) => {
   const parsed = createBetSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const userId = req.userId!;
-  const { eventType, eventId, eventName, eventTime, betType, selection, odds, stake, wasAIRecommended, notes } = parsed.data;
+  const {
+    eventType,
+    eventId,
+    eventName,
+    eventTime,
+    betType,
+    selection,
+    odds,
+    stake,
+    wasAIRecommended,
+    notes,
+  } = parsed.data;
 
   try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Email confirmation required",
+        message: "Please confirm your email address before placing paper bets.",
+      });
+    }
+
+    if (Number(user.currentBankroll) < stake) {
+      return res.status(400).json({ error: "Insufficient bankroll" });
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
-      const user = await tx.user.findUnique({ where: { id: userId } });
-      if (!user) throw new Error("User not found");
-
-      if (Number(user.currentBankroll) < stake) {
-        throw new Error("Insufficient bankroll");
-      }
-
       const bet = await tx.bet.create({
         data: {
           userId,
@@ -68,65 +381,109 @@ router.post("/", async (req: AuthRequest, res) => {
       });
 
       await tx.bankrollHistory.create({
-        data: { userId, amount: -stake, reason: `Bet placed: ${selection} @ ${odds}` },
+        data: {
+          userId,
+          amount: -stake,
+          reason: `Bet placed: ${selection} @ ${odds}`,
+        },
       });
 
       return bet;
     });
 
+    // Sync bet into paper_bet_log for ML feedback loop (outside transaction so it doesn't fail the bet)
+    prisma.paper_bet_log
+      .create({
+        data: {
+          sport: eventType,
+          event_id: eventId,
+          event_name: eventName,
+          selection,
+          bet_type: betType,
+          odds,
+          stake,
+          status: "PENDING",
+          notes,
+          origin: "user",
+          user_id: userId,
+        },
+      })
+      .catch((e: any) =>
+        console.warn(
+          "Failed to sync paper_bet_log for ML engine:",
+          e.message,
+        ),
+      );
+
     return res.status(201).json({ bet: result });
   } catch (err: any) {
-    if (err.message === "Insufficient bankroll") {
-      return res.status(400).json({ error: "Insufficient bankroll" });
-    }
-    if (err.message === "User not found") {
-      return res.status(404).json({ error: "User not found" });
-    }
+    console.error("Bet creation error:", err);
     return res.status(500).json({ error: "Failed to create bet" });
   }
 });
 
 // POST /api/bets/batch — log multiple bets at once (Betslip support)
 router.post("/batch", async (req: AuthRequest, res) => {
-  const batchSchema = z.array(createBetSchema);
-  const parsed = batchSchema.safeParse(req.body);
+  const batchBodySchema = z.union([
+    z.object({ bets: z.array(createBetSchema) }),
+    z.array(createBetSchema),
+  ]);
+
+  const parsed = batchBodySchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const userId = req.userId!;
-  const betsData = parsed.data;
+  const betsData = Array.isArray(parsed.data) ? parsed.data : parsed.data.bets;
+
+  if (betsData.length === 0) {
+    return res.status(200).json({ success: 0, count: 0, bets: [] });
+  }
+
   const totalStake = betsData.reduce((sum, b) => sum + b.stake, 0);
 
   try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (!user.emailConfirmed) {
+      return res.status(403).json({
+        error: "Email confirmation required",
+        message: "Please confirm your email address before placing paper bets.",
+      });
+    }
+
+    if (Number(user.currentBankroll) < totalStake) {
+      return res.status(400).json({ error: "Insufficient bankroll" });
+    }
+
     const result = await prisma.$transaction(async (tx: any) => {
-      const user = await tx.user.findUnique({ where: { id: userId } });
-      if (!user) throw new Error("User not found");
+      // Create all bets (bulk insert)
+      await tx.bet.createMany({
+        data: betsData.map((b) => ({
+          userId,
+          eventType: b.eventType,
+          eventId: b.eventId,
+          eventName: b.eventName,
+          eventTime: b.eventTime ? new Date(b.eventTime) : new Date(),
+          betType: b.betType,
+          selection: b.selection,
+          odds: b.odds,
+          stake: b.stake,
+          wasAIRecommended: b.wasAIRecommended,
+          notes: b.notes,
+        })),
+      });
 
-      if (Number(user.currentBankroll) < totalStake) {
-        throw new Error("Insufficient bankroll");
-      }
-
-      // Create all bets
-      const bets = await Promise.all(
-        betsData.map((b) =>
-          tx.bet.create({
-            data: {
-              userId,
-              eventType: b.eventType,
-              eventId: b.eventId,
-              eventName: b.eventName,
-              eventTime: b.eventTime ? new Date(b.eventTime) : new Date(),
-              betType: b.betType,
-              selection: b.selection,
-              odds: b.odds,
-              stake: b.stake,
-              wasAIRecommended: b.wasAIRecommended,
-              notes: b.notes,
-            },
-          })
-        )
-      );
+      // Query back created bets for the response
+      const bets = await tx.bet.findMany({
+        where: { userId },
+        orderBy: { createdAt: "desc" },
+        take: betsData.length,
+      });
 
       // Deduct total stake
       await tx.user.update({
@@ -136,24 +493,39 @@ router.post("/batch", async (req: AuthRequest, res) => {
 
       // Log bankroll history
       await tx.bankrollHistory.create({
-        data: { 
-          userId, 
-          amount: -totalStake, 
-          reason: `Batch bet (Betslip): ${bets.length} bets placed. Total stake: $${totalStake.toFixed(2)}` 
+        data: {
+          userId,
+          amount: -totalStake,
+          reason: `Batch bet (Betslip): ${bets.length} bets placed. Total stake: $${totalStake.toFixed(2)}`,
         },
       });
 
       return bets;
     });
 
-    return res.status(201).json({ success: true, count: result.length, bets: result });
+    // Sync batch bets into paper_bet_log for ML engine training loop outside transaction
+    prisma.paper_bet_log.createMany({
+      data: betsData.map((b) => ({
+        sport: b.eventType,
+        event_id: b.eventId,
+        event_name: b.eventName,
+        selection: b.selection,
+        bet_type: b.betType,
+        odds: b.odds,
+        stake: b.stake,
+        status: "PENDING",
+        notes: b.notes,
+        origin: "user",
+        user_id: userId,
+      })),
+    }).catch((e: any) => {
+      console.warn("Batch paper_bet_log sync failed:", e.message);
+    });
+
+    return res
+      .status(201)
+      .json({ success: result.length, count: result.length, bets: result });
   } catch (err: any) {
-    if (err.message === "Insufficient bankroll") {
-      return res.status(400).json({ error: "Insufficient bankroll" });
-    }
-    if (err.message === "User not found") {
-      return res.status(404).json({ error: "User not found" });
-    }
     console.error("Batch creation failed:", err);
     return res.status(500).json({ error: "Failed to create batch bets" });
   }
@@ -178,12 +550,21 @@ router.get("/", async (req: AuthRequest, res) => {
     const skip = Number(offset) || 0;
 
     const [bets, total] = await Promise.all([
-      prisma.bet.findMany({ where, orderBy: { createdAt: "desc" }, take, skip }),
+      prisma.bet.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        take,
+        skip,
+      }),
       prisma.bet.count({ where }),
     ]);
 
     return res.json({
-      bets: bets.map((b: any) => ({ ...b, stake: Number(b.stake), payout: b.payout ? Number(b.payout) : null })),
+      bets: bets.map((b: any) => ({
+        ...b,
+        stake: Number(b.stake),
+        payout: b.payout ? Number(b.payout) : null,
+      })),
       pagination: { total, limit: take, offset: skip },
     });
   } catch {
@@ -195,7 +576,9 @@ router.get("/", async (req: AuthRequest, res) => {
 router.patch("/:betId/settle", async (req: AuthRequest, res) => {
   const parsed = settleSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid payload", details: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ error: "Invalid payload", details: parsed.error.flatten() });
   }
 
   const userId = req.userId!;
@@ -208,7 +591,10 @@ router.patch("/:betId/settle", async (req: AuthRequest, res) => {
       if (!bet) throw new Error("Bet not found");
       if (bet.status !== "PENDING") throw new Error("Bet already settled");
 
-      const updateData: any = { status: status.toUpperCase(), settledAt: new Date() };
+      const updateData: any = {
+        status: status.toUpperCase(),
+        settledAt: new Date(),
+      };
 
       let bankrollChange = 0;
       if (status === "won") {
@@ -221,15 +607,23 @@ router.patch("/:betId/settle", async (req: AuthRequest, res) => {
       }
       // lost: no bankroll change (stake already deducted)
 
-      const updatedBet = await tx.bet.update({ where: { id: betId }, data: updateData });
+      const updatedBet = await tx.bet.update({
+        where: { id: betId },
+        data: updateData,
+      });
 
       if (bankrollChange > 0) {
         await tx.user.update({
           where: { id: userId },
           data: { currentBankroll: { increment: bankrollChange } },
         });
-        const reason = status === "won" ? `Bet won: ${bet.selection} — payout $${bankrollChange.toFixed(2)}` : `Bet voided: ${bet.selection} — refund`;
-        await tx.bankrollHistory.create({ data: { userId, amount: bankrollChange, reason } });
+        const reason =
+          status === "won"
+            ? `Bet won: ${bet.selection} — payout $${bankrollChange.toFixed(2)}`
+            : `Bet voided: ${bet.selection} — refund`;
+        await tx.bankrollHistory.create({
+          data: { userId, amount: bankrollChange, reason },
+        });
       } else {
         await tx.bankrollHistory.create({
           data: { userId, amount: 0, reason: `Bet lost: ${bet.selection}` },
@@ -239,10 +633,18 @@ router.patch("/:betId/settle", async (req: AuthRequest, res) => {
       return updatedBet;
     });
 
-    return res.json({ bet: { ...result, stake: Number(result.stake), payout: result.payout ? Number(result.payout) : null } });
+    return res.json({
+      bet: {
+        ...result,
+        stake: Number(result.stake),
+        payout: result.payout ? Number(result.payout) : null,
+      },
+    });
   } catch (err: any) {
-    if (err.message === "Bet not found") return res.status(404).json({ error: "Bet not found" });
-    if (err.message === "Bet already settled") return res.status(400).json({ error: "Bet already settled" });
+    if (err.message === "Bet not found")
+      return res.status(404).json({ error: "Bet not found" });
+    if (err.message === "Bet already settled")
+      return res.status(400).json({ error: "Bet already settled" });
     return res.status(500).json({ error: "Failed to settle bet" });
   }
 });
@@ -264,7 +666,11 @@ router.delete("/:betId", async (req: AuthRequest, res) => {
           data: { currentBankroll: { increment: Number(bet.stake) } },
         });
         await tx.bankrollHistory.create({
-          data: { userId, amount: Number(bet.stake), reason: `Bet deleted (refund): ${bet.selection}` },
+          data: {
+            userId,
+            amount: Number(bet.stake),
+            reason: `Bet deleted (refund): ${bet.selection}`,
+          },
         });
       }
 
@@ -274,7 +680,8 @@ router.delete("/:betId", async (req: AuthRequest, res) => {
 
     return res.json({ deleted: true, refunded: result.status === "PENDING" });
   } catch (err: any) {
-    if (err.message === "Bet not found") return res.status(404).json({ error: "Bet not found" });
+    if (err.message === "Bet not found")
+      return res.status(404).json({ error: "Bet not found" });
     return res.status(500).json({ error: "Failed to delete bet" });
   }
 });

@@ -1,9 +1,22 @@
 {
   "version": 2,
-  "framework": null,
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm api:build:prod",
-  "outputDirectory": "dist",
+  "installCommand": "pnpm install --frozen-lockfile && pnpm api:build:prod",
+  "builds": [
+    {
+      "src": "src/index.ts",
+      "use": "@vercel/node"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/settle-bets",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-reset",
+      "schedule": "0 14 * * 0"
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",

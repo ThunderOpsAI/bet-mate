@@ -7,7 +7,12 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     () =>
       new QueryClient({
         defaultOptions: {
-          queries: { staleTime: 5 * 60 * 1000, retry: 1, refetchOnWindowFocus: false },
+          queries: {
+            staleTime: 5 * 60 * 1000,
+            retry: 3,
+            retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 30000),
+            refetchOnWindowFocus: false,
+          },
         },
       })
   );

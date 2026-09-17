@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../providers/AuthProvider";
 import { Save, SlidersHorizontal, User, RefreshCw, LogOut } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
-import { API_BASE } from "../lib/api";
+import { API_BASE, safeResponseJson } from "../lib/api";
 import { useActionGuard } from "../lib/useActionGuard";
 import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 
@@ -44,7 +44,7 @@ function SettingsContent() {
     const loadJames = async () => {
       try {
         const response = await fetch(`${ML_API}/api/strategy-profiles/james`);
-        const data = await response.json();
+        const data = await safeResponseJson(response);
         const ruleSet = data?.rule_set ?? null;
         if (!ruleSet) {
           setJamesConfig(null);
@@ -63,6 +63,13 @@ function SettingsContent() {
     void loadJames();
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      setUsername(user.username ?? "");
+      setEmail(user.email ?? "");
+    }
+  }, [user]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     requireAuthAction(async () => {
@@ -73,11 +80,11 @@ function SettingsContent() {
         const res = await fetch(`${API_BASE}/user/profile`, {
           method: "PATCH",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ username, email }),
+          body: JSON.stringify({ username }),
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Update failed");
+        const data = await safeResponseJson(res);
+        if (!res.ok || !data) {
+          throw new Error(data?.error || "Update failed");
         }
         await refreshUser();
         setSuccess("Profile updated!");
@@ -122,11 +129,10 @@ function SettingsContent() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(jamesConfig),
         });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.detail || "James config update failed");
+        const data = await safeResponseJson(response);
+        if (!response.ok || !data) {
+          throw new Error(data?.detail || "James config update failed");
         }
-        const data = await response.json();
         setJamesConfig(data.rule_set);
         setJamesMessage("James strategy saved. Changes apply on the next daily card generation.");
       } catch (err: any) {
@@ -164,9 +170,16 @@ function SettingsContent() {
             <input className="form-input" value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} />
           </div>
           <div className="form-group">
-            <label className="form-label">Email</label>
-            <input className="form-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <label className="form-label">Email Address</label>
+            <input className="form-input" type="email" value={email} disabled readOnly style={{ opacity: 0.7, cursor: "not-allowed" }} />
           </div>
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input className="form-input" type="password" value="••••••••" disabled readOnly autoComplete="current-password" style={{ opacity: 0.7, cursor: "not-allowed" }} />
+          </div>
+          <p style={{ fontSize: "0.82rem", color: "var(--text-muted)", marginBottom: "1.25rem", marginTop: "-0.25rem", lineHeight: 1.4 }}>
+            To change your registered email address or security password, please contact BetMate Support at <a href="mailto:support@bet-mate.ai" style={{ color: "var(--accent)", textDecoration: "underline" }}>support@bet-mate.ai</a>.
+          </p>
           <button type="submit" className="btn btn-primary" disabled={loading}>
             <Save size={16} /> {loading ? "Saving…" : "Save Changes"}
           </button>
@@ -174,14 +187,7 @@ function SettingsContent() {
       </div>
 
       <div className="card" style={{ marginTop: "1rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-          <h4 style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>Account Info</h4>
-          {user && user.id !== "guest" && (
-            <button type="button" className="btn btn-danger btn-sm" onClick={logout}>
-              <LogOut size={14} /> Sign Out
-            </button>
-          )}
-        </div>
+        <h4 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>Account Info</h4>
         <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "0.5rem" }}>
           User ID: <code style={{ fontSize: "0.8rem", background: "var(--bg-glass)", padding: "0.15rem 0.4rem", borderRadius: 4 }}>{user?.id}</code>
         </p>
@@ -360,6 +366,27 @@ function SettingsContent() {
           <p style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>James configuration is unavailable.</p>
         )}
       </div>
+
+      {user && user.id !== "guest" && (
+        <div style={{ marginTop: "1rem" }}>
+          <button
+            type="button"
+            className="btn btn-danger"
+            style={{
+              width: "100%",
+              justifyContent: "center",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              padding: "0.75rem 1rem",
+              fontWeight: 600,
+            }}
+            onClick={logout}
+          >
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      )}
 
       <div className="disclaimer" style={{ marginTop: "1rem" }}>
         <strong>18+</strong> | This app is for information and tracking purposes only. We do not facilitate betting or handle payments. Please gamble responsibly.

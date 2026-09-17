@@ -17,9 +17,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-import SocialProfileModal from "../components/SocialProfileModal";
-import { triggerGoogleOAuth } from "../lib/socialAuth";
-
 function RegisterForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -38,19 +35,7 @@ function RegisterForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [socialModalOpen, setSocialModalOpen] = useState(false);
-  const [socialEmail, setSocialEmail] = useState("");
-
-  async function handleGoogleLogin() {
-    setError("");
-    try {
-      const result = await triggerGoogleOAuth();
-      setSocialEmail(result.email);
-      setSocialModalOpen(true);
-    } catch (err: any) {
-      setError(err.message || "Google authentication failed.");
-    }
-  }
+  const [registeredEmail, setRegisteredEmail] = useState("");
 
   useEffect(() => {
     if (user && user.id !== "guest") {
@@ -84,17 +69,15 @@ function RegisterForm() {
       return;
     }
     if (!acceptedTerms) {
-      setError("You must accept the Terms & Conditions to create an account.");
+      setError("You must accept the Terms & Conditions and Privacy Policy to create an account.");
       return;
     }
 
     setSubmitting(true);
     try {
-      await register(email.trim(), username.trim(), password, startingBankroll);
-      setSuccess("Account created successfully! Redirecting to dashboard...");
-      setTimeout(() => {
-        router.push(returnUrl);
-      }, 500);
+      const res = await register(email.trim(), username.trim(), password, startingBankroll, marketingOptIn);
+      setRegisteredEmail(email.trim());
+      setSuccess("Account created! Please check your email inbox to confirm your address before signing in.");
     } catch (err: any) {
       setError(err.message || "Registration failed. Email or username may already be in use.");
     } finally {
@@ -126,19 +109,42 @@ function RegisterForm() {
           </Link>
         </div>
 
-        {error && (
-          <div className="error-message" role="alert">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{error}</span>
+        {registeredEmail ? (
+          <div className="p-6 bg-slate-950 border border-emerald-500/40 rounded-2xl text-center space-y-4 my-4">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto text-2xl">
+              ✉️
+            </div>
+            <h3 className="text-xl font-bold text-slate-100">Check Your Email Inbox</h3>
+            <p className="text-sm text-slate-300">
+              We sent a confirmation link to <strong className="text-emerald-400">{registeredEmail}</strong>.
+            </p>
+            <p className="text-xs text-slate-400">
+              You must confirm your email address before logging in to prevent spam accounts.
+            </p>
+            <div className="pt-2">
+              <Link
+                href={`/login?confirmEmail=${encodeURIComponent(registeredEmail)}&returnUrl=${encodeURIComponent(returnUrl)}`}
+                className="btn btn-primary w-full py-2.5 text-sm font-semibold flex items-center justify-center gap-2"
+              >
+                Go to Sign In <ArrowRight size={16} />
+              </Link>
+            </div>
           </div>
-        )}
+        ) : (
+          <>
+            {error && (
+              <div className="error-message" role="alert">
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
+                <span>{error}</span>
+              </div>
+            )}
 
-        {success && (
-          <div className="success-message" role="status">
-            <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
-            <span>{success}</span>
-          </div>
-        )}
+            {success && (
+              <div className="success-message" role="status">
+                <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
+                <span>{success}</span>
+              </div>
+            )}
 
         <form onSubmit={handleSubmit} noValidate>
           <div className="form-group">
@@ -311,22 +317,6 @@ function RegisterForm() {
           </button>
         </form>
 
-        <div className="auth-divider">
-          <span>or sign up with</span>
-        </div>
-
-        <div className="social-auth-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <button type="button" className="btn-social" onClick={handleGoogleLogin} style={{ width: "100%", justifyContent: "center" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24">
-              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.3 8.9 5 12 5z" />
-              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z" />
-              <path fill="#FBBC05" d="M5.3 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.6 7.3C.6 9.3 0 11.6 0 14s.6 4.7 1.6 6.7l3.7-2.9z" />
-              <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.3-6.7-5.3L1.6 16C3.5 19.8 7.4 23 12 23z" />
-            </svg>
-            Sign up with Google
-          </button>
-        </div>
-
         <div className="auth-footer">
           <p>
             Already have an account?{" "}
@@ -340,15 +330,9 @@ function RegisterForm() {
             </Link>
           </p>
         </div>
+        </>
+        )}
       </div>
-
-      <SocialProfileModal
-        open={socialModalOpen}
-        onClose={() => setSocialModalOpen(false)}
-        provider="Google"
-        email={socialEmail}
-        returnUrl={returnUrl}
-      />
     </div>
   );
 }

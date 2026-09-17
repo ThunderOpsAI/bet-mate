@@ -16,40 +16,22 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import SocialProfileModal from "../components/SocialProfileModal";
-import { triggerGoogleOAuth } from "../lib/socialAuth";
-
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnUrl = searchParams.get("returnUrl") || "/";
+  const confirmEmailParam = searchParams.get("confirmEmail");
 
-  const { user, login } = useAuth();
+  const { user, login, resendConfirmationEmail } = useAuth();
   const [emailOrUsername, setEmailOrUsername] = useState("");
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [socialInfo, setSocialInfo] = useState("");
-
-  const [socialModalOpen, setSocialModalOpen] = useState(false);
-  const [socialEmail, setSocialEmail] = useState("");
-
-  async function handleGoogleLogin() {
-    setError("");
-    setSocialInfo("Signing in with Google...");
-    try {
-      const result = await triggerGoogleOAuth();
-      setSocialEmail(result.email);
-      setSocialModalOpen(true);
-      setSocialInfo("");
-    } catch (err: any) {
-      setSocialInfo("");
-      setError(err.message || "Google authentication failed.");
-    }
-  }
 
   useEffect(() => {
     // If user is already authenticated (not guest), redirect
@@ -58,11 +40,34 @@ function LoginForm() {
     }
   }, [user, router, returnUrl]);
 
+  // Handle email confirmation parameter from email links
+  useEffect(() => {
+    if (!confirmEmailParam) return;
+    async function confirmUserEmail() {
+      try {
+        const res = await fetch("/api/auth/confirm-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: confirmEmailParam }),
+        });
+        if (res.ok) {
+          setSuccess(`Email ${confirmEmailParam} confirmed successfully! You may now sign in.`);
+          setEmailOrUsername(confirmEmailParam ?? "");
+        } else {
+          setError("Failed to confirm email address. Link may be invalid or expired.");
+        }
+      } catch (err) {
+        console.error("Email confirmation error:", err);
+      }
+    }
+    void confirmUserEmail();
+  }, [confirmEmailParam]);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError("");
     setSuccess("");
-    setSocialInfo("");
+    setUnconfirmedEmail(null);
 
     if (!emailOrUsername.trim()) {
       setError("Please enter your email or username.");
@@ -80,14 +85,41 @@ function LoginForm() {
     setSubmitting(true);
     try {
       await login(emailOrUsername.trim(), password);
-      setSuccess("Welcome back! Redirecting to dashboard...");
+      setSuccess("Welcome back! Redirecting to home...");
       setTimeout(() => {
         router.push(returnUrl);
       }, 500);
     } catch (err: any) {
-      setError(err.message || "Invalid email/username or password. Please try again.");
+      if (err.requireConfirmation) {
+        setUnconfirmedEmail(err.email || emailOrUsername.trim());
+        setError(err.message || "Please confirm your email address before logging in.");
+      } else {
+        setError(err.message || "Invalid email/username or password. Please try again.");
+      }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    const targetEmail = unconfirmedEmail || emailOrUsername.trim();
+    if (!targetEmail) return;
+    setResending(true);
+    try {
+      const res = await fetch("/api/auth/resend-confirmation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: targetEmail }),
+      });
+      if (res.ok) {
+        setSuccess(`Confirmation email re-sent to ${targetEmail}. Please check your inbox.`);
+      } else {
+        setError("Failed to resend confirmation email. Please try again.");
+      }
+    } catch (err) {
+      setError("Error dispatching email.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -122,9 +154,21 @@ function LoginForm() {
         </div>
 
         {error && (
-          <div className="error-message" role="alert">
-            <AlertCircle size={18} style={{ flexShrink: 0 }} />
-            <span>{error}</span>
+          <div className="error-message flex flex-col gap-2" role="alert">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={18} style={{ flexShrink: 0 }} />
+              <span>{error}</span>
+            </div>
+            {unconfirmedEmail && (
+              <button
+                type="button"
+                onClick={handleResendConfirmation}
+                disabled={resending}
+                className="mt-1 text-xs font-bold text-amber-400 hover:underline text-left"
+              >
+                {resending ? "Sending Email..." : `Resend Confirmation Email to ${unconfirmedEmail}`}
+              </button>
+            )}
           </div>
         )}
 
@@ -132,12 +176,6 @@ function LoginForm() {
           <div className="success-message" role="status">
             <CheckCircle2 size={18} style={{ flexShrink: 0 }} />
             <span>{success}</span>
-          </div>
-        )}
-
-        {socialInfo && (
-          <div style={{ background: "rgba(99, 102, 241, 0.12)", color: "#a5b4fc", padding: "0.65rem 1rem", borderRadius: "var(--radius-sm)", fontSize: "0.82rem", marginBottom: "1rem" }}>
-            {socialInfo}
           </div>
         )}
 
@@ -229,23 +267,7 @@ function LoginForm() {
           </button>
         </form>
 
-        <div className="auth-divider">
-          <span>or sign in with</span>
-        </div>
-
-        <div className="social-auth-grid" style={{ gridTemplateColumns: "1fr" }}>
-          <button type="button" className="btn-social" onClick={handleGoogleLogin} style={{ width: "100%", justifyContent: "center" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24">
-              <path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.3 8.9 5 12 5z" />
-              <path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z" />
-              <path fill="#FBBC05" d="M5.3 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.6 7.3C.6 9.3 0 11.6 0 14s.6 4.7 1.6 6.7l3.7-2.9z" />
-              <path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.3-6.7-5.3L1.6 16C3.5 19.8 7.4 23 12 23z" />
-            </svg>
-            Sign in with Google
-          </button>
-        </div>
-
-        <div className="demo-account-box">
+        <div className="demo-account-box" style={{ marginTop: "1.5rem" }}>
           <div>
             <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--accent-hover)", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
               <Sparkles size={14} /> Quick Demo Account
@@ -270,14 +292,6 @@ function LoginForm() {
           </p>
         </div>
       </div>
-
-      <SocialProfileModal
-        open={socialModalOpen}
-        onClose={() => setSocialModalOpen(false)}
-        provider="Google"
-        email={socialEmail}
-        returnUrl={returnUrl}
-      />
     </div>
   );
 }

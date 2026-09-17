@@ -16,10 +16,21 @@ from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
+import time
 
 from app.time_utils import MELBOURNE_TZ, melbourne_date_string, melbourne_weekday, today_melbourne
-
+from app.alerts import calculate_minutes_until_jump
 load_dotenv()
+
+
+def _safe_int(val) -> int | None:
+    try: return int(val) if val is not None else None
+    except (ValueError, TypeError): return None
+
+
+def _safe_float(val) -> float | None:
+    try: return float(val) if val is not None else None
+    except (ValueError, TypeError): return None
 
 BETFAIR_APP_KEY = os.getenv("BETFAIR_APP_KEY", "")
 BETFAIR_USERNAME = os.getenv("BETFAIR_USERNAME", "")
@@ -32,12 +43,33 @@ DEFAULT_TIMEOUT_SECONDS = 10
 BETFAIR_INTERACTIVE_LOGIN_URL = "https://identitysso.betfair.com.au/api/login"
 BETFAIR_CERT_LOGIN_URL = "https://identitysso-cert.betfair.com.au/api/certlogin"
 BETFAIR_AUTH_MODES = {"auto", "interactive", "certificate"}
+BETFAIR_API_BASE_URL = os.getenv("BETFAIR_API_BASE_URL", "https://api.betfair.com.au").rstrip("/")
 BETFAIR_CERT_TEMP_DIR = Path(tempfile.gettempdir()) / "betmate-betfair"
+
+
+def betfair_catalogue_url() -> str:
+    return f"{BETFAIR_API_BASE_URL}/exchange/betting/rest/v1.0/listMarketCatalogue/"
+
+
+def betfair_market_book_url() -> str:
+    return f"{BETFAIR_API_BASE_URL}/exchange/betting/rest/v1.0/listMarketBook/"
 
 _session_token = None
 _metro_allowlist_cache: Optional[dict] = None
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
+_race_card_cache = {}
+
+def race_window_ttl(start_time_iso: Optional[str]) -> int:
+    """Return cache TTL in seconds based on proximity to jump."""
+    if not start_time_iso:
+        return 1800
+    mins = calculate_minutes_until_jump(start_time_iso)
+    if mins is None or mins > 120:  return 1800   # >2h:   30 min
+    if mins > 30:                   return 300    # 30–120m: 5 min
+    if mins > 5:                    return 60     # 5–30m:   60 sec
+    if mins > 0:                    return 15     # <5m:     15 sec
+    return 86400                                  # post-jump: 24h (results)
 
 
 
@@ -191,14 +223,159 @@ def load_metro_allowlist(force_reload: bool = False) -> dict:
     return _metro_allowlist_cache
 
 
-def fetch_today_races(run_date: Optional[str] = None):
+def _resolve_race_type_event_ids(race_type: Optional[str]) -> List[str]:
+    if not race_type:
+        return ["7"]
+    rt = str(race_type).strip().upper()
+    if rt in {"T", "7", "THOROUGHBRED", "THOROUGHBREDS"}:
+        return ["7"]
+    if rt in {"G", "4339", "GREYHOUND", "GREYHOUNDS"}:
+        return ["4339"]
+    if rt in {"H", "4337", "HARNESS"}:
+        return ["4337"]
+    if rt in {"ALL"}:
+        return ["7", "4339", "4337"]
+    return ["7"]
+
+
+
+def fetch_future_feature_races(event_type_ids: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Fetch future feature and ante-post races (e.g. Melbourne Cup, Cox Plate) without slowing daily scrape."""
+    headers = _get_api_headers()
+    if not headers:
+        return []
+
+    if not event_type_ids:
+        event_type_ids = ["7"]
+
+    api_url = betfair_catalogue_url()
+    now_utc = datetime.now(timezone.utc)
+    start_utc = (now_utc + timedelta(days=1)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    end_utc = (now_utc + timedelta(days=180)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    market_filter = {
+        "filter": {
+            "eventTypeIds": event_type_ids,
+            "marketCountries": ["AU", "NZ", "HK"],
+            "marketTypeCodes": ["WIN", "ANTEPOST_WIN", "SPECIAL"],
+            "marketStartTime": {
+                "from": start_utc,
+                "to": end_utc,
+            },
+        },
+        "maxResults": 100,
+        "sort": "FIRST_TO_START",
+        "marketProjection": [
+            "EVENT",
+            "RUNNER_DESCRIPTION",
+            "MARKET_START_TIME",
+            "MARKET_DESCRIPTION",
+            "RUNNER_METADATA",
+        ],
+    }
+
+    try:
+        response = requests.post(api_url, data=json.dumps(market_filter), headers=headers, timeout=10)
+        if response.status_code != 200:
+            return []
+        all_markets = response.json()
+        if not all_markets or not isinstance(all_markets, list):
+            return []
+
+        market_ids = [m.get("marketId") for m in all_markets if m.get("marketId")]
+        prices = _fetch_prices(headers, market_ids)
+
+        future_races = []
+        for market in all_markets:
+            event = market.get("event", {})
+            venue_raw = event.get("venue", event.get("name", "Unknown"))
+            market_name = market.get("marketName", "")
+            market_id = market.get("marketId", "")
+            start_time = market.get("marketStartTime", "")
+
+            race_number = 0
+            distance = 1200
+            for part in market_name.split():
+                if part.startswith("R") and part[1:].isdigit():
+                    race_number = int(part[1:])
+                if part.endswith("m") and part[:-1].isdigit():
+                    distance = int(part[:-1])
+
+            runners = market.get("runners", [])
+            market_prices = prices.get(market_id, {})
+
+            horses = []
+            for idx, runner in enumerate(runners):
+                runner_name = runner.get("runnerName") or f"Runner {idx + 1}"
+                selection_id = str(runner.get("selectionId", ""))
+                runner_price = market_prices.get(selection_id, {})
+                back_price = runner_price.get("back", 0)
+                implied_prob = (1 / back_price) if back_price > 1 else 0
+
+                metadata = runner.get("metadata", {})
+                horses.append({
+                    "horse_id": selection_id or f"bf_{market_id}_{idx}",
+                    "name": runner_name,
+                    "barrier": idx + 1,
+                    "weight": 56.0,
+                    "past_win_rate": round(implied_prob * 0.8, 3),
+                    "jockey_win_rate": 0.15,
+                    "track_condition": 1,
+                    "betfair_back_price": back_price,
+                    "jockey_name": metadata.get("JOCKEY_NAME"),
+                    "trainer_name": metadata.get("TRAINER_NAME"),
+                    "form_string": metadata.get("FORM", ""),
+                })
+
+            future_races.append({
+                "race_id": market_id,
+                "venue": venue_raw,
+                "race_number": race_number,
+                "market_name": market_name,
+                "distance": distance,
+                "start_time": start_time,
+                "horses": horses,
+                "is_future": True,
+            })
+        return future_races
+    except Exception as exc:
+        print(f"[Betfair] Future races fetch error: {exc}")
+        return []
+
+
+def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] = None, include_futures: bool = False):
     target_date = _resolve_run_date(run_date)
     target_date_str = target_date.isoformat()
+    
+    cache_key = f"{target_date_str}_{race_type or 'ALL'}_{include_futures}"
+    if cache_key in _race_card_cache:
+        cached_races, timestamp = _race_card_cache[cache_key]
+        now = time.time()
+        
+        next_jump_time = None
+        for r in cached_races:
+            start_time = r.get("start_time")
+            if not start_time:
+                continue
+            mins = calculate_minutes_until_jump(start_time)
+            if mins is not None and mins > 0:
+                if next_jump_time is None or start_time < next_jump_time:
+                    next_jump_time = start_time
+                    
+        ttl = race_window_ttl(next_jump_time) if next_jump_time else 1800
+        
+        if now - timestamp < ttl:
+            return cached_races
+
     headers = _get_api_headers()
+    event_type_ids = _resolve_race_type_event_ids(race_type)
 
     if headers:
         try:
-            races = _fetch_live_races(headers, target_date)
+            try:
+                races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
+            except TypeError:
+                races = _fetch_live_races(headers, target_date)
         except requests.exceptions.HTTPError as exc:
             if exc.response is not None and exc.response.status_code in (400, 401):
                 print(f"[Betfair] Session expired or invalid ({exc.response.status_code}). Retrying...")
@@ -207,7 +384,7 @@ def fetch_today_races(run_date: Optional[str] = None):
                 headers = _get_api_headers()
                 if headers:
                     try:
-                        races = _fetch_live_races(headers, target_date)
+                        races = _fetch_live_races(headers, target_date, event_type_ids=event_type_ids)
                     except Exception as retry_exc:
                         print(f"[Betfair] Retry live fetch failed ({retry_exc})")
                         races = []
@@ -231,12 +408,22 @@ def fetch_today_races(run_date: Optional[str] = None):
         prepared = _prepare_race_card(race, default_meeting_date=target_date_str)
         if prepared.get("meeting_date") and prepared.get("meeting_date") != target_date_str:
             continue
+        if not _allowlist_allows_meeting(prepared):
+            continue
         prepared_races.append(prepared)
-        
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        final_races = list(executor.map(_enrich_with_racing_australia, prepared_races))
 
-    return final_races
+    if include_futures:
+        try:
+            future_races = fetch_future_feature_races(event_type_ids)
+            prepared_races.extend(future_races)
+        except Exception as f_err:
+            print(f"[Betfair] Future races inclusion failed: {f_err}")
+        
+    prepared_races.sort(key=lambda race: race.get("start_time") or "")
+    
+    _race_card_cache[cache_key] = (prepared_races, time.time())
+    
+    return prepared_races
 
 
 def _betfair_auth_mode() -> str:
@@ -346,49 +533,44 @@ def _betfair_certificate_status() -> str:
     )
 
 
-def _fetch_live_races(headers, target_date: date):
-    api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketCatalogue/"
+def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[str]] = None):
+    api_url = betfair_catalogue_url()
     market_start_time = _betfair_market_time_window(target_date)
+    if not event_type_ids:
+        event_type_ids = ["7"]
     
     all_markets = []
     from_record = 0
-    page_size = 1000
+    page_size = 200
 
-    while True:
-        market_filter = {
-            "filter": {
-                "eventTypeIds": ["7"],
-                "marketCountries": ["AU"],
-                "marketTypeCodes": ["WIN"],
-                "marketStartTime": market_start_time,
-            },
-            "maxResults": str(page_size),
-            "from": str(from_record),
-            "sort": "FIRST_TO_START",
-            "marketProjection": [
-                "EVENT",
-                "RUNNER_DESCRIPTION",
-                "MARKET_START_TIME",
-                "MARKET_DESCRIPTION",
-            ],
-        }
+    market_filter = {
+        "filter": {
+            "eventTypeIds": event_type_ids,
+            "marketCountries": ["AU", "NZ", "HK"],
+            "marketTypeCodes": ["WIN"],
+            "marketStartTime": market_start_time,
+        },
+        "maxResults": page_size,
+        "sort": "FIRST_TO_START",
+        "marketProjection": [
+            "EVENT",
+            "RUNNER_DESCRIPTION",
+            "MARKET_START_TIME",
+            "MARKET_DESCRIPTION",
+            "RUNNER_METADATA",
+        ],
+    }
 
-        response = requests.post(
-            api_url,
-            data=json.dumps(market_filter),
-            headers=headers,
-            timeout=15,
-        )
-        response.raise_for_status()
-        markets = response.json()
-
-        if not markets:
-            break
-
-        all_markets.extend(markets)
-        if len(markets) < page_size:
-            break
-        from_record += len(markets)
+    response = requests.post(
+        api_url,
+        data=json.dumps(market_filter),
+        headers=headers,
+        timeout=15,
+    )
+    if response.status_code != 200:
+        print(f"[Betfair] listMarketCatalogue error: {response.text}")
+    response.raise_for_status()
+    all_markets = response.json()
 
     if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
@@ -424,6 +606,15 @@ def _fetch_live_races(headers, target_date: date):
             back_price = runner_price.get("back", 0)
             implied_prob = (1 / back_price) if back_price > 1 else 0
 
+            metadata = runner.get("metadata", {})
+            jockey_name = metadata.get("JOCKEY_NAME")
+            trainer_name = metadata.get("TRAINER_NAME")
+            form_string = metadata.get("FORM", "")
+            career_wins = _safe_int(metadata.get("WINNER_COUNT"))
+            career_starts = _safe_int(metadata.get("RUNS_COUNT"))
+            prize_money = _safe_float(metadata.get("PRIZE_AMOUNT"))   # AUD, career total
+            adjusted_rating = _safe_float(metadata.get("ADJUSTED_RATING"))
+
             horses.append({
                 "horse_id": selection_id or f"bf_{market_id}_{idx}",
                 "name": runner_name,
@@ -435,12 +626,21 @@ def _fetch_live_races(headers, target_date: date):
                 "days_since_last_race": random.randint(7, 45),
                 "betfair_back_price": back_price,
                 "betfair_implied_prob": round(implied_prob, 4),
-                "jockey_name": None,
+                "jockey_name": jockey_name,
+                "trainer_name": trainer_name,
+                "form_string": form_string,
+                "career_wins": career_wins,
+                "career_starts": career_starts,
+                "career_prize_money": prize_money,
+                "adjusted_rating": adjusted_rating,
+                "event_type_id": market.get("eventType", {}).get("id", "7"),
                 "meeting_type": "unknown",
                 "meeting_region": "",
                 "meeting_date": melbourne_date_string(start_time or None),
                 "data_source": "betfair",
             })
+
+        country_code = event.get("countryCode") or market.get("marketCountry") or "AU"
 
         races.append({
             "race_id": market_id,
@@ -449,6 +649,7 @@ def _fetch_live_races(headers, target_date: date):
             "distance": distance,
             "start_time": start_time,
             "market_name": market_name,
+            "country_code": country_code,
             "horses": horses,
             "source": "betfair_live",
         })
@@ -464,7 +665,7 @@ def _resolve_run_date(run_date: Optional[str]) -> date:
 
 
 def _betfair_market_time_window(target_date: date) -> dict:
-    start_local = datetime.combine(target_date, time.min, tzinfo=MELBOURNE_TZ)
+    start_local = datetime.combine(target_date, datetime.min.time(), tzinfo=MELBOURNE_TZ)
     end_local = start_local + timedelta(days=1)
     start_utc = start_local.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     end_utc = end_local.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -478,7 +679,7 @@ def _fetch_prices(headers, market_ids):
     if not market_ids:
         return {}
 
-    api_url = "https://api.betfair.com/exchange/betting/rest/v1.0/listMarketBook/"
+    api_url = betfair_market_book_url()
     result = {}
 
     try:
@@ -519,16 +720,22 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
     meeting_context = _meeting_context_for_start_time(race.get("start_time") or None)
     meeting_date = meeting_context["date"] if race.get("start_time") else (default_meeting_date or meeting_context["date"])
-    meeting_region = allowlist_entry.get("region", "") if allowlist_entry else ""
+    country_code = race.get("country_code", "AU")
+    meeting_region = (
+        allowlist_entry.get("region", "")
+        if allowlist_entry
+        else country_code
+    )
     meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
     state = allowlist_entry.get("state", "") if allowlist_entry else ""
     canonical_venue = allowlist_entry.get("venue", race.get("venue", "")) if allowlist_entry else race.get("venue", "")
-    data_source = "mock" if race.get("source") == "mock" else "betfair"
+    data_source = "betfair"
 
     prepared_horses = []
     for horse in race.get("horses", []):
         prepared_horse = dict(horse)
         prepared_horse["jockey_name"] = horse.get("jockey_name")
+        prepared_horse["trainer_name"] = horse.get("trainer_name")
         prepared_horse["meeting_type"] = horse.get("meeting_type") or meeting_type
         prepared_horse["meeting_region"] = horse.get("meeting_region") or meeting_region
         prepared_horse["meeting_date"] = horse.get("meeting_date") or meeting_date
@@ -561,10 +768,20 @@ def _lookup_allowlist_entry(venue: str) -> Optional[dict]:
     return None
 
 
-def _enrich_with_racing_australia(race: dict) -> dict:
-    if race.get("data_source") == "mock":
-        return race
+def _allowlist_allows_meeting(race: dict) -> bool:
+    allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
+    if not allowlist_entry:
+        return True
 
+    active_days = allowlist_entry.get("active_days") or []
+    if not active_days:
+        return True
+
+    meeting_context = _meeting_context_for_start_time(race.get("start_time") or None)
+    return meeting_context.get("weekday", "") in active_days
+
+
+def _enrich_with_racing_australia(race: dict) -> dict:
     allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
     if not allowlist_entry:
         return race
