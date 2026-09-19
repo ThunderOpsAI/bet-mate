@@ -28,6 +28,7 @@ function getWeekKey(): string {
 export default function WeeklyChampionBanner() {
   const [dismissed, setDismissed] = useState(true);
   const [champion, setChampion] = useState<ChampionData | null>(null);
+  const [isCrowned, setIsCrowned] = useState(false);
 
   useEffect(() => {
     // Check localStorage dismissal
@@ -39,9 +40,12 @@ export default function WeeklyChampionBanner() {
 
     setDismissed(false);
 
-    // Fetch top weekly champion from API
+    // Fetch top weekly champion from API.
+    // First tries the WeeklyChampion table (crowned at end-of-week).
+    // Falls back to live highest_roi leaderboard leader if no champion crowned yet.
     async function loadChampion() {
       try {
+        // 1. Try crowned champion first
         const res = await fetch(`${API_BASE}/leaderboards?category=highest_roi_weekly`, {
           headers: { "Content-Type": "application/json" },
         });
@@ -53,6 +57,28 @@ export default function WeeklyChampionBanner() {
             roiPct: top.roiPct,
             balance: top.balance,
             totalBetsPlaced: top.totalBetsPlaced,
+          });
+          setIsCrowned(true);
+          return;
+        }
+
+        // 2. Fall back: show current week's live #1 on the ROI leaderboard
+        const fallbackRes = await fetch(`${API_BASE}/leaderboards?category=highest_roi&timeframe=weekly`, {
+          headers: { "Content-Type": "application/json" },
+        });
+        const fallbackData = await safeResponseJson(fallbackRes);
+        if (
+          fallbackData &&
+          fallbackData.success &&
+          Array.isArray(fallbackData.leaderboard) &&
+          fallbackData.leaderboard.length > 0
+        ) {
+          const top = fallbackData.leaderboard[0];
+          setChampion({
+            username: top.username ?? top.userId ?? "Anonymous",
+            roiPct: typeof top.roiPct === "number" ? Math.round(top.roiPct * 10) / 10 : 0,
+            balance: top.balance ?? 10000,
+            totalBetsPlaced: top.totalBetsPlaced ?? top.weeklyBetsPlaced ?? 0,
           });
         }
       } catch (err) {
@@ -80,7 +106,7 @@ export default function WeeklyChampionBanner() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-black text-amber-300 uppercase tracking-wider text-[10px] bg-amber-400/10 px-1.5 py-0.2 rounded border border-amber-400/30 flex items-center gap-1">
-                <Sparkles size={10} /> Weekly Champion
+                <Sparkles size={10} /> {isCrowned ? "Weekly Champion" : "Current Leader"}
               </span>
               <span className="font-extrabold text-slate-100 truncate">
                 @{champion.username}
@@ -90,7 +116,9 @@ export default function WeeklyChampionBanner() {
               </span>
             </div>
             <p className="text-[11px] text-slate-400 truncate hidden sm:block">
-              Crowned winner for this week's paper bet leaderboard with ${champion.balance.toFixed(2)} balance across {champion.totalBetsPlaced} bets.
+              {isCrowned
+                ? `Crowned winner for this week's paper bet leaderboard with $${champion.balance.toFixed(2)} balance across ${champion.totalBetsPlaced} bets.`
+                : `Currently leading this week's paper bet leaderboard with $${champion.balance.toFixed(2)} balance across ${champion.totalBetsPlaced} bets.`}
             </p>
           </div>
         </div>
