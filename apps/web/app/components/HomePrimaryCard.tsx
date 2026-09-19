@@ -224,7 +224,8 @@ export default function HomePrimaryCard({
             <div className="space-y-2.5">
               {topOpportunities.map((opp) => {
                 const inBetslip = isItemInSlip(opp.selectionName, opp.eventLabel);
-                const evVal = Math.round(opp.probability * 100);
+                const rawProb = opp.probability > 1 ? opp.probability : opp.probability * 100;
+                const evVal = Math.round(Math.min(100, Math.max(0, rawProb)));
                 const displayOdds = opp.marketOdds ?? opp.fairOdds;
 
                 return (
@@ -295,7 +296,7 @@ export default function HomePrimaryCard({
       {/* 2. Two large hero CTA buttons — SPORT (left) and RACING (right), side by side */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
         <Link
-          href="/afl"
+          href="/sport"
           className="relative group rounded-2xl overflow-hidden border border-slate-800 hover:border-emerald-500/50 transition-all duration-300 shadow-xl min-h-[160px] md:min-h-[200px] flex items-center justify-center cursor-pointer"
         >
           <Image
@@ -577,7 +578,7 @@ export default function HomePrimaryCard({
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5">Upcoming AFL, NBA, NRL & Soccer</p>
             </div>
-            <Link href="/nba" className="text-xs font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
+            <Link href="/sport" className="text-xs font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
               <span>View Sports</span>
               <ArrowRight size={14} />
             </Link>
@@ -607,6 +608,9 @@ export default function HomePrimaryCard({
                 const selection = sportItem.predicted_winner || sportItem.home_team;
                 const inBetslip = isItemInSlip(selection, eventLabel);
                 const displayOdds = sportItem.market_odds ?? sportItem.fair_odds;
+                const winProbVal = sportItem.win_probability ?? 0.5;
+                const rawProb = winProbVal > 1 ? winProbVal : winProbVal * 100;
+                const displayProb = Math.round(Math.min(100, Math.max(0, rawProb)));
 
                 return (
                   <div
@@ -631,7 +635,7 @@ export default function HomePrimaryCard({
                           <span>Pick: <strong className="text-sky-300">{sportItem.predicted_winner}</strong></span>
                         )}
                         {sportItem.win_probability && (
-                          <span>Prob: <strong className="text-emerald-400">{Math.round(sportItem.win_probability * 100)}%</strong></span>
+                          <span>Prob: <strong className="text-emerald-400">{displayProb}%</strong></span>
                         )}
                         {displayOdds && (
                           <span>Odds: <strong className="text-slate-200">${displayOdds.toFixed(2)}</strong></span>

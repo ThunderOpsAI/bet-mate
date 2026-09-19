@@ -359,37 +359,41 @@ export default function SoccerPage() {
   }
 
   const soccerOpportunities = rankOpportunities(
-    games.flatMap((game) => {
-      const prediction = predictions[game.game_id];
-      if (!prediction) {
-        return [];
-      }
+    games
+      .filter((game) => game.home_team && game.away_team && game.home_team !== "Team None" && game.away_team !== "Team None")
+      .flatMap((game) => {
+        const prediction = predictions[game.game_id];
+        if (!prediction) {
+          return [];
+        }
 
-      const homePct = prediction.predictions.home_win_probability;
-      const awayPct = prediction.predictions.away_win_probability;
-      const drawPct = prediction.predictions.draw_probability ?? 0;
-      
-      let selectionName = game.home_team;
-      let probability = homePct;
-      let fairOdds = prediction.predictions.fair_odds_home;
+        const homePct = prediction.predictions.home_win_probability;
+        const awayPct = prediction.predictions.away_win_probability;
+        const drawPct = prediction.predictions.draw_probability ?? 0;
+        
+        let selectionName = game.home_team;
+        let probability = homePct;
+        let fairOdds = prediction.predictions.fair_odds_home;
 
-      if (awayPct > homePct && awayPct > drawPct) {
-        selectionName = game.away_team;
-        probability = awayPct;
-        fairOdds = prediction.predictions.fair_odds_away;
-      } else if (drawPct > homePct && drawPct > awayPct) {
-        selectionName = "Draw";
-        probability = drawPct;
-        fairOdds = prediction.predictions.fair_odds_draw ?? 3.0;
-      }
+        if (awayPct > homePct && awayPct > drawPct) {
+          selectionName = game.away_team;
+          probability = awayPct;
+          fairOdds = prediction.predictions.fair_odds_away;
+        } else if (drawPct > homePct && drawPct > awayPct) {
+          selectionName = "Draw";
+          probability = drawPct;
+          fairOdds = prediction.predictions.fair_odds_draw ?? 3.0;
+        }
 
-      return [
-        {
-          id: game.game_id,
-          sport: "soccer" as const,
-          selectionName,
-          eventLabel: `${game.home_team} vs ${game.away_team}`,
-          probability,
+        const normalizedProb = probability > 1 ? probability / 100 : probability;
+
+        return [
+          {
+            id: game.game_id,
+            sport: "soccer" as const,
+            selectionName,
+            eventLabel: `${game.home_team} vs ${game.away_team}`,
+            probability: normalizedProb,
           fairOdds,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({

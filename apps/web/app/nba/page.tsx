@@ -294,26 +294,30 @@ export default function NBAPage() {
   }
 
   const nbaOpportunities = rankOpportunities(
-    games.flatMap((game) => {
-      const prediction = predictions[game.game_id];
-      if (!prediction) {
-        return [];
-      }
+    games
+      .filter((game) => game.home_team && game.away_team && game.home_team !== "Team None" && game.away_team !== "Team None")
+      .flatMap((game) => {
+        const prediction = predictions[game.game_id];
+        if (!prediction) {
+          return [];
+        }
 
-      const homePct = prediction.predictions.home_win_probability;
-      const awayPct = prediction.predictions.away_win_probability;
-      const homeWins = homePct > awayPct;
+        const homePct = prediction.predictions.home_win_probability;
+        const awayPct = prediction.predictions.away_win_probability;
+        const homeWins = homePct > awayPct;
+        const winProb = homeWins ? homePct : awayPct;
+        const normalizedProb = winProb > 1 ? winProb / 100 : winProb;
 
-      return [
-        {
-          id: game.game_id,
-          sport: "nba" as const,
-          selectionName: homeWins ? game.home_team : game.away_team,
-          eventLabel: `${game.home_team} vs ${game.away_team}`,
-          probability: homeWins ? homePct : awayPct,
-          fairOdds: homeWins
-            ? prediction.predictions.fair_odds_home
-            : prediction.predictions.fair_odds_away,
+        return [
+          {
+            id: game.game_id,
+            sport: "nba" as const,
+            selectionName: homeWins ? game.home_team : game.away_team,
+            eventLabel: `${game.home_team} vs ${game.away_team}`,
+            probability: normalizedProb,
+            fairOdds: homeWins
+              ? prediction.predictions.fair_odds_home
+              : prediction.predictions.fair_odds_away,
           confidenceSignal: getConfidenceSignal(prediction.ai_insights_context),
           urgencySignal: getUrgencySignal({
             startTime: game.date,

@@ -68,20 +68,7 @@ export default function WeeklyChampionBanner() {
     setDismissed(true);
   };
 
-  if (dismissed) return null;
-  if (!champion) {
-    return (
-      <div className="w-full bg-slate-900 border-b border-slate-800 px-4 py-2.5 relative shadow-lg flex items-center justify-between text-xs text-slate-500">
-        <div className="max-w-7xl mx-auto flex w-full justify-between items-center">
-          <div className="flex items-center gap-2">
-            <Trophy size={15} className="text-slate-600" />
-            <span>Awaiting Weekly Champion Data...</span>
-          </div>
-          <button onClick={handleDismiss} className="p-1 hover:text-white"><X size={16} /></button>
-        </div>
-      </div>
-    );
-  }
+  if (dismissed || !champion) return null;
 
   return (
     <div className="w-full bg-gradient-to-r from-amber-500/20 via-slate-950 to-amber-500/20 border-b border-amber-500/40 px-4 py-2.5 relative shadow-lg backdrop-blur-md animate-in fade-in slide-in-from-top-2 duration-200">
