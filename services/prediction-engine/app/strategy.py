@@ -422,9 +422,9 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     selected = []
     per_sport_cap = {
         sport: bankroll_available * float(rule_set["sport_weights"].get(sport, 0.0))
-        for sport in ("racing", "afl", "nba")
+        for sport in ("racing", "afl", "nba", "nfl")
     }
-    per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba")}
+    per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba", "nfl")}
     selection_pool = []
     
     # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
@@ -596,7 +596,7 @@ def build_multi_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
         combined_probability *= leg_probability
         implied_probability *= (1 / leg_odds)
         sport = str(leg.get("sport", "")).strip().lower()
-        if sport in {"racing", "afl", "nba"}:
+        if sport in {"racing", "afl", "nba", "nfl"}:
             sport_counts[sport] = sport_counts.get(sport, 0) + 1
         normalized_legs.append(
             {
@@ -667,7 +667,7 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         })
 
         leg_sport = str(leg.get("sport", "")).strip().lower()
-        if leg_sport in {"racing", "afl", "nba"}:
+        if leg_sport in {"racing", "afl", "nba", "nfl"}:
             sport_counts[leg_sport] = sport_counts.get(leg_sport, 0) + 1
             
         normalized_legs.append(
@@ -772,10 +772,10 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
         return {
             sport: float(weight)
             for sport, weight in allocation.items()
-            if sport in {"racing", "afl", "nba"} and float(weight) > 0
+            if sport in {"racing", "afl", "nba", "nfl"} and float(weight) > 0
         }
     sport = candidate.get("sport")
-    if sport in {"racing", "afl", "nba"}:
+    if sport in {"racing", "afl", "nba", "nfl"}:
         return {sport: 1.0}
     return {}
 
@@ -783,7 +783,7 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
 def _candidate_supports_multi_settlement(candidate: Dict[str, Any]) -> bool:
     sport = str(candidate.get("sport", "")).strip().lower()
     market_type = str(candidate.get("market_type", "")).strip().lower()
-    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba"})
+    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba", "nfl"})
 
 
 def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:

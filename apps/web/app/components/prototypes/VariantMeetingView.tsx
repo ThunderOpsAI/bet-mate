@@ -22,6 +22,17 @@ function MeetingViewContent({ variant, venue }: VariantMeetingViewProps) {
     (m) => m.venue.toLowerCase() === decodedVenue.toLowerCase()
   ) || FALLBACK_MEETINGS[0];
 
+  if (!meeting) {
+    return (
+      <VariantNavigationShell activeVariant={variant}>
+        <div style={{ padding: "4rem 2rem", textAlign: "center" }}>
+          <h2 style={{ fontSize: "1.25rem", color: "#f8fafc", marginBottom: "0.5rem" }}>Awaiting Live Feed</h2>
+          <p style={{ color: "#94a3b8" }}>No synthetic fallbacks or fake odds will be generated.</p>
+        </div>
+      </VariantNavigationShell>
+    );
+  }
+
   return (
     <VariantNavigationShell activeVariant={variant}>
       <VariantRacingFilters />

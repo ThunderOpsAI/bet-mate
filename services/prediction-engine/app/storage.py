@@ -1908,7 +1908,7 @@ def _sport_allocation_from_legs(legs: List[Dict[str, Any]]) -> Dict[str, float]:
     sport_counts: Dict[str, int] = {}
     for leg in legs:
         sport = str(leg.get("sport", "")).strip().lower()
-        if sport in {"racing", "afl", "nba"}:
+        if sport in {"racing", "afl", "nba", "nfl"}:
             sport_counts[sport] = sport_counts.get(sport, 0) + 1
     leg_count = len(legs)
     if leg_count <= 0:
@@ -2659,7 +2659,7 @@ def _validate_rule_set(rule_set: Dict[str, Any]) -> None:
     if not markets or not markets.issubset(ALLOWED_MARKETS):
         raise ValueError("allowed_markets contains unsupported market types")
     sport_weights = rule_set["sport_weights"]
-    weight_sum = sum(float(sport_weights.get(sport, 0.0)) for sport in ("racing", "afl", "nba"))
+    weight_sum = sum(float(sport_weights.get(sport, 0.0)) for sport in ("racing", "afl", "nba", "nfl"))
     if abs(weight_sum - 1.0) > 0.001:
         raise ValueError("sport_weights must sum to 1.0")
 
@@ -2674,7 +2674,7 @@ def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Di
         stakes[bet["sport"]] += bet["stake"]
 
     raw = {}
-    for sport in ("racing", "afl", "nba"):
+    for sport in ("racing", "afl", "nba", "nfl"):
         roi = profits[sport] / stakes[sport] if stakes[sport] > 0 else 0.0
         raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
 

@@ -239,7 +239,7 @@ class PredictionResultInput(BaseModel):
     result_payload: Optional[Dict[str, Any]] = None
 
 class PredictionResultIngestionInput(BaseModel):
-    sports: List[str] = Field(default_factory=lambda: ["afl", "nba", "racing"])
+    sports: List[str] = Field(default_factory=lambda: ["afl", "nba", "racing", "nfl"])
     max_results: int = 50
     afl_year: Optional[int] = None
     nba_days_back: int = 7
@@ -389,9 +389,9 @@ def ingest_prediction_results(request: Optional[PredictionResultIngestionInput] 
     request = request or PredictionResultIngestionInput()
     sports = {sport.strip().lower() for sport in request.sports if sport.strip()}
     if "all" in sports:
-        sports = {"afl", "nba", "racing"}
+        sports = {"afl", "nba", "racing", "nfl"}
 
-    unsupported = sorted(sports - {"afl", "nba", "racing"})
+    unsupported = sorted(sports - {"afl", "nba", "racing", "nfl"})
     if unsupported:
         raise HTTPException(status_code=400, detail=f"Result ingestion is not available for: {', '.join(unsupported)}")
 

@@ -133,7 +133,7 @@ def nightly_strategy_refresh():
         return nightly.run_nightly_cycle(
             strategy_service=strategy_service,
             run_date=run_date,
-            ingest_sports=("afl", "nba", "racing"),
+            ingest_sports=("afl", "nba", "racing", "nfl"),
             ingest_results_enabled=True,
             tune_enabled=True,
             weekly_retrain_enabled=True,

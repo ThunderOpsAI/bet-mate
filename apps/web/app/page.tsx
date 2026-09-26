@@ -118,40 +118,9 @@ function HomePageContent() {
         };
       });
 
-      // 2. Map fallback High EV opportunities
-      const fallbackCandidates = racesData.flatMap((race) => {
-        if (!race.horses || race.horses.length === 0) return [];
-        const urgencySignal = getUrgencySignal({
-          startTime: race.start_time,
-          eventDate: race.meeting_date,
-        });
-        const confidenceSignal = getConfidenceSignal(null);
+      let opps: RankedOpportunity[] = [];
 
-        return race.horses.map((horse) => {
-          const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
-          const impliedProb = 1 / mktOdds;
-          const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
-          const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
-
-          return {
-            id: `${race.race_id}-${horse.horse_id}`,
-            sport: "racing" as const,
-            selectionName: horse.name,
-            eventLabel: `${race.venue} R${race.race_number}`,
-            probability: winProb,
-            fairOdds: fairOdds,
-            marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
-            confidenceSignal,
-            urgencySignal,
-            eventTime: race.start_time || race.meeting_date,
-            href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-          };
-        });
-      });
-
-      let opps = rankOpportunities(fallbackCandidates).slice(0, 5);
-
-      // 3. Fetch ML predictions
+      // 2. Fetch ML predictions
       try {
         const predsRes = await fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
           method: "POST",
@@ -192,7 +161,7 @@ function HomePageContent() {
           }
         }
       } catch (err) {
-        console.warn("Prediction fetch failed, using fallback.", err);
+        console.warn("Prediction fetch failed:", err);
       }
       
       return { upcomingRaces: mappedRaces, opportunities: opps };
@@ -340,7 +309,7 @@ function HomePageContent() {
   const upcomingSports = upcomingSportsData ?? [];
   const sportsError = sportsErrorObj ? sportsErrorObj.message : null;
 
-  const racingLinkHref = raceType !== "T" ? `/racing?type=${raceType}` : "/racing";
+  const racingLinkHref = "/high-ev";
 
   return (
     <ErrorBoundary sectionName="Home Landing">
