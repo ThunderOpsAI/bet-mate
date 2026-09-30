@@ -53,6 +53,8 @@ model daily_strategy_runs {
   candidate_count   Int?
   selected_count    Int?
   skipped_count     Int?
+  strategy_variant  String?
+  leg_count         Int?
   run_payload_json  Json?
   created_at        DateTime?         @default(now()) @db.Timestamptz(6)
   strategy_profiles strategy_profiles @relation(fields: [profile_key], references: [profile_key], onDelete: NoAction, onUpdate: NoAction)
@@ -164,6 +166,8 @@ model system_bets {
   settled_at          DateTime?           @db.Timestamptz(6)
   created_at          DateTime?           @default(now()) @db.Timestamptz(6)
   legs_json           Json?
+  strategy_variant    String?
+  leg_count           Int?
   paper_bet_log       paper_bet_log[]
   daily_strategy_runs daily_strategy_runs @relation(fields: [run_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -363,6 +367,7 @@ model MultiBet {
   adjustedOdds       Float
   impliedProbability Float
   correlationHaircut Float
+  edgePct            Float?
   calculationStatus  String     @default("CALCULATED")
   status             String     @default("PENDING")
   legs               MultiLeg[]
@@ -378,6 +383,8 @@ model MultiLeg {
   id               String   @id @default(cuid())
   multiBetId       String
   multiBet         MultiBet @relation(fields: [multiBetId], references: [id], onDelete: Cascade)
+  sport            String?
+  gameContext      String?
   marketType       String
   selectionId      String?
   selectionLabel   String
@@ -574,3 +581,22 @@ model MatchResult {
   @@map("match_results")
   @@schema("public")
 }
+
+model DailyEVFeed {
+  id               String   @id @default(cuid())
+  sport            String
+  gameContext      String   @map("game_context")
+  legDescription   String   @map("leg_description")
+  trueProb         Float    @map("true_prob")
+  bestOdds         Float    @map("best_odds")
+  edgePct          Float    @map("edge_pct")
+  correlationGroup String?  @map("correlation_group")
+  backPrice        Float?   @map("back_price")
+  layPrice         Float?   @map("lay_price")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([sport, createdAt])
+  @@map("daily_ev_feed")
+  @@schema("public")
+}
+

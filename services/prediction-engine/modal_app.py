@@ -6,6 +6,9 @@ from typing import Callable, Dict, List
 
 import modal
 
+import app.data.scraper as racing_scraper
+from app.ml.racing import RacingPredictor
+
 
 LOGGER = logging.getLogger("betmate.modal")
 APP_NAME = "betmate-prediction-engine"
@@ -154,16 +157,14 @@ def nightly_strategy_refresh():
 )
 def race_data_refresh():
     def _job() -> Dict[str, object]:
-        run_date = today_melbourne().isoformat()
-        from app.ml.racing import RacingPredictor
         from app.time_utils import today_melbourne
-        import app.data.scraper as racing_scraper
-        import app.database as database
+        run_date = today_melbourne().isoformat()
         predictor = RacingPredictor()
         predictor.load_or_train()
         races = racing_scraper.fetch_today_races(run_date=run_date)
         
         import app.storage as storage
+        import app.database as database
         database.user_id_ctx.set("automated_agent")
         storage.init_db()
         
@@ -295,6 +296,30 @@ def nba_model_refresh():
         }
 
     return _run_logged_job("nba_model_refresh", _job)
+
+
+@app.function(
+    image=image,
+    secrets=secrets,
+    volumes={MODEL_VOLUME_PATH: volume},
+    env=_common_env(),
+    region="ap-southeast-2",
+    timeout=60 * 15,
+)
+def nfl_model_refresh():
+    def _job() -> Dict[str, object]:
+        from app.ml.nfl import NFLPredictor
+        from app.time_utils import today_melbourne
+        run_date = today_melbourne().isoformat()
+        predictor = NFLPredictor()
+        predictor.train()
+        return {
+            "run_date": run_date,
+            "training_source": predictor.training_source,
+            "training_rows": predictor.training_rows,
+        }
+
+    return _run_logged_job("nfl_model_refresh", _job)
 
 
 @app.function(
@@ -513,7 +538,7 @@ def evaluate_blackbook_rules():
     image=image,
     region="ap-southeast-2",
     timeout=60,
-    schedule=modal.Cron("0 0,6,12,18 * * *", timezone="Australia/Melbourne"),
+    schedule=modal.Cron("0 0,8 * * *", timezone="Australia/Melbourne"),
 )
 def master_scheduler():
     from datetime import datetime
@@ -522,17 +547,25 @@ def master_scheduler():
     
     print(f"Master scheduler tick at {now}")
     
-    # 6-hour interval jobs (run on every tick: 00:00, 06:00, 12:00, 18:00)
+    # Run evaluations on both 00:00 and 08:00 ticks
     prewarm_upcoming_races.spawn()
     evaluate_blackbook_rules.spawn()
         
-    # Midnight (12:00 AM) daily jobs
+    # Midnight (00:00 AEST) run: full nightly cycle & all model refreshes
     if now.hour == 0:
         race_data_refresh.spawn()
         afl_model_refresh.spawn()
         nba_model_refresh.spawn()
+        nfl_model_refresh.spawn()
+        nightly_strategy_refresh.spawn()
+        
+    # 08:00 AEST run: morning refresh for US retail props wave (NBA & NFL)
+    if now.hour == 8:
+        nba_model_refresh.spawn()
+        nfl_model_refresh.spawn()
         nightly_strategy_refresh.spawn()
         
     # Sunday 6:00 AM jobs
     if now.weekday() == 6 and now.hour == 6:
         sunday_betfair_import.spawn()
+

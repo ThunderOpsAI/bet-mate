@@ -32,5 +32,9 @@ def fresh_db(tmp_path):
     db_mod.BETMATE_DB_PATH = test_db_path
 
     db_mod.init_database()
+    import app.storage as storage
+    storage.ensure_default_strategy_profiles()
+    import app.data.scraper as scraper
+    scraper._race_card_cache.clear()
     yield test_db_path
     os.environ["BETMATE_DB_PATH"] = ":memory:"

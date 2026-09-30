@@ -19,7 +19,7 @@ def _to_date_string(val) -> str:
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
-ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head"}
+ALLOWED_MARKETS = {"win", "place", "quinella", "head_to_head", "spread", "total_points", "player_prop"}
 DEFAULT_STANDARD_BANKROLL = 10000.0
 DEFAULT_PREMIUM_BANKROLL = 10000.0
 DEFAULT_STRATEGY_PROFILES = [
@@ -1252,6 +1252,7 @@ def get_prediction_accuracy_trend(sport: Optional[str] = None, days: int = 30) -
     return trend[-days:]
 
 
+def ensure_default_strategy_profiles() -> None:
     with _connect() as conn:
         rows = conn.execute("SELECT profile_key FROM strategy_profiles").fetchall()
         existing = {row["profile_key"] for row in rows}
@@ -1757,6 +1758,7 @@ def run_weekly_retrain(reference_date: str, profile_keys: Optional[List[str]] = 
 def init_db() -> None:
     """Initialize the database schema once. Delegates to database module."""
     init_database()
+    ensure_default_strategy_profiles()
 
 
 def _connect():
@@ -2665,22 +2667,28 @@ def _validate_rule_set(rule_set: Dict[str, Any]) -> None:
 
 
 def _retune_sport_weights(window_bets: List[Dict[str, Any]], current_weights: Dict[str, float]) -> Dict[str, float]:
-    profits = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
-    stakes = {"racing": 0.0, "afl": 0.0, "nba": 0.0}
+    sports = list(current_weights.keys())
+    if not sports:
+        return {}
+    profits = {sport: 0.0 for sport in sports}
+    stakes = {sport: 0.0 for sport in sports}
     for bet in window_bets:
         if bet["status"] not in {"won", "lost"}:
             continue
-        profits[bet["sport"]] += bet["profit"] or 0.0
-        stakes[bet["sport"]] += bet["stake"]
+        sport_name = bet.get("sport")
+        if sport_name in profits:
+            profits[sport_name] += bet["profit"] or 0.0
+            stakes[sport_name] += bet["stake"]
 
     raw = {}
-    for sport in ("racing", "afl", "nba", "nfl"):
+    for sport in sports:
         roi = profits[sport] / stakes[sport] if stakes[sport] > 0 else 0.0
         raw[sport] = max(0.1, float(current_weights.get(sport, 0.0)) + roi * 0.2)
 
     total = sum(raw.values()) or 1.0
-    weights = {sport: round(raw[sport] / total, 3) for sport in ("racing", "afl")}
-    weights["nba"] = round(1.0 - sum(weights.values()), 3)
+    weights = {sport: round(raw[sport] / total, 3) for sport in sports[:-1]}
+    last_sport = sports[-1]
+    weights[last_sport] = round(1.0 - sum(weights.values()), 3)
     return weights
 
 
@@ -2768,5 +2776,68 @@ def automated_bet_exists(sport: str, event_id: str, selection: str, bet_type: st
             (sport, event_id, selection, bet_type),
         ).fetchone()
     return row is not None
+
+
+def upsert_daily_ev_feed(legs: Sequence[Mapping[str, Any]]) -> int:
+    """Upsert top EV legs into the daily_ev_feed table."""
+    if not legs:
+        return 0
+
+    inserted = 0
+    with _connect() as conn:
+        for leg in legs:
+            leg_id = str(leg.get("id") or f"{leg.get('sport')}_{leg.get('game_context')}_{leg.get('leg_description')}".replace(" ", "_").replace("@", "at"))
+            sport = str(leg.get("sport", "nba")).lower()
+            game_context = str(leg.get("game_context", ""))
+            leg_description = str(leg.get("leg_description", ""))
+            true_prob = float(leg.get("true_prob", 0.0))
+            best_odds = float(leg.get("best_odds", 0.0))
+            edge_pct = float(leg.get("edge_pct", 0.0))
+            correlation_group = leg.get("correlation_group")
+            back_price = float(leg.get("back_price")) if leg.get("back_price") is not None else best_odds
+            lay_price = float(leg.get("lay_price")) if leg.get("lay_price") is not None else None
+
+            conn.execute(
+                """
+                INSERT INTO daily_ev_feed (
+                    id, sport, game_context, leg_description, true_prob, best_odds,
+                    edge_pct, correlation_group, back_price, lay_price
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    true_prob = excluded.true_prob,
+                    best_odds = excluded.best_odds,
+                    edge_pct = excluded.edge_pct,
+                    back_price = excluded.back_price,
+                    lay_price = excluded.lay_price
+                """,
+                (
+                    leg_id, sport, game_context, leg_description, true_prob, best_odds,
+                    edge_pct, correlation_group, back_price, lay_price
+                ),
+            )
+            inserted += 1
+    return inserted
+
+
+def get_daily_ev_feed(sport: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
+    """Retrieve top EV legs ordered by edge_pct DESC."""
+    query = "SELECT * FROM daily_ev_feed"
+    params: list[Any] = []
+    if sport:
+        query += " WHERE LOWER(sport) = LOWER(?)"
+        params.append(sport)
+
+    query += " ORDER BY edge_pct DESC LIMIT ?"
+    params.append(limit)
+
+    with _connect() as conn:
+        cursor = conn.execute(query, tuple(params))
+        rows = cursor.fetchall()
+        results = []
+        for r in rows:
+            row_dict = dict(r) if hasattr(r, "keys") else r
+            results.append(row_dict)
+        return results
+
 
 

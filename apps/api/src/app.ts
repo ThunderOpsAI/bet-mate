@@ -52,4 +52,7 @@ import situationalRoutes from "./routes/situational";
 app.use("/api/events", eventsRoutes);
 app.use("/api/situational", situationalRoutes);
 
+import evFeedRoutes from "./routes/evFeed";
+app.use("/api/ev-feed", evFeedRoutes);
+
 export default app;

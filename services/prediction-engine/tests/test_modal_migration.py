@@ -103,7 +103,7 @@ class ModalMigrationTests(unittest.TestCase):
         self.assertEqual(
             schedules,
             {
-                "master_scheduler": ("0 0,6,12,18 * * *", "Australia/Melbourne"),
+                "master_scheduler": ("0 0,8 * * *", "Australia/Melbourne"),
             },
         )
 

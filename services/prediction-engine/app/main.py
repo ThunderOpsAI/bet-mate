@@ -17,10 +17,12 @@ import os
 from app.ml.racing import RacingPredictor, FEATURE_COLUMNS as RACING_FEATURE_COLUMNS, MODEL_PATH as RACING_MODEL_PATH
 from app.ml.afl import AFLPredictor, FEATURE_COLUMNS as AFL_FEATURE_COLUMNS, MODEL_PATH as AFL_MODEL_PATH
 from app.ml.nba import NBAPredictor, FEATURE_COLUMNS as NBA_FEATURE_COLUMNS, MODEL_PATH as NBA_MODEL_PATH
+from app.ml.nfl import NFLPredictor, FEATURE_COLUMNS as NFL_FEATURE_COLUMNS, MODEL_PATH as NFL_MODEL_PATH
 from app.ml.nrl import NRLPredictor, MODEL_PATH as NRL_MODEL_PATH
 from app.ml.soccer import SoccerPredictor, MODEL_PATH as SOCCER_MODEL_PATH
 from app.ml.golf import GolfPredictor, MODEL_PATH as GOLF_MODEL_PATH
 from app.ml.mma import MMAPredictor, MODEL_PATH as MMA_MODEL_PATH
+from app.sgm import calculate_sgm_odds
 from app.ml.weights import WEIGHTS_VERSION
 from app.bob import (
     bob_request_in_scope,
@@ -110,11 +112,12 @@ app.add_middleware(
 racing_predictor = RacingPredictor()
 afl_predictor = AFLPredictor()
 nba_predictor = NBAPredictor()
+nfl_predictor = NFLPredictor()
 nrl_predictor = NRLPredictor()
 soccer_predictor = SoccerPredictor()
 golf_predictor = GolfPredictor()
 mma_predictor = MMAPredictor()
-strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor)
+strategy_service = StrategyService(racing_predictor=racing_predictor, afl_predictor=afl_predictor, nba_predictor=nba_predictor, nfl_predictor=nfl_predictor)
 bob_provider = build_bob_provider_from_env()
 
 
@@ -1586,6 +1589,75 @@ class GolfTournamentInput(BaseModel):
     venue: Optional[str] = None
     start_time: Optional[str] = None
     meeting_date: Optional[str] = None
+
+
+class SGMPriceRequest(BaseModel):
+    sport: str = "nba"
+    legs: List[Dict[str, Any]]
+
+
+@app.post("/api/predict/nfl")
+def predict_nfl(game: TeamGame):
+    try:
+        result = nfl_predictor.predict(game.features)
+        feature_keys = result.get('feature_names', NFL_FEATURE_COLUMNS)
+        importances = dict(zip(feature_keys, [round(i, 4) for i in result['feature_impact']]))
+
+        home_odds = round(1 / result['home_win_prob'], 2) if result['home_win_prob'] > 0 else 999
+        away_odds = round(1 / result['away_win_prob'], 2) if result['away_win_prob'] > 0 else 999
+        home_probability = round(result['home_win_prob'] * 100, 2)
+        away_probability = round(result['away_win_prob'] * 100, 2)
+
+        storage.log_prediction_batch(
+            sport="nfl",
+            event_id=game.game_id,
+            event_name=f"{game.home_team} vs {game.away_team}",
+            predictions=[
+                {
+                    "selection": game.home_team,
+                    "probability": home_probability,
+                    "fair_odds": home_odds,
+                },
+                {
+                    "selection": game.away_team,
+                    "probability": away_probability,
+                    "fair_odds": away_odds,
+                },
+            ],
+            feature_impact=importances,
+        )
+
+        return {
+            "game_id": game.game_id,
+            "predictions": {
+                "home_team": game.home_team,
+                "away_team": game.away_team,
+                "home_win_probability": home_probability,
+                "away_win_probability": away_probability,
+                "fair_odds_home": home_odds,
+                "fair_odds_away": away_odds,
+            },
+            "feature_impact": importances,
+        }
+    except Exception as e:
+        LOGGER.error(f"Error predicting NFL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sgm/price")
+def price_sgm(request: SGMPriceRequest):
+    try:
+        return calculate_sgm_odds(request.legs, sport=request.sport)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/ev-feed/today")
+def get_today_ev_feed(sport: Optional[str] = None):
+    try:
+        return storage.get_daily_ev_feed(sport=sport, limit=10)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # --- NRL ENDPOINTS ---

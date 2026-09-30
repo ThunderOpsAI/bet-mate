@@ -11,3 +11,7 @@ psycopg2-binary
 pytest
 httpx
 modal
+scipy
+appdirs
+pyarrow
+nfl-data-py

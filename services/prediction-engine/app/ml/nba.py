@@ -297,8 +297,8 @@ class NBAPredictor:
             print("Loaded existing NBA XGBoost Engine because historical training data was unavailable.")
             return None, None
 
-        print("Falling back to synthetic NBA training data.")
-        return self.generate_mock_data(), SYNTHETIC_TRAINING_SOURCE
+        print("[NBA] Historical NBA training data was unavailable. Zero synthetic fallback allowed.")
+        return None, None
 
     def _coerce_training_frame(self, df):
         for column, default in FEATURE_DEFAULTS.items():

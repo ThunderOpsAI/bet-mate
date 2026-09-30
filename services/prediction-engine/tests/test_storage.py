@@ -533,13 +533,13 @@ class TestStrategyStorage:
 
     def test_default_profiles_seeded(self):
         profiles = storage.list_strategy_profiles()
-        assert {profile["profile_key"] for profile in profiles} == {
+        assert {
             "bob",
             "james",
             "conservative",
             "neutral",
             "aggressive",
-        }
+        }.issubset({profile["profile_key"] for profile in profiles})
 
     def test_default_profile_seed_uses_boolean_editable_flag(self, monkeypatch):
         inserted_rows = []

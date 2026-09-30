@@ -26,6 +26,7 @@ class StrategyService:
     racing_predictor: Any
     afl_predictor: Any
     nba_predictor: Any
+    nfl_predictor: Any = None
 
     def get_or_create_card(self, profile_key: str, run_date: str, candidates: Optional[List[Dict[str, Any]]] = None):
         existing = storage.get_strategy_card(profile_key, run_date)
@@ -66,11 +67,76 @@ class StrategyService:
         candidates.extend(self._racing_candidates(run_date))
         candidates.extend(self._afl_candidates(run_date))
         candidates.extend(self._nba_candidates(run_date))
+        candidates.extend(self._nfl_candidates(run_date))
         if hasattr(self, "_racing_logs") and self._racing_logs:
             import threading
             logs_copy = self._racing_logs[:]
             threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
             self._racing_logs = []
+
+        # Rank single legs by Edge % = (model_probability * odds_used) - 1.0 and upsert Top 10 EV Feed
+        ev_legs = []
+        for c in candidates:
+            prob = float(c.get("model_probability") or 0.0)
+            odds = float(c.get("market_odds") or c.get("odds_used") or c.get("derived_odds") or 0.0)
+            if prob > 0 and odds > 1:
+                edge_pct = round(((prob * odds) - 1.0) * 100.0, 2)
+                ev_legs.append({
+                    "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
+                    "sport": c.get("sport", "nba"),
+                    "game_context": c.get("event_name", ""),
+                    "leg_description": f"{c.get('selection')} to Win",
+                    "true_prob": round(prob, 4),
+                    "best_odds": round(odds, 2),
+                    "edge_pct": edge_pct,
+                    "back_price": round(odds, 2),
+                    "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
+                    "correlation_group": c.get("event_id"),
+                })
+        ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
+        if ev_legs:
+            try:
+                storage.upsert_daily_ev_feed(ev_legs[:10])
+            except Exception as e:
+                print(f"[Strategy] Failed to upsert daily_ev_feed: {e}")
+
+        return candidates
+
+    def _nfl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
+        if not self.nfl_predictor:
+            return []
+        candidates: List[Dict[str, Any]] = []
+        try:
+            import nfl_data_py as nfl
+            from datetime import datetime
+            dt = datetime.fromisoformat(run_date) if run_date else datetime.now()
+            schedules = nfl.import_schedules([dt.year])
+            today_str = dt.strftime("%Y-%m-%d")
+            games = schedules[schedules["gameday"] == today_str]
+            for _, g in games.iterrows():
+                home = str(g["home_team"])
+                away = str(g["away_team"])
+                features = {
+                    "epa_diff": 0.0,
+                    "rest_diff": float(g.get("home_rest", 7) - g.get("away_rest", 7)),
+                    "is_dome": 1.0 if str(g.get("roof", "")).lower() in ["dome", "closed"] else 0.0,
+                    "spread_line": float(g.get("spread_line", 0.0)),
+                }
+                pred = self.nfl_predictor.predict(features)
+                home_p = pred["home_win_prob"]
+                away_p = pred["away_win_prob"]
+                game_obj = {
+                    "game_id": str(g.get("game_id", f"nfl_{home}_{away}")),
+                    "home_team": home,
+                    "away_team": away,
+                    "features": features,
+                }
+                candidates.extend([
+                    build_head_to_head_candidate("nfl", game_obj, home, home_p, 0.5),
+                    build_head_to_head_candidate("nfl", game_obj, away, away_p, 0.5),
+                ])
+        except Exception as exc:
+            print(f"[NFL] Candidates note: {exc}")
         return candidates
 
 
