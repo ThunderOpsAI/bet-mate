@@ -69,6 +69,7 @@ const SPORTS_META: SportMeta[] = [
 
 export default function SportDashboardPage() {
   const [activeSport, setActiveSport] = useState<SportKey>("all");
+  const [sortMode, setSortMode] = useState<"time" | "win_probability" | "edge_percent">("time");
   const [games, setGames] = useState<BaseGame[]>([]);
   const [predictions, setPredictions] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -242,11 +243,41 @@ export default function SportDashboardPage() {
     return counts;
   }, [games]);
 
-  // Filtered games based on active tab
+  // Filtered and Sorted games based on active tab and sortMode
   const filteredGames = useMemo(() => {
-    if (activeSport === "all") return games;
-    return games.filter((g) => g.sport === activeSport);
-  }, [games, activeSport]);
+    const list = activeSport === "all" ? [...games] : games.filter((g) => g.sport === activeSport);
+    
+    return list.sort((a, b) => {
+      if (sortMode === "time") {
+        const timeA = a.date ? new Date(a.date).getTime() : Infinity;
+        const timeB = b.date ? new Date(b.date).getTime() : Infinity;
+        return timeA - timeB;
+      }
+      
+      const predA = predictions[a.game_id]?.predictions;
+      const predB = predictions[b.game_id]?.predictions;
+      
+      if (sortMode === "win_probability") {
+        const maxProbA = predA ? Math.max(predA.home_win_probability ?? 50, predA.away_win_probability ?? 50) : 0;
+        const maxProbB = predB ? Math.max(predB.home_win_probability ?? 50, predB.away_win_probability ?? 50) : 0;
+        return maxProbB - maxProbA; // Descending
+      }
+      
+      if (sortMode === "edge_percent") {
+        const edgeAHome = predA && predA.market_odds_home && predA.home_win_probability ? ((predA.home_win_probability / 100) * predA.market_odds_home) - 1 : 0;
+        const edgeAAway = predA && predA.market_odds_away && predA.away_win_probability ? ((predA.away_win_probability / 100) * predA.market_odds_away) - 1 : 0;
+        const maxEdgeA = Math.max(edgeAHome, edgeAAway);
+        
+        const edgeBHome = predB && predB.market_odds_home && predB.home_win_probability ? ((predB.home_win_probability / 100) * predB.market_odds_home) - 1 : 0;
+        const edgeBAway = predB && predB.market_odds_away && predB.away_win_probability ? ((predB.away_win_probability / 100) * predB.market_odds_away) - 1 : 0;
+        const maxEdgeB = Math.max(edgeBHome, edgeBAway);
+        
+        return maxEdgeB - maxEdgeA; // Descending
+      }
+      
+      return 0;
+    });
+  }, [games, activeSport, sortMode, predictions]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto px-3 sm:px-6 py-6">
@@ -328,7 +359,7 @@ export default function SportDashboardPage() {
 
       {/* 4. Upcoming Games Slate */}
       <section className="space-y-4">
-        <div className="flex items-center justify-between px-1">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between px-1 gap-4">
           <div>
             <h2 className="text-lg sm:text-xl font-extrabold text-slate-100 flex items-center gap-2">
               <Clock size={18} className="text-sky-400" />
@@ -341,15 +372,27 @@ export default function SportDashboardPage() {
             </p>
           </div>
 
-          {activeSport !== "all" && (
-            <Link
-              href={`/${activeSport}`}
-              className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+          <div className="flex items-center gap-4 self-start sm:self-auto">
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as any)}
+              className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-500"
             >
-              <span>Full {activeSport.toUpperCase()} Hub</span>
-              <ArrowRight size={14} />
-            </Link>
-          )}
+              <option value="time">Sort by Time</option>
+              <option value="win_probability">Highest Win Prob</option>
+              <option value="edge_percent">Highest Edge %</option>
+            </select>
+
+            {activeSport !== "all" && (
+              <Link
+                href={`/${activeSport}`}
+                className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+              >
+                <span>Full {activeSport.toUpperCase()} Hub</span>
+                <ArrowRight size={14} />
+              </Link>
+            )}
+          </div>
         </div>
 
         {loading ? (
