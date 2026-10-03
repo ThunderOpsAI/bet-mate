@@ -269,15 +269,16 @@ body {
 
 .top-header {
   height: var(--header-height);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.22);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
   position: sticky;
   top: 0;
-  background: rgba(15, 23, 42, 0.95);
+  background: rgba(32, 86, 94, 0.96);
   backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   z-index: 50;
   color: #ffffff;
 }
@@ -4327,9 +4328,10 @@ button:disabled {
   left: 0;
   right: 0;
   height: 64px;
-  background: rgba(15, 23, 42, 0.97);
+  background: rgba(32, 86, 94, 0.98);
   backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(45, 212, 191, 0.22);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
   z-index: 50;
   justify-content: space-around;
   align-items: center;
@@ -4346,7 +4348,7 @@ button:disabled {
   gap: 0.2rem;
   padding: 0.4rem 0.75rem;
   border-radius: 8px;
-  color: var(--text-muted);
+  color: #cbd5e1;
   font-size: 0.65rem;
   font-weight: 500;
   letter-spacing: 0.02em;
