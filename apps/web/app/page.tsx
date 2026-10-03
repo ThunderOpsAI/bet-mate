@@ -80,8 +80,36 @@ function HomePageContent() {
         return startMs > nowMs - 2 * 60 * 1000;
       });
 
+      let opps: RankedOpportunity[] = [];
+      let evCandidates: any[] = [];
+
+      try {
+        const evRes = await fetchWithTimeout(`/api/ev-feed/today`, { timeoutMs: 15000 });
+        if (evRes.ok) {
+          const evData = await safeResponseJson(evRes);
+          const legs: any[] = Array.isArray(evData) ? evData : (evData?.feed || []);
+          evCandidates = legs.map((leg) => ({
+            id: leg.id,
+            sport: leg.sport,
+            selectionName: leg.legDescription || leg.leg_description,
+            eventLabel: leg.gameContext || leg.game_context,
+            probability: leg.trueProb ?? leg.true_prob ?? 0.5,
+            fairOdds: (leg.trueProb ?? leg.true_prob ?? 0.5) > 0 ? 1 / (leg.trueProb ?? leg.true_prob ?? 0.5) : 2.0,
+            marketOdds: leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? null,
+            confidenceSignal: { tone: "strong", label: "Model Edge", icon: "zap" },
+            urgencySignal: { tone: "today", label: "Live Feed", icon: "clock" },
+            href: `/${leg.sport === 'racing' ? 'racing' : leg.sport}`,
+          }));
+        }
+      } catch (err) {
+        console.warn("EV Feed fetch failed:", err);
+      }
+
       if (racesData.length === 0) {
-        return { upcomingRaces: [], opportunities: [] };
+        return { 
+          upcomingRaces: [], 
+          opportunities: evCandidates.length > 0 ? rankOpportunities(evCandidates).slice(0, 5) : []
+        };
       }
 
       // 1. Map upcoming races
@@ -118,8 +146,6 @@ function HomePageContent() {
         };
       });
 
-      let opps: RankedOpportunity[] = [];
-
       // 2. Fetch ML predictions
       try {
         const predsRes = await fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
@@ -129,9 +155,10 @@ function HomePageContent() {
           timeoutMs: 60000,
         });
         
+        let candidates: any[] = [];
         if (predsRes.ok) {
           const predsData: Record<string, RacePrediction> = (await safeResponseJson(predsRes)) || {};
-          const candidates = racesData.flatMap((race) => {
+          candidates = racesData.flatMap((race) => {
             const pred = predsData[race.race_id];
             if (!pred) return [];
             const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
@@ -156,12 +183,17 @@ function HomePageContent() {
               };
             });
           });
-          if (candidates.length > 0) {
-            opps = rankOpportunities(candidates).slice(0, 5);
-          }
+        }
+        
+        const allCandidates = [...evCandidates, ...candidates];
+        if (allCandidates.length > 0) {
+          opps = rankOpportunities(allCandidates).slice(0, 5);
         }
       } catch (err) {
         console.warn("Prediction fetch failed:", err);
+        if (evCandidates.length > 0) {
+          opps = rankOpportunities(evCandidates).slice(0, 5);
+        }
       }
       
       return { upcomingRaces: mappedRaces, opportunities: opps };

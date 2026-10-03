@@ -69,9 +69,7 @@ class StrategyService:
         candidates.extend(self._nba_candidates(run_date))
         candidates.extend(self._nfl_candidates(run_date))
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
 
         # Rank single legs by Edge % = (model_probability * odds_used) - 1.0 and upsert Top 10 EV Feed
@@ -228,9 +226,7 @@ class StrategyService:
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
@@ -276,9 +272,7 @@ class StrategyService:
                 build_head_to_head_candidate("afl", game, game["away_team"], away_probability, baseline_away),
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
@@ -324,9 +318,7 @@ class StrategyService:
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
