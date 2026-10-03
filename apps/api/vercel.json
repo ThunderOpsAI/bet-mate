@@ -1,6 +1,7 @@
 {
   "version": 2,
   "installCommand": "pnpm install --frozen-lockfile && pnpm api:build:prod",
+  "outputDirectory": "dist",
   "builds": [
     {
       "src": "src/index.ts",
