@@ -93,7 +93,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* ---- Scrollbar ---- */
@@ -111,7 +111,6 @@ body {
   display: flex;
   min-height: 100vh;
   min-width: 0;
-  overflow-x: hidden;
   width: 100%;
 }
 
@@ -260,12 +259,11 @@ body {
 
 .main-area {
   flex: 1;
-  margin-left: var(--sidebar-width);
+  margin-left: 0;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-width: 0;
-  overflow-x: hidden;
   max-width: 100%;
 }
 
@@ -4321,9 +4319,9 @@ button:disabled {
   }
 }
 
-/* ---- Mobile Bottom Navigation ---- */
+/* ---- Bottom Navigation Bar (Consistent Across Web & Mobile) ---- */
 .mobile-bottom-nav {
-  display: none;
+  display: flex;
   position: fixed;
   bottom: 0;
   left: 0;
@@ -4382,14 +4380,8 @@ button:disabled {
   border-radius: 1px;
 }
 
-@media (max-width: 768px) {
-  .mobile-bottom-nav {
-    display: flex;
-  }
-  
-  .page-content {
-    padding-bottom: 80px;
-  }
+.page-content {
+  padding-bottom: 80px;
 }
 
 /* ---- Racing / Sport Lab Design System Enhancements ---- */

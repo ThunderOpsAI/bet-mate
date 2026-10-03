@@ -375,8 +375,8 @@ function PaperBetslipContent() {
           onClick={(e) => e.stopPropagation()}
         >
           {/* Sportsbet Style Header Bar */}
-          <div className="betslip-header-bar flex items-center justify-between p-3.5 bg-slate-800 border-b border-slate-700 text-slate-100 shadow-md">
-            <div className="flex items-center gap-2">
+          <div className="betslip-header-bar flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700 text-slate-100 shadow-md shrink-0 gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsBetslipOpen(false)}
@@ -385,14 +385,14 @@ function PaperBetslipContent() {
               >
                 <X size={18} />
               </button>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <Ticket size={18} className="text-slate-100" />
                 <span className="font-extrabold text-base tracking-tight">Bet Slip</span>
               </div>
             </div>
 
             {/* Header Main Tabs */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-950/60 rounded-xl border border-slate-600/30">
+            <div className="flex items-center gap-1 p-0.5 bg-slate-950/60 rounded-xl border border-slate-600/30 shrink-0">
               <button
                 type="button"
                 onClick={() => setContextMainTab("slip")}
@@ -427,7 +427,7 @@ function PaperBetslipContent() {
             </div>
 
             {/* Sportsbet Style Balance Tag */}
-            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/60 text-slate-100">
+            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/60 text-slate-100 shrink-0">
               <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
               <span className="text-xs font-black font-mono text-slate-100">
                 ${user?.currentBankroll !== undefined ? user.currentBankroll.toLocaleString() : "10,000"}
@@ -740,7 +740,7 @@ function PaperBetslipContent() {
                     {singlesBets.map((leg, index) => {
                       const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
                       return (
-                        <div key={leg.id} className="flex items-center justify-between p-2 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
+                        <div key={leg.id} className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
                           <div className="flex items-center space-x-3 flex-1 min-w-0">
                             <div className="w-5 h-5 rounded flex items-center justify-center border shrink-0 transition-colors bg-emerald-500 border-emerald-500 text-white">
                               <Check size={14} />
@@ -756,7 +756,7 @@ function PaperBetslipContent() {
                               </div>
                             </div>
                           </div>
-                          <div className="text-[15px] font-black text-fuchsia-200 ml-4 shrink-0">
+                          <div className="text-[15px] font-black font-mono text-fuchsia-200 ml-4 shrink-0">
                             {legWinOdds.toFixed(2)}
                           </div>
                         </div>
@@ -765,7 +765,7 @@ function PaperBetslipContent() {
                   </div>
 
                   {/* Multi Stake Input */}
-                  <div className="p-3 border-t border-slate-800 bg-slate-950 flex justify-end">
+                  <div className="px-3.5 py-3 border-t border-slate-800 bg-slate-950 flex justify-end">
                     <div className="flex items-center space-x-2">
                       <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
                       <div className="relative w-24">
@@ -778,7 +778,7 @@ function PaperBetslipContent() {
                             const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                             setMultiStake(cleanNum);
                           }}
-                          className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold text-right"
+                          className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-3 text-white text-sm font-bold text-right"
                           placeholder="0"
                         />
                       </div>
@@ -786,9 +786,9 @@ function PaperBetslipContent() {
                   </div>
 
                   {/* Multi Est. Return */}
-                  <div className="p-3 bg-slate-900 rounded-b-lg border-t border-slate-800 text-right">
-                    <span className="text-[13px] text-slate-400 font-medium pr-1">
-                      Total Return: ${(estMultiCollect).toFixed(2)} | Cost: ${(multiStake).toFixed(2)}
+                  <div className="px-3.5 py-2.5 bg-slate-900 rounded-b-lg border-t border-slate-800 text-right">
+                    <span className="text-[13px] text-slate-300 font-medium">
+                      Total Return: <strong className="text-emerald-400 font-mono">${(estMultiCollect).toFixed(2)}</strong> | Cost: <strong className="text-slate-200 font-mono">${(multiStake).toFixed(2)}</strong>
                     </span>
                   </div>
                 </div>
@@ -865,8 +865,8 @@ function PaperBetslipContent() {
                               </div>
                             ))}
                           </div>
-                          <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-b border-t border-slate-800">
-                            <div className="text-lg font-black text-fuchsia-200 ml-1">{winOdds.toFixed(2)}</div>
+                          <div className="flex items-center justify-between bg-slate-900 px-3.5 py-2.5 rounded-b-lg border-t border-slate-800">
+                            <div className="text-lg font-black font-mono text-fuchsia-200 px-1">{winOdds.toFixed(2)}</div>
                             <div className="flex items-center space-x-2">
                               <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
                               <div className="relative w-24">
@@ -879,7 +879,7 @@ function PaperBetslipContent() {
                                     const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                                     updateBet(bet.id, { stake: cleanNum });
                                   }}
-                                  className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                  className="w-full bg-slate-950 border border-slate-700 rounded-lg py-1.5 pl-6 pr-3 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
                                   placeholder="0"
                                 />
                               </div>
@@ -890,14 +890,14 @@ function PaperBetslipContent() {
                     }
 
                     return (
-                      <div key={bet.id} className="p-3 mb-2 bg-slate-950 border border-slate-700 rounded-lg shadow-sm">
-                        <div className="flex justify-between items-start mb-3">
-                          <div className="flex-1 pr-2">
-                            <div className="text-[13px] text-slate-400 font-medium mb-1">{bet.event_name}</div>
-                            <div className="font-bold text-slate-100 text-[17px] leading-tight">{bet.selection}</div>
+                      <div key={bet.id} className="p-3.5 mb-3 bg-slate-950 border border-slate-800/90 rounded-xl shadow-sm">
+                        <div className="flex justify-between items-start gap-2 mb-3">
+                          <div className="flex-1 min-w-0 pr-2">
+                            <div className="text-[13px] text-slate-400 font-medium mb-1 truncate">{bet.event_name}</div>
+                            <div className="font-bold text-slate-100 text-[17px] leading-tight break-words">{bet.selection}</div>
                           </div>
                           <button
-                            className="text-slate-500 hover:text-slate-300 p-1 transition-colors"
+                            className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors shrink-0"
                             onClick={(e) => {
                               e.stopPropagation();
                               removeBet(bet.id);
@@ -933,8 +933,8 @@ function PaperBetslipContent() {
                             </div>
                           )}
                           
-                          <div className="flex items-center justify-between bg-slate-900 p-2 rounded border border-slate-800">
-                             <div className="text-[17.5px] font-black text-fuchsia-200 ml-2">
+                          <div className="flex items-center justify-between bg-slate-900/90 px-3 py-2.5 rounded-lg border border-slate-800/90">
+                             <div className="text-lg font-black font-mono text-fuchsia-200 px-1">
                                 {bet.bet_type === 'place' ? placeOdds.toFixed(2) : winOdds.toFixed(2)}
                              </div>
                              <div className="flex items-center space-x-2">
@@ -951,7 +951,7 @@ function PaperBetslipContent() {
                                       const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                                       updateBet(bet.id, { stake: cleanNum });
                                     }}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded py-1.5 pl-6 pr-2 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg py-1.5 pl-6 pr-3 text-white text-sm font-bold focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none text-right"
                                     placeholder="0"
                                   />
                                 </div>
@@ -959,7 +959,9 @@ function PaperBetslipContent() {
                           </div>
                           
                           {isEachWay && (
-                            <div className="text-[13px] text-right text-slate-400 font-medium pr-1">Total Return: ${(unitStake * winOdds + unitStake * placeOdds).toFixed(2)} | Cost: ${(totalItemStake).toFixed(2)}</div>
+                            <div className="text-xs text-right text-slate-300 font-medium px-2 pt-0.5">
+                              Total Return: <strong className="text-emerald-400 font-mono">${(unitStake * winOdds + unitStake * placeOdds).toFixed(2)}</strong> | Cost: <strong className="text-slate-200 font-mono">${(totalItemStake).toFixed(2)}</strong>
+                            </div>
                           )}
 
                           {issues.length > 0 ? (
@@ -1270,12 +1272,9 @@ function PaperBetslipContent() {
           flex-direction: column;
           min-height: 220px;
           background: var(--bg-primary);
-          transition:
-            opacity 0.3s ease,
-            max-height 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+          transition: opacity 0.3s ease;
           opacity: 1;
-          max-height: 650px;
-          overflow-y: hidden;
+          overflow: hidden;
         }
 
         .collapsed .betslip-content {
@@ -1332,7 +1331,6 @@ function PaperBetslipContent() {
           display: flex;
           flex-direction: column;
           gap: 0.75rem;
-          max-height: 400px;
         }
 
         .betslip-item {
@@ -1461,15 +1459,15 @@ function PaperBetslipContent() {
 
         .betslip-footer {
           border-top: 1px solid var(--border);
-          padding: 1rem;
+          padding: 1.15rem 1.15rem 1rem;
           background: var(--bg-secondary);
         }
 
         .betslip-summary {
           display: flex;
           flex-direction: column;
-          gap: 0.5rem;
-          margin-bottom: 0.85rem;
+          gap: 0.55rem;
+          margin-bottom: 0.95rem;
         }
 
         .summary-row {
@@ -1477,16 +1475,18 @@ function PaperBetslipContent() {
           justify-content: space-between;
           color: var(--text-muted);
           font-size: 0.82rem;
+          padding: 0.15rem 0;
         }
 
         .summary-row.total {
           color: var(--text-primary);
           font-size: 0.92rem;
+          font-weight: 700;
         }
 
         .default-stake-row {
-          padding-top: 0.5rem;
-          margin-top: 0.5rem;
+          padding-top: 0.65rem;
+          margin-top: 0.65rem;
           border-top: 1px dashed var(--border);
           display: flex;
           align-items: center;
@@ -1496,31 +1496,31 @@ function PaperBetslipContent() {
         .footer-stake-input-wrap {
           display: flex;
           align-items: center;
-          gap: 0.25rem;
+          gap: 0.35rem;
           background: var(--bg-primary);
           border: 1px solid var(--border);
           border-radius: 6px;
-          padding: 0.15rem 0.35rem;
+          padding: 0.25rem 0.5rem;
         }
 
         .footer-stake-input-wrap span {
-          font-size: 0.72rem;
+          font-size: 0.75rem;
           color: var(--text-muted);
         }
 
         .footer-stake-input {
-          width: 50px;
+          width: 58px;
           border: none;
           background: transparent;
           color: var(--text-primary);
           outline: none;
-          font-size: 0.78rem;
+          font-size: 0.82rem;
           font-weight: 700;
         }
 
         .apply-all-btn {
-          font-size: 0.7rem;
-          padding: 0.25rem 0.45rem;
+          font-size: 0.72rem;
+          padding: 0.3rem 0.6rem;
           border-radius: 6px;
           line-height: 1;
         }

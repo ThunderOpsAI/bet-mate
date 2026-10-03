@@ -144,7 +144,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell flex flex-col min-h-screen">
       <div className="main-area flex-1 flex flex-col min-w-0">
-        <header className="top-header px-3 sm:px-6 flex items-center justify-between gap-2 overflow-hidden">
+        <header className="top-header px-3 sm:px-6 flex items-center justify-between gap-2">
           <div className="top-header-primary shrink-0 min-w-0 flex items-center">
             <Link href="/" className="flex items-center gap-1.5 group shrink-0">
               <Image
@@ -349,7 +349,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Global Footer & Responsible Gambling Compliance */}
-        <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16 md:mb-0">
+        <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16">
           <div className="max-w-4xl mx-auto space-y-3">
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 max-w-2xl mx-auto text-slate-300 font-semibold space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-amber-400">
