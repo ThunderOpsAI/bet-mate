@@ -4,7 +4,7 @@ import os
 import re
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Union
+from typing import Sequence, Any, Dict, Iterable, List, Optional, Union
 
 from app.database import get_connection, init_database
 from app.time_utils import is_melbourne_premium_day, today_melbourne
