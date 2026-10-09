@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { Zap, Layers, ArrowLeft, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
+import { Zap, Layers, ArrowLeft, CheckCircle2, AlertCircle, Sparkles, BarChart3 } from "lucide-react";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import HighEVFeedTable from "../../components/multi-builder/HighEVFeedTable";
 import MultiLegCard from "../../components/multi-builder/MultiLegCard";
 import MultiSummaryPanel from "../../components/multi-builder/MultiSummaryPanel";
+import MultiWizardModal from "../../components/multi-builder/MultiWizardModal";
 import type { EVLeg, SGMPriceResult, PairwiseWarning } from "../../components/multi-builder/types";
 import { useAuth } from "../../providers/AuthProvider";
 
@@ -23,6 +24,7 @@ export default function MultiBuilderPage() {
     type: "success" | "error";
     message: string;
   } | null>(null);
+  const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
 
   // Fetch top 10 High EV feed
   const fetchEVFeed = useCallback(async () => {
@@ -256,7 +258,22 @@ export default function MultiBuilderPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsWizardOpen(true)}
+              className="px-3.5 py-1.5 rounded-full text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-900/30 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>⚡ Guided Multi Wizard</span>
+            </button>
+            <Link
+              href="/stats"
+              className="px-3 py-1.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all flex items-center gap-1.5"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              <span>Props & Hit Rates</span>
+            </Link>
             <span className="px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" />
               Strictly NBA & NFL (Day-Ahead)
@@ -356,6 +373,13 @@ export default function MultiBuilderPage() {
             />
           </div>
         </div>
+
+        {/* Guided Multi Wizard Modal (Item 73) */}
+        <MultiWizardModal
+          isOpen={isWizardOpen}
+          onClose={() => setIsWizardOpen(false)}
+          onApplyToBuilder={(legs) => setActiveLegs(legs)}
+        />
       </div>
     </ErrorBoundary>
   );

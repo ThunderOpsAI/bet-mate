@@ -23,6 +23,13 @@ from app.ml.soccer import SoccerPredictor, MODEL_PATH as SOCCER_MODEL_PATH
 from app.ml.golf import GolfPredictor, MODEL_PATH as GOLF_MODEL_PATH
 from app.ml.mma import MMAPredictor, MODEL_PATH as MMA_MODEL_PATH
 from app.sgm import calculate_sgm_odds
+from app.recommendations import (
+    auto_build_multi,
+    calculate_kelly_stake,
+    detect_weakest_leg,
+    generate_bobs_multis,
+    recommend_leg_swaps,
+)
 from app.ml.weights import WEIGHTS_VERSION
 from app.bob import (
     bob_request_in_scope,
@@ -1594,6 +1601,31 @@ class GolfTournamentInput(BaseModel):
 class SGMPriceRequest(BaseModel):
     sport: str = "nba"
     legs: List[Dict[str, Any]]
+    bookie_odds: Optional[float] = None
+    method: str = "copula"
+
+
+class GameScriptSimRequest(BaseModel):
+    sport: str = "nba"
+    home_team: str = "Home"
+    away_team: str = "Away"
+    home_baseline_score: Optional[float] = None
+    away_baseline_score: Optional[float] = None
+    projected_total: Optional[float] = None
+    projected_spread: Optional[float] = None
+    pace_factor: float = 1.0
+    num_simulations: int = 5000
+    player_baselines: Optional[List[Dict[str, Any]]] = None
+
+
+class PropEdgeRequest(BaseModel):
+    projection: float
+    line: float
+    odds: float
+    side: str = "over"
+    stat_type: str = "generic"
+    std_dev: Optional[float] = None
+    under_odds: Optional[float] = None
 
 
 @app.post("/api/predict/nfl")
@@ -1647,7 +1679,49 @@ def predict_nfl(game: TeamGame):
 @app.post("/api/sgm/price")
 def price_sgm(request: SGMPriceRequest):
     try:
-        return calculate_sgm_odds(request.legs, sport=request.sport)
+        return calculate_sgm_odds(
+            request.legs,
+            sport=request.sport,
+            bookie_odds=request.bookie_odds,
+            method=request.method,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/simulation/game-script")
+def simulate_game(request: GameScriptSimRequest):
+    try:
+        from app.simulation import simulate_game_script
+        return simulate_game_script(
+            home_team=request.home_team,
+            away_team=request.away_team,
+            sport=request.sport,
+            home_baseline_score=request.home_baseline_score,
+            away_baseline_score=request.away_baseline_score,
+            projected_total=request.projected_total,
+            projected_spread=request.projected_spread,
+            pace_factor=request.pace_factor,
+            num_simulations=request.num_simulations,
+            player_baselines=request.player_baselines,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/pricing/prop-edge")
+def evaluate_prop_edge(request: PropEdgeRequest):
+    try:
+        from app.simulation import calculate_projection_edge
+        return calculate_projection_edge(
+            projection=request.projection,
+            line=request.line,
+            odds=request.odds,
+            side=request.side,
+            stat_type=request.stat_type,
+            std_dev=request.std_dev,
+            under_odds=request.under_odds,
+        )
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1656,6 +1730,112 @@ def price_sgm(request: SGMPriceRequest):
 def get_today_ev_feed(sport: Optional[str] = None):
     try:
         return storage.get_daily_ev_feed(sport=sport, limit=10)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# --- RECOMMENDATION ENGINE ENDPOINTS ---
+class AutoBuildMultiRequest(BaseModel):
+    target_odds: Optional[float] = None
+    target_payout: Optional[float] = None
+    stake: Optional[float] = None
+    risk_profile: str = "balanced"
+    sports: Optional[List[str]] = None
+    min_legs: int = 2
+    max_legs: int = 5
+    candidate_pool: Optional[List[Dict[str, Any]]] = None
+
+
+class WeakestLegRequest(BaseModel):
+    legs: List[Dict[str, Any]]
+    sport: str = "nba"
+
+
+class LegSwapsRequest(BaseModel):
+    legs: List[Dict[str, Any]]
+    candidate_pool: Optional[List[Dict[str, Any]]] = None
+    sport: str = "nba"
+    max_swaps: int = 3
+
+
+class KellyStakeRequest(BaseModel):
+    combined_odds: float
+    true_prob: float
+    bankroll: float = 1000.0
+    fraction: float = 0.25
+    max_stake_pct: float = 0.05
+    min_stake: float = 1.0
+    max_stake: Optional[float] = None
+
+
+@app.post("/api/recommendations/auto-build")
+def recommend_auto_build(request: AutoBuildMultiRequest):
+    try:
+        candidates = request.candidate_pool
+        if candidates is None:
+            candidates = storage.get_daily_ev_feed(limit=50)
+        return auto_build_multi(
+            candidate_pool=candidates,
+            target_odds=request.target_odds,
+            target_payout=request.target_payout,
+            stake=request.stake,
+            risk_profile=request.risk_profile,
+            sports=request.sports,
+            min_legs=request.min_legs,
+            max_legs=request.max_legs,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/recommendations/weakest-leg")
+def recommend_weakest_leg(request: WeakestLegRequest):
+    try:
+        return detect_weakest_leg(request.legs, sport=request.sport)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/recommendations/leg-swaps")
+def recommend_swaps(request: LegSwapsRequest):
+    try:
+        candidates = request.candidate_pool
+        if candidates is None:
+            candidates = storage.get_daily_ev_feed(sport=request.sport, limit=50)
+        return recommend_leg_swaps(
+            legs=request.legs,
+            candidate_pool=candidates,
+            sport=request.sport,
+            max_swaps=request.max_swaps,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/recommendations/kelly-stake")
+def recommend_kelly_stake(request: KellyStakeRequest):
+    try:
+        return calculate_kelly_stake(
+            combined_odds=request.combined_odds,
+            true_prob=request.true_prob,
+            bankroll=request.bankroll,
+            fraction=request.fraction,
+            max_stake_pct=request.max_stake_pct,
+            min_stake=request.min_stake,
+            max_stake=request.max_stake,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/recommendations/bobs-daily")
+def get_bobs_daily_recommendations(
+    date: Optional[str] = None,
+    sports: Optional[str] = None,
+):
+    try:
+        sports_list = [s.strip() for s in sports.split(",") if s.strip()] if sports else None
+        return generate_bobs_multis(date=date, sports=sports_list)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

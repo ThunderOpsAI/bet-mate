@@ -17,6 +17,9 @@ import chatRoutes from "./routes/chat";
 import syndicatesRoutes from "./routes/syndicates";
 
 dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const app = express();
 
@@ -54,5 +57,26 @@ app.use("/api/situational", situationalRoutes);
 
 import evFeedRoutes from "./routes/evFeed";
 app.use("/api/ev-feed", evFeedRoutes);
+
+import recommendationsRoutes from "./routes/recommendations";
+app.use("/api/recommendations", recommendationsRoutes);
+
+import statsRoutes from "./routes/stats";
+app.use("/api/stats", statsRoutes);
+
+import slipsRoutes from "./routes/slips";
+app.use("/api/slips", slipsRoutes);
+
+import userPreferencesRoutes from "./routes/userPreferences";
+app.use("/api/user-preferences", userPreferencesRoutes);
+
+import savedScreensRoutes from "./routes/savedScreens";
+app.use("/api/saved-screens", savedScreensRoutes);
+
+import alertsRoutes from "./routes/alerts";
+app.use("/api/alerts", alertsRoutes);
+
+import trustRoutes from "./routes/trust";
+app.use("/api/trust", trustRoutes);
 
 export default app;

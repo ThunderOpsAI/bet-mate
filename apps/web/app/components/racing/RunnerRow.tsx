@@ -7,6 +7,7 @@ import PaperBetAction from "../PaperBetAction";
 import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { calculatePlaceOdds } from "./LiveOddsButton";
+import RunnerMultiActions from "./RunnerMultiActions";
 
 export type HorseData = {
   horse_id: string;
@@ -203,11 +204,45 @@ export default function RunnerRow({
               </span>
             ) : null}
           </div>
+
+          {/* Mobile Multi Quick Action Chips (Items 56, 57) */}
+          <div className="md:hidden mt-2">
+            <RunnerMultiActions
+              runnerId={horse?.horse_id || runnerName}
+              runnerName={runnerName}
+              barrier={horse?.barrier}
+              race={race}
+              modelRank={hasTopPrediction ? index + 1 : undefined}
+              winProbability={prediction?.win_probability}
+              fairOdds={prediction?.fair_odds}
+              marketOdds={horse?.betfair_back_price}
+              edgePercent={edgePercent}
+              compact={true}
+              showOddsComparison={false}
+            />
+          </div>
         </div>
       </div>
 
       {/* Right section: Odds & Betslip Action */}
-      <div className="runner-odds-section flex items-center justify-between md:justify-end gap-2.5 min-w-[200px]">
+      <div className="runner-odds-section flex items-center justify-between md:justify-end gap-2.5 min-w-[200px] flex-wrap">
+        {/* Desktop / Tablet Multi Action Chips (Items 56, 57) */}
+        <div className="hidden md:flex items-center">
+          <RunnerMultiActions
+            runnerId={horse?.horse_id || runnerName}
+            runnerName={runnerName}
+            barrier={horse?.barrier}
+            race={race}
+            modelRank={hasTopPrediction ? index + 1 : undefined}
+            winProbability={prediction?.win_probability}
+            fairOdds={prediction?.fair_odds}
+            marketOdds={horse?.betfair_back_price}
+            edgePercent={edgePercent}
+            compact={true}
+            showOddsComparison={false}
+          />
+        </div>
+
         <div className="hidden lg:flex items-center gap-1 mr-1">
           {(["QUINELLA", "EXACTA", "TRIFECTA", "FIRST4"] as const).map(
             (type) => (

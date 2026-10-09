@@ -13,6 +13,7 @@ import {
   Info,
   X,
   Home,
+  Calendar,
   Trophy,
   Zap,
   FlaskConical,
@@ -160,6 +161,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <h2 className="hidden md:block text-slate-200 text-sm font-semibold ml-2 border-l border-slate-700/60 pl-3 truncate">
               {getPageTitle(pathname)}
             </h2>
+            <Link
+              href="/today"
+              className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all ml-2.5 ${
+                pathname === "/today"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "bg-slate-900 text-slate-300 hover:text-white border border-slate-800"
+              }`}
+            >
+              <Calendar size={13} className="text-cyan-400" />
+              <span>Today</span>
+            </Link>
           </div>
 
           <div className="flex-1 mx-4 hidden lg:block max-w-xl">
@@ -377,6 +389,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span>Home</span>
           </Link>
           <Link
+            href="/today"
+            className={`bottom-nav-item ${pathname === "/today" ? "active" : ""}`}
+          >
+            <Calendar size={20} />
+            <span>Today</span>
+          </Link>
+          <Link
             href="/racing"
             className={`bottom-nav-item ${
               pathname === "/racing" || pathname.startsWith("/races")
@@ -430,8 +449,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
 function getPageTitle(path: string) {
   if (path === "/") return "Home";
+  if (path === "/today") return "Today Hub";
   if (path === "/racing") return "Racing Predictions";
   if (path === "/sport") return "Sports Dashboard";
+  if (path === "/stats/custom-query") return "Custom Stat Builder";
+  if (path === "/track-record") return "Model Track Record";
   if (path === "/afl") return "AFL Predictions";
   if (path === "/nba") return "NBA Predictions";
   if (path === "/nrl") return "NRL Predictions";

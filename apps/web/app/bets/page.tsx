@@ -17,6 +17,7 @@ import { useBlackbookQuickAdd } from "../lib/useBlackbookQuickAdd";
 import { useAuth } from "../providers/AuthProvider";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import ErrorBoundary from "../components/ErrorBoundary";
+import SlipPostMortemModal from "../../components/bets/SlipPostMortemModal";
 
 export type BetRecord = {
   id: string;
@@ -41,6 +42,7 @@ export default function BetsPage() {
   const [historyBets, setHistoryBets] = useState<BetRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isPostMortemOpen, setIsPostMortemOpen] = useState(false);
 
   // Fetch placed/settled bets from API if user is authenticated
   useEffect(() => {
@@ -106,13 +108,24 @@ export default function BetsPage() {
             </p>
           </div>
 
-          <Link
-            href="/racing"
-            className="btn btn-sm bg-purple-600 hover:bg-purple-500 text-white font-semibold flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs self-start md:self-auto"
-          >
-            <span>Explore Races</span>
-            <ArrowRight size={14} />
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsPostMortemOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 transition-colors cursor-pointer"
+            >
+              <Award size={14} className="text-cyan-400" />
+              <span>Multi Post-Mortem &amp; ROI Analytics</span>
+            </button>
+
+            <Link
+              href="/racing"
+              className="btn btn-sm bg-purple-600 hover:bg-purple-500 text-white font-semibold flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs self-start md:self-auto"
+            >
+              <span>Explore Races</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
         </div>
 
         {/* Stats bar */}
@@ -289,6 +302,11 @@ export default function BetsPage() {
             })}
           </div>
         )}
+
+        <SlipPostMortemModal
+          isOpen={isPostMortemOpen}
+          onClose={() => setIsPostMortemOpen(false)}
+        />
       </div>
     </ErrorBoundary>
   );

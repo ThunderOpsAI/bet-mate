@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Plus, Check, ChevronRight, Clock } from "lucide-react";
+import { Plus, Check, ChevronRight, Clock, Sparkles } from "lucide-react";
 import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import type { MatchupDrawerData, DrawerOutcome } from "./SportMatchupDrawer";
@@ -107,9 +107,24 @@ export default function SportCard({ matchup, onOpenDrawer }: SportCardProps) {
           )}
         </div>
 
-        <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 shrink-0 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg group-hover:bg-emerald-500/20 transition-all">
-          <span>Details</span>
-          <ChevronRight size={13} />
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenDrawer(matchup);
+            }}
+            className="flex items-center gap-1 text-[11px] font-bold text-purple-300 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 px-2.5 py-1 rounded-lg transition-all cursor-pointer"
+            title="Open game hub to build Same Game Multi"
+          >
+            <Sparkles size={11} className="text-purple-400" />
+            <span>Build SGM</span>
+          </button>
+
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-lg group-hover:bg-emerald-500/20 transition-all">
+            <span>Details</span>
+            <ChevronRight size={13} />
+          </div>
         </div>
       </div>
 

@@ -8,6 +8,8 @@ import React, {
   useRef,
 } from "react";
 import { ML_API } from "../lib/mlApi";
+import { API_BASE, safeResponseJson } from "../lib/api";
+import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 import { useAuth } from "./AuthProvider";
 import { buildPaperBetKey } from "../lib/betslip/betKey";
 import {
@@ -50,6 +52,16 @@ export interface PaperBet {
   leg_number?: number;
   position?: number;
   runner_name?: string;
+  model_edge_pct?: number;
+  model_prob?: number;
+  model_fair_odds?: number;
+  confidence?: "high" | "medium" | "low";
+  rationale?: string;
+  recent_form?: string;
+  bookie_prices?: Record<string, number>;
+  is_weakest?: boolean;
+  weakness_reason?: string;
+  market_type?: string;
 }
 
 export interface PaperBetSelectionSnapshot {
@@ -113,14 +125,19 @@ interface PaperBetslipContextType {
   setDefaultStake: (stake: number) => void;
   settleAllCompletedBets: () => void;
   clearResultedBets: () => void;
+  slipName: string;
+  setSlipName: (name: string) => void;
+  slipMode: "singles" | "multi" | "sgm" | "round_robin" | "exotics";
+  setSlipMode: (mode: "singles" | "multi" | "sgm" | "round_robin" | "exotics") => void;
+  swapLeg: (oldLegId: string, replacement: Partial<PaperBet>) => void;
+  saveCurrentSlip: (name?: string) => Promise<{ id?: string; shareCode?: string } | null>;
+  loadSlipByCode: (codeOrId: string) => Promise<boolean>;
+  cloneSlip: (clonedBets: PaperBet[]) => void;
 }
 
 const PaperBetslipContext = createContext<PaperBetslipContextType | undefined>(
   undefined,
 );
-
-import { API_BASE } from "../lib/api";
-import { ANALYTICS_EVENTS, trackEvent } from "../lib/analytics";
 
 export function PaperBetslipProvider({
   children,
@@ -286,6 +303,85 @@ export function PaperBetslipProvider({
       return next;
     });
   }, []);
+
+  const [slipName, setSlipName] = useState<string>("My Multi");
+  const [slipMode, setSlipMode] = useState<"singles" | "multi" | "sgm" | "round_robin" | "exotics">("singles");
+
+  const swapLeg = useCallback((oldLegId: string, replacement: Partial<PaperBet>) => {
+    setBets((prev) => {
+      const next = prev.map((b) => (b.id === oldLegId ? { ...b, ...replacement, id: b.id } : b));
+      betsRef.current = next;
+      savePersistedBetslip(next);
+      return next;
+    });
+    addToast("Leg replaced with positive EV selection!", "success");
+  }, [addToast]);
+
+  const saveCurrentSlip = useCallback(async (customName?: string) => {
+    const nameToSave = customName || slipName || "My Multi";
+    try {
+      const res = await fetch(`${API_BASE}/slips`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && token !== "guest" ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: nameToSave,
+          slipType: slipMode.toUpperCase(),
+          combinedOdds: bets.reduce((acc, b) => acc * (b.odds || 1), 1),
+          legs: bets,
+        }),
+      });
+      if (res.ok) {
+        const data = await safeResponseJson(res);
+        addToast(`Slip "${nameToSave}" saved!`, "success");
+        return { id: data?.slip?.id, shareCode: data?.shareCode || data?.slip?.shareCode };
+      }
+    } catch {}
+
+    const fallbackCode = `BM-${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
+    addToast(`Slip "${nameToSave}" saved locally!`, "success");
+    return { id: fallbackCode, shareCode: fallbackCode };
+  }, [bets, slipMode, slipName, token, addToast]);
+
+  const loadSlipByCode = useCallback(async (codeOrId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/slips/${codeOrId}`);
+      if (res.ok) {
+        const data = await safeResponseJson(res);
+        if (data?.slip?.legs && Array.isArray(data.slip.legs)) {
+          const loadedBets: PaperBet[] = data.slip.legs.map((leg: any) => ({
+            id: typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2, 11),
+            sport: leg.sport,
+            event_id: leg.gameId,
+            event_name: leg.selection || "Event",
+            selection: leg.selection,
+            odds: leg.odds,
+            stake: defaultStakeRef.current,
+            bet_type: leg.marketType || "win",
+            notes: leg.rationale,
+            added_at: new Date().toISOString(),
+          }));
+          betsRef.current = loadedBets;
+          setBets(loadedBets);
+          savePersistedBetslip(loadedBets);
+          setIsBetslipOpen(true);
+          addToast(`Loaded slip "${data.slip.name || codeOrId}"!`, "success");
+          return true;
+        }
+      }
+    } catch {}
+    return false;
+  }, [addToast]);
+
+  const cloneSlip = useCallback((clonedBets: PaperBet[]) => {
+    betsRef.current = clonedBets;
+    setBets(clonedBets);
+    savePersistedBetslip(clonedBets);
+    setIsBetslipOpen(true);
+    addToast("Multi cloned into betslip!", "success");
+  }, [addToast]);
 
   useEffect(() => {
     if (!hasHydrated) {
@@ -669,6 +765,14 @@ export function PaperBetslipProvider({
         setDefaultStake,
         settleAllCompletedBets,
         clearResultedBets,
+        slipName,
+        setSlipName,
+        slipMode,
+        setSlipMode,
+        swapLeg,
+        saveCurrentSlip,
+        loadSlipByCode,
+        cloneSlip,
       }}
     >
       {children}

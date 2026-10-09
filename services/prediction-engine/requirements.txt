@@ -14,4 +14,4 @@ modal
 scipy
 appdirs
 pyarrow
-nfl-data-py
+nflreadpy

@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
-import { Activity, ChevronDown, Compass, BarChart3 } from "lucide-react";
+import { Activity, ChevronDown, Compass, BarChart3, Layers } from "lucide-react";
 import RunnerRow, { type RunnerPrediction } from "./RunnerRow";
 import PaperBetAction from "../PaperBetAction";
 import SectionalMetricsDrawer from "./SectionalMetricsDrawer";
 import SpeedMapVisualization from "./SpeedMapVisualization";
 import RacingRunnerDrawer from "./RacingRunnerDrawer";
+import QuaddiePlannerModal from "./QuaddiePlannerModal";
 import { ConfidenceBadge, UrgencyBadge } from "../PredictionSignalBadges";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
@@ -73,6 +74,7 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
   const [activeTab, setActiveTab] = useState<"win" | "multi" | "exotics" | "speed_map">("win");
   const [openSectionalRunnerIds, setOpenSectionalRunnerIds] = useState<Record<string, boolean>>({});
   const [drawerRunner, setDrawerRunner] = useState<{ horse: HorseData; prediction: RunnerPrediction | null } | null>(null);
+  const [isQuaddieModalOpen, setIsQuaddieModalOpen] = useState(false);
 
   const sorted = [...siblingRaces].sort((a, b) => a.race_number - b.race_number);
   const trackCond = race.horses[0]?.track_condition;
@@ -193,11 +195,61 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
         </div>
       ) : activeTab === "speed_map" ? (
         <SpeedMapVisualization race={race} />
+      ) : activeTab === "exotics" ? (
+        <div className="p-6 bg-slate-950/70 border border-slate-800 rounded-xl space-y-4 text-center">
+          <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center mx-auto text-purple-400">
+            <Layers size={22} />
+          </div>
+          <div>
+            <h4 className="text-base font-bold text-slate-100">
+              {race.venue} Multi-Race Exotics & Quaddie Planner
+            </h4>
+            <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+              Plan your 4-leg Quaddie with automated combination counting, flexi stake calculation, and joint model win probability.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsQuaddieModalOpen(true)}
+            className="px-4 py-2 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-lg shadow-purple-900/30 inline-flex items-center gap-2"
+          >
+            <Layers size={14} />
+            <span>Launch Quaddie Planner</span>
+          </button>
+        </div>
       ) : (
         <div className="race-tab-placeholder">
-          <p className="muted-copy">Same Race Multi and Exotics are coming soon.</p>
+          <p className="muted-copy">Same Race Multi is coming soon.</p>
         </div>
       )}
+
+      <QuaddiePlannerModal
+        isOpen={isQuaddieModalOpen}
+        onClose={() => setIsQuaddieModalOpen(false)}
+        venue={race.venue}
+        races={[
+          {
+            race_id: race.race_id,
+            race_number: race.race_number,
+            venue: race.venue,
+            distance: race.distance,
+            start_time: race.start_time,
+            runners: race.horses.map((h, i) => {
+              const pred = prediction?.predictions?.find((p) => p.horse_id === h.horse_id);
+              return {
+                horse_id: h.horse_id,
+                name: h.name,
+                barrier: h.barrier,
+                modelRank: pred && prediction?.predictions ? (prediction.predictions.findIndex((p) => p.horse_id === h.horse_id) + 1) : i + 1,
+                winProbability: pred ? pred.win_probability : h.betfair_back_price ? (1 / h.betfair_back_price) : 0,
+                fairOdds: pred?.fair_odds,
+                marketOdds: h.betfair_back_price,
+                edgePercent: pred && h.betfair_back_price ? getEdgePercent(pred.fair_odds, h.betfair_back_price) : null,
+              };
+            }),
+          },
+        ]}
+      />
 
       <RacingRunnerDrawer
         isOpen={drawerRunner !== null}

@@ -22,6 +22,16 @@ import {
   History,
   FileText,
   RotateCw,
+  Share2,
+  Brain,
+  Edit2,
+  Layers,
+  Sliders,
+  Shield,
+  HelpCircle,
+  Copy,
+  ArrowLeftRight,
+  Grid3X3,
 } from "lucide-react";
 import {
   buildPaperBetKey,
@@ -32,6 +42,14 @@ import { usePaperBetslip } from "../providers/PaperBetslipProvider";
 import { useAuth } from "../providers/AuthProvider";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import GuestModal from "./GuestModal";
+import MultiLiveMaths, { MultiEvaluationResult } from "./betslip/MultiLiveMaths";
+import CorrelationWarningBanner from "./betslip/CorrelationWarningBanner";
+import WeakestLegBanner from "./betslip/WeakestLegBanner";
+import WhyThisLegDrawer from "./betslip/WhyThisLegDrawer";
+import SlipModeToggle, { SlipMode } from "./betslip/SlipModeToggle";
+import KellyStakeControl from "./betslip/KellyStakeControl";
+import ShareSlipModal from "./betslip/ShareSlipModal";
+import BestPriceBadge from "./betslip/BestPriceBadge";
 
 export type ActiveBetItem = {
   id: string;
@@ -87,6 +105,13 @@ function PaperBetslipContent() {
     settleAllCompletedBets,
     clearResultedBets,
     addToast,
+    slipName,
+    setSlipName,
+    slipMode,
+    setSlipMode,
+    swapLeg,
+    saveCurrentSlip,
+    cloneSlip,
   } = usePaperBetslip();
 
   const [placing, setPlacing] = useState(false);
@@ -99,6 +124,16 @@ function PaperBetslipContent() {
   const [myBetsSubTab, setMyBetsSubTab] = useState<"active" | "settled">("active");
   const [activeBets, setActiveBets] = useState<ActiveBetItem[]>([]);
   const [loadingActiveBets, setLoadingActiveBets] = useState(false);
+
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [expandedInsights, setExpandedInsights] = useState<Record<string, boolean>>({});
+  const [multiEvaluation, setMultiEvaluation] = useState<MultiEvaluationResult | null>(null);
+  const [isEditingSlipName, setIsEditingSlipName] = useState(false);
+  const [roundRobinUnitStake, setRoundRobinUnitStake] = useState<number>(defaultStake || 5);
+
+  const toggleInsight = (id: string) => {
+    setExpandedInsights((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const combinedActiveBets = useMemo(() => {
     const map = new Map<string, ActiveBetItem>();
@@ -126,7 +161,7 @@ function PaperBetslipContent() {
   }, [combinedActiveBets]);
   const [multiStake, setMultiStake] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<
-    "singles" | "multi" | "exotics" | "quaddie" | "sgm"
+    "singles" | "multi" | "round_robin" | "exotics" | "quaddie" | "sgm"
   >("singles");
 
   useEffect(() => {
@@ -279,8 +314,80 @@ function PaperBetslipContent() {
     return (multiStake || 0) * combinedMultiOdds;
   }, [multiStake, combinedMultiOdds]);
 
+  const weakestLegIndex = useMemo(() => {
+    if (singlesBets.length < 2) return -1;
+    if (
+      multiEvaluation &&
+      typeof (multiEvaluation as any).weakest_leg_index === "number" &&
+      (multiEvaluation as any).weakest_leg_index >= 0
+    ) {
+      return (multiEvaluation as any).weakest_leg_index;
+    }
+    let worstIdx = 0;
+    let minEdge = 9999;
+    singlesBets.forEach((b, idx) => {
+      const p = b.model_prob
+        ? b.model_prob > 1
+          ? b.model_prob / 100
+          : b.model_prob
+        : 1 / (b.odds || 1.9);
+      const edge = (p * (b.odds || 1.9) - 1) * 100;
+      if (edge < minEdge) {
+        minEdge = edge;
+        worstIdx = idx;
+      }
+    });
+    return worstIdx;
+  }, [singlesBets, multiEvaluation]);
+
+  const roundRobinData = useMemo(() => {
+    const legsCount = singlesBets.length;
+    if (legsCount < 3) return null;
+
+    const doubles = (legsCount * (legsCount - 1)) / 2;
+    const trebles = (legsCount * (legsCount - 1) * (legsCount - 2)) / 6;
+    const totalCombinations = doubles + trebles;
+    const totalCost = (roundRobinUnitStake || 0) * totalCombinations;
+
+    let estReturn = 0;
+    for (let i = 0; i < legsCount; i++) {
+      const legA = singlesBets[i];
+      const oA = legA?.odds && legA.odds > 1 ? legA.odds : 1.0;
+      for (let j = i + 1; j < legsCount; j++) {
+        const legB = singlesBets[j];
+        const oB = legB?.odds && legB.odds > 1 ? legB.odds : 1.0;
+        estReturn += (roundRobinUnitStake || 0) * oA * oB;
+      }
+    }
+    for (let i = 0; i < legsCount; i++) {
+      const legA = singlesBets[i];
+      const oA = legA?.odds && legA.odds > 1 ? legA.odds : 1.0;
+      for (let j = i + 1; j < legsCount; j++) {
+        const legB = singlesBets[j];
+        const oB = legB?.odds && legB.odds > 1 ? legB.odds : 1.0;
+        for (let k = j + 1; k < legsCount; k++) {
+          const legC = singlesBets[k];
+          const oC = legC?.odds && legC.odds > 1 ? legC.odds : 1.0;
+          estReturn += (roundRobinUnitStake || 0) * oA * oB * oC;
+        }
+      }
+    }
+
+    return {
+      doubles,
+      trebles,
+      totalCombinations,
+      totalCost,
+      estReturn: Math.round(estReturn * 100) / 100,
+    };
+  }, [singlesBets, roundRobinUnitStake]);
+
   const tabBets = bets.filter((bet) => {
-    if (activeTab === "singles" || activeTab === "multi")
+    if (
+      activeTab === "singles" ||
+      activeTab === "multi" ||
+      activeTab === "round_robin"
+    )
       return (
         !bet.bet_family ||
         bet.bet_family === "single" ||
@@ -367,71 +474,107 @@ function PaperBetslipContent() {
   return (
     <>
       <div
-        className="betslip-overlay-backdrop fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] transition-opacity animate-in fade-in duration-200 flex justify-end"
+        className="betslip-overlay-backdrop fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-[100] transition-opacity animate-in fade-in duration-200 flex justify-end items-end sm:items-stretch"
         onClick={() => setIsBetslipOpen(false)}
       >
         <div
-          className="betslip-container fixed top-0 right-0 bottom-0 h-full w-full sm:w-[440px] z-[101] shadow-2xl flex flex-col overflow-hidden bg-slate-950 border-l border-slate-700/80 transition-transform animate-in slide-in-from-right duration-300"
+          className="betslip-container fixed sm:top-0 sm:right-0 bottom-0 left-0 sm:left-auto w-full sm:w-[450px] max-h-[92vh] sm:max-h-full h-[92vh] sm:h-full z-[101] shadow-2xl flex flex-col overflow-hidden bg-slate-950 border-t sm:border-t-0 sm:border-l border-slate-700/80 rounded-t-2xl sm:rounded-t-none transition-transform animate-in slide-in-from-bottom sm:slide-in-from-right duration-300"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Mobile Drag Indicator Bar (Item 39) */}
+          <div className="w-12 h-1.5 bg-slate-700/80 rounded-full mx-auto my-2 sm:hidden shrink-0 cursor-grab" />
+
           {/* Sportsbet Style Header Bar */}
-          <div className="betslip-header-bar flex items-center justify-between px-4 py-3 bg-slate-800 border-b border-slate-700 text-slate-100 shadow-md shrink-0 gap-2">
-            <div className="flex items-center gap-2 shrink-0">
+          <div className="betslip-header-bar flex items-center justify-between px-3.5 py-2.5 bg-slate-900 border-b border-slate-800 text-slate-100 shadow-md shrink-0 gap-2">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setIsBetslipOpen(false)}
-                className="p-1.5 rounded-full bg-slate-100/10 hover:bg-slate-100/20 text-slate-100 transition-colors"
+                className="p-1.5 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                 title="Close Bet Slip"
               >
-                <X size={18} />
+                <X size={16} />
               </button>
-              <div className="flex items-center gap-1.5">
-                <Ticket size={18} className="text-slate-100" />
-                <span className="font-extrabold text-base tracking-tight">Bet Slip</span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Ticket size={16} className="text-emerald-400 shrink-0" />
+                {isEditingSlipName ? (
+                  <input
+                    type="text"
+                    value={slipName}
+                    onChange={(e) => setSlipName(e.target.value)}
+                    onBlur={() => setIsEditingSlipName(false)}
+                    onKeyDown={(e) => e.key === "Enter" && setIsEditingSlipName(false)}
+                    autoFocus
+                    className="bg-slate-950 border border-slate-700 rounded px-1.5 py-0.5 text-xs font-bold text-slate-100 max-w-[140px]"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingSlipName(true)}
+                    className="font-extrabold text-sm tracking-tight text-slate-100 truncate flex items-center gap-1 hover:text-emerald-400 transition-colors cursor-pointer text-left"
+                    title="Click to rename multi"
+                  >
+                    <span className="truncate">{slipName || "Bet Slip"}</span>
+                    <Edit2 size={10} className="text-slate-500 opacity-60" />
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Header Main Tabs */}
-            <div className="flex items-center gap-1 p-0.5 bg-slate-950/60 rounded-xl border border-slate-600/30 shrink-0">
+            {/* Header Right Actions: Share Slip Button (Item 49) + Balance */}
+            <div className="flex items-center gap-1.5 shrink-0">
               <button
                 type="button"
-                onClick={() => setContextMainTab("slip")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
-                  contextMainTab === "slip"
-                    ? "bg-slate-900 text-amber-400 shadow-sm"
-                    : "text-slate-300 hover:bg-slate-100/10"
-                }`}
+                onClick={() => setShowShareModal(true)}
+                className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                title="Save & Share Slip"
               >
-                <span>Slip</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-800/40 opacity-90">
-                  {bets.length}
-                </span>
+                <Share2 size={12} />
+                <span className="hidden xs:inline">Share</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setContextMainTab("active")}
-                className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 ${
-                  contextMainTab === "active" || contextMainTab === "settled"
-                    ? "bg-slate-900 text-sky-400 shadow-sm"
-                    : "text-slate-300 hover:bg-slate-100/10"
-                }`}
-              >
-                <span>My Bets</span>
-                {combinedActiveBets.length > 0 && (
-                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300">
-                    {combinedActiveBets.length}
+              {/* Main Tabs */}
+              <div className="flex items-center gap-0.5 p-0.5 bg-slate-950/80 rounded-xl border border-slate-700/60 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setContextMainTab("slip")}
+                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 cursor-pointer ${
+                    contextMainTab === "slip"
+                      ? "bg-slate-800 text-amber-400 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <span>Slip</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-slate-900">
+                    {bets.length}
                   </span>
-                )}
-              </button>
-            </div>
+                </button>
 
-            {/* Sportsbet Style Balance Tag */}
-            <div className="flex flex-col items-end px-2.5 py-1 rounded-lg bg-slate-950/60 text-slate-100 shrink-0">
-              <span className="text-[9px] uppercase font-black tracking-wider opacity-75">Balance</span>
-              <span className="text-xs font-black font-mono text-slate-100">
-                ${user?.currentBankroll !== undefined ? user.currentBankroll.toLocaleString() : "10,000"}
-              </span>
+                <button
+                  type="button"
+                  onClick={() => setContextMainTab("active")}
+                  className={`px-2 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1 cursor-pointer ${
+                    contextMainTab === "active" || contextMainTab === "settled"
+                      ? "bg-slate-800 text-sky-400 shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <span>My Bets</span>
+                  {combinedActiveBets.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-black bg-sky-500/20 text-sky-300">
+                      {combinedActiveBets.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Balance */}
+              <div className="flex flex-col items-end px-2 py-0.5 rounded-lg bg-slate-950 text-slate-100 shrink-0 border border-slate-800">
+                <span className="text-[8px] uppercase font-black tracking-wider text-slate-400">Balance</span>
+                <span className="text-xs font-black font-mono text-emerald-400">
+                  ${user?.currentBankroll !== undefined ? user.currentBankroll.toLocaleString() : "10,000"}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -694,29 +837,21 @@ function PaperBetslipContent() {
               </div>
             </div>
 
-            <div className="betslip-tabs">
-              {(
-                [
-                  ["singles", "Singles"],
-                  ["multi", "Multis"],
-                  ["exotics", "Exotics"],
-                  ["quaddie", "Quaddie"],
-                  ["sgm", "SGM"],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  type="button"
-                  className={`betslip-tab ${activeTab === key ? "active" : ""}`}
-                  onClick={() => setActiveTab(key)}
-                >
-                  {label}
-
-                </button>
-              ))}
+            {/* Slip Mode Toggle (Item 44) */}
+            <div className="px-3 pt-2">
+              <SlipModeToggle
+                activeMode={activeTab as any}
+                onModeChange={(mode) => setActiveTab(mode as any)}
+                counts={{
+                  singles: singlesBets.length,
+                  multi: singlesBets.length >= 2 ? singlesBets.length : 0,
+                  sgm: bets.filter((b) => b.bet_family === "sgm").length,
+                  round_robin: singlesBets.length >= 3 ? singlesBets.length : 0,
+                }}
+              />
             </div>
 
-            {/* Dedicated Multi Accumulator View */}
+            {/* Dedicated Multi Accumulator View (Item 40, 41, 42, 43, 46, 47, 48, 52) */}
             {activeTab === "multi" && (
               singlesBets.length < 2 ? (
                 <div className="betslip-empty p-6 text-center">
@@ -729,45 +864,160 @@ function PaperBetslipContent() {
                   </p>
                 </div>
               ) : (
-                <div className="bg-slate-950 border border-slate-700 rounded-lg shadow-sm mb-4">
-                  <div className="bg-slate-800 p-3 border-b border-slate-700 rounded-t-lg flex justify-between items-center">
-                    <div className="font-bold text-slate-100">{singlesBets.length}-Leg Multi</div>
-                    <div className="text-[17.5px] font-black text-fuchsia-200">{combinedMultiOdds.toFixed(2)}</div>
-                  </div>
+                <div className="space-y-3 p-3">
+                  {/* Live Multi Maths (Item 40, 48) */}
+                  <MultiLiveMaths
+                    legs={singlesBets}
+                    totalStake={multiStake > 0 ? multiStake : defaultStake}
+                    sport={singlesBets[0]?.sport || "sport"}
+                    onEvaluationResult={(res) => setMultiEvaluation(res)}
+                  />
 
-                  {/* Multi Legs List */}
-                  <div className="py-1">
-                    {singlesBets.map((leg, index) => {
-                      const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
-                      return (
-                        <div key={leg.id} className="flex items-center justify-between px-3.5 py-2.5 border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors">
-                          <div className="flex items-center space-x-3 flex-1 min-w-0">
-                            <div className="w-5 h-5 rounded flex items-center justify-center border shrink-0 transition-colors bg-emerald-500 border-emerald-500 text-white">
-                              <Check size={14} />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-[15px] font-semibold text-slate-200 truncate">{leg.selection}</div>
-                              <div className="flex items-center space-x-2 text-[13px]">
-                                <span className="text-slate-400">{leg.event_name}</span>
-                                <span className="text-slate-600">•</span>
-                                <span className="text-emerald-400 font-medium">
-                                  {leg.bet_type === "place" ? "Place" : leg.bet_type === "each_way" ? "E/W" : "Win"}
-                                </span>
+                  {/* Inline Correlation Warnings & Boosts (Item 41) */}
+                  <CorrelationWarningBanner
+                    warnings={multiEvaluation?.pairwise_warnings || multiEvaluation?.warnings || []}
+                    correlationScore={multiEvaluation?.correlation_score}
+                    correlationSummary={multiEvaluation?.correlation_summary}
+                  />
+
+                  <div className="bg-slate-950 border border-slate-700/80 rounded-xl shadow-md overflow-hidden">
+                    <div className="bg-slate-900/90 p-3 border-b border-slate-800 flex justify-between items-center">
+                      <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-sm">
+                        <Layers size={15} className="text-emerald-400" />
+                        <span>{singlesBets.length}-Leg Multi Accumulator</span>
+                      </div>
+                      <div className="text-[17.5px] font-black text-fuchsia-300 font-mono">
+                        ${combinedMultiOdds.toFixed(2)}
+                      </div>
+                    </div>
+
+                    {/* Multi Legs List */}
+                    <div className="divide-y divide-slate-800/60 p-1">
+                      {singlesBets.map((leg, index) => {
+                        const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
+                        const isWeakest = index === weakestLegIndex;
+
+                        return (
+                          <div
+                            key={leg.id}
+                            className={`p-3 rounded-lg transition-colors ${
+                              isWeakest ? "bg-rose-950/20 border border-rose-900/30" : "hover:bg-slate-900/40"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start space-x-2.5 flex-1 min-w-0">
+                                <div className="w-5 h-5 rounded flex items-center justify-center border shrink-0 transition-colors bg-emerald-500 border-emerald-500 text-white mt-0.5">
+                                  <Check size={13} />
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[14px] font-bold text-slate-100 truncate">
+                                      {leg.selection}
+                                    </span>
+                                    {/* Best Price Badge (Item 52) */}
+                                    <BestPriceBadge
+                                      currentOdds={legWinOdds}
+                                      selection={leg.selection}
+                                      bookiePrices={leg.bookie_prices}
+                                      source={leg.odds_source}
+                                    />
+                                  </div>
+                                  <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                                    <span className="truncate">{leg.event_name}</span>
+                                    <span>•</span>
+                                    <span className="text-emerald-400 font-medium capitalize">
+                                      {leg.bet_type === "place" ? "Place" : leg.bet_type === "each_way" ? "E/W" : "Win"}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="text-right shrink-0">
+                                <div className="text-base font-black font-mono text-fuchsia-200">
+                                  ${legWinOdds.toFixed(2)}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => removeBet(leg.id)}
+                                  className="text-slate-500 hover:text-rose-400 p-0.5 transition-colors cursor-pointer"
+                                  title="Remove leg"
+                                >
+                                  <X size={14} />
+                                </button>
                               </div>
                             </div>
-                          </div>
-                          <div className="text-[15px] font-black font-mono text-fuchsia-200 ml-4 shrink-0">
-                            {legWinOdds.toFixed(2)}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
 
-                  {/* Multi Stake Input */}
-                  <div className="px-3.5 py-3 border-t border-slate-800 bg-slate-950 flex justify-end">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-[13px] font-bold text-slate-400 uppercase">Stake</span>
+                            {/* Weakest Leg Highlight & 1-Tap Swap (Item 42) */}
+                            {isWeakest && (
+                              <WeakestLegBanner
+                                isWeakest={true}
+                                reason={
+                                  multiEvaluation?.weakest_leg?.rationale ||
+                                  (multiEvaluation as any)?.reason ||
+                                  "Lowest relative EV in multi"
+                                }
+                                severity={(multiEvaluation as any)?.severity || "warning"}
+                                legId={leg.id}
+                                legSelection={leg.selection}
+                                allLegs={singlesBets}
+                                sport={leg.sport}
+                                onApplySwap={(oldId, repl) => swapLeg(oldId, repl)}
+                              />
+                            )}
+
+                            {/* "Why This Leg" Panel (Item 43) */}
+                            <WhyThisLegDrawer
+                              isOpen={Boolean(expandedInsights[leg.id])}
+                              onToggle={() => toggleInsight(leg.id)}
+                              selection={leg.selection}
+                              eventName={leg.event_name}
+                              odds={legWinOdds}
+                              modelFairOdds={leg.model_fair_odds}
+                              modelProb={leg.model_prob}
+                              edgePct={leg.model_edge_pct}
+                              confidence={leg.confidence}
+                              rationale={leg.notes || leg.rationale}
+                              recentForm={leg.recent_form}
+                              sport={leg.sport}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Kelly Stake Suggestion & Safer/Bigger Odds Slider (Item 46, 47) */}
+                    <div className="p-3 border-t border-slate-800 bg-slate-900/60">
+                      <KellyStakeControl
+                        combinedOdds={combinedMultiOdds}
+                        trueProb={
+                          multiEvaluation?.adjusted_probability ||
+                          multiEvaluation?.fair_probability ||
+                          (combinedMultiOdds > 0 ? 1 / combinedMultiOdds : 0.2)
+                        }
+                        bankroll={user?.currentBankroll || 10000}
+                        currentStake={multiStake}
+                        onApplyStake={(val) => setMultiStake(val)}
+                      />
+                    </div>
+
+                    {/* Multi Stake Input */}
+                    <div className="px-3.5 py-3 border-t border-slate-800 bg-slate-950 flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-400 uppercase">Multi Stake</span>
+                        <div className="flex gap-1">
+                          {[5, 10, 25, 50].map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setMultiStake(preset)}
+                              className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                            >
+                              ${preset}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
                       <div className="relative w-24">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
                         <input
@@ -778,18 +1028,86 @@ function PaperBetslipContent() {
                             const cleanNum = raw === "" ? 0 : Math.max(0, Number(raw.replace(/^0+/, "") || 0));
                             setMultiStake(cleanNum);
                           }}
-                          className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-3 text-white text-sm font-bold text-right"
+                          className="w-full bg-slate-900 border border-slate-700 rounded py-1.5 pl-6 pr-3 text-white text-sm font-bold text-right focus:border-emerald-500 focus:outline-none"
                           placeholder="0"
                         />
                       </div>
                     </div>
-                  </div>
 
-                  {/* Multi Est. Return */}
-                  <div className="px-3.5 py-2.5 bg-slate-900 rounded-b-lg border-t border-slate-800 text-right">
-                    <span className="text-[13px] text-slate-300 font-medium">
-                      Total Return: <strong className="text-emerald-400 font-mono">${(estMultiCollect).toFixed(2)}</strong> | Cost: <strong className="text-slate-200 font-mono">${(multiStake).toFixed(2)}</strong>
-                    </span>
+                    {/* Multi Est. Return */}
+                    <div className="px-3.5 py-2.5 bg-slate-900 rounded-b-lg border-t border-slate-800 text-right">
+                      <span className="text-xs text-slate-300 font-medium">
+                        Total Return: <strong className="text-emerald-400 font-mono text-sm">${estMultiCollect.toFixed(2)}</strong> | Cost: <strong className="text-slate-200 font-mono">${(multiStake).toFixed(2)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )
+            )}
+
+            {/* Round-Robin Combinations View (Item 44) */}
+            {activeTab === "round_robin" && (
+              singlesBets.length < 3 ? (
+                <div className="betslip-empty p-6 text-center">
+                  <div className="w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mx-auto mb-2 text-indigo-400">
+                    <Grid3X3 size={20} />
+                  </div>
+                  <p className="font-bold text-slate-200 text-sm">Round-Robin Combinations</p>
+                  <p className="small text-slate-400 mt-1">
+                    Add 3 or more selections to build boxed doubles and trebles system tickets!
+                  </p>
+                </div>
+              ) : roundRobinData && (
+                <div className="p-3 space-y-3">
+                  <div className="bg-slate-950 border border-slate-700 rounded-xl shadow-sm p-3.5 space-y-3">
+                    <div className="flex justify-between items-center pb-2 border-b border-slate-800">
+                      <div>
+                        <div className="font-extrabold text-slate-100 text-sm">
+                          Round-Robin ({singlesBets.length} Selections)
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          Boxed doubles and trebles system bets
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 text-xs font-mono font-bold">
+                        {roundRobinData.totalCombinations} Combinations
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-400 font-bold block uppercase">2-Leg Doubles</span>
+                        <span className="font-mono font-bold text-slate-200">{roundRobinData.doubles} bets</span>
+                      </div>
+                      <div className="p-2 rounded-lg bg-slate-900 border border-slate-800">
+                        <span className="text-[10px] text-slate-400 font-bold block uppercase">3-Leg Trebles</span>
+                        <span className="font-mono font-bold text-slate-200">{roundRobinData.trebles} bets</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-xs font-bold text-slate-400">Stake Per Combination</span>
+                      <div className="relative w-24">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                        <input
+                          type="number"
+                          value={roundRobinUnitStake === 0 ? "" : roundRobinUnitStake}
+                          onChange={(e) => setRoundRobinUnitStake(Number(e.target.value) || 0)}
+                          className="w-full bg-slate-900 border border-slate-700 rounded py-1 pl-6 pr-2 text-right text-xs font-bold text-white focus:border-indigo-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block">Total Outlay</span>
+                        <strong className="text-slate-100 font-mono text-sm">${roundRobinData.totalCost.toFixed(2)}</strong>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 block">Max Potential Return</span>
+                        <strong className="text-emerald-400 font-mono text-sm">${roundRobinData.estReturn.toFixed(2)}</strong>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )
@@ -894,7 +1212,15 @@ function PaperBetslipContent() {
                         <div className="flex justify-between items-start gap-2 mb-3">
                           <div className="flex-1 min-w-0 pr-2">
                             <div className="text-[13px] text-slate-400 font-medium mb-1 truncate">{bet.event_name}</div>
-                            <div className="font-bold text-slate-100 text-[17px] leading-tight break-words">{bet.selection}</div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-100 text-[17px] leading-tight break-words">{bet.selection}</span>
+                              <BestPriceBadge
+                                currentOdds={winOdds}
+                                selection={bet.selection}
+                                bookiePrices={bet.bookie_prices}
+                                source={bet.odds_source}
+                              />
+                            </div>
                           </div>
                           <button
                             className="text-slate-500 hover:text-slate-300 p-1.5 rounded-lg hover:bg-slate-800/60 transition-colors shrink-0"
@@ -977,6 +1303,22 @@ function PaperBetslipContent() {
                               ))}
                             </div>
                           ) : null}
+
+                          {/* "Why This Leg" Panel (Item 43) */}
+                          <WhyThisLegDrawer
+                            isOpen={Boolean(expandedInsights[bet.id])}
+                            onToggle={() => toggleInsight(bet.id)}
+                            selection={bet.selection}
+                            eventName={bet.event_name}
+                            odds={winOdds}
+                            modelFairOdds={bet.model_fair_odds}
+                            modelProb={bet.model_prob}
+                            edgePct={bet.model_edge_pct}
+                            confidence={bet.confidence}
+                            rationale={bet.notes || bet.rationale}
+                            recentForm={bet.recent_form}
+                            sport={bet.sport}
+                          />
                         </div>
                       </div>
                     );
@@ -1088,6 +1430,14 @@ function PaperBetslipContent() {
                 </div>
               </div>
               <div className="betslip-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => setShowShareModal(true)}
+                  title="Share or export paper slip"
+                >
+                  <Share2 size={14} /> Share
+                </button>
                 <button
                   className={`btn btn-sm ${confirmClear ? "btn-danger" : "btn-secondary"}`}
                   onClick={handleClearBets}
@@ -1594,6 +1944,16 @@ function PaperBetslipContent() {
       <GuestModal
         open={showGuestModal}
         onClose={() => setShowGuestModal(false)}
+      />
+      {/* Share Slip Modal (Item 49) */}
+      <ShareSlipModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        bets={bets}
+        slipName={slipName}
+        onUpdateSlipName={setSlipName}
+        onSaveSlip={saveCurrentSlip}
+        onCloneSlip={cloneSlip}
       />
     </>
   );

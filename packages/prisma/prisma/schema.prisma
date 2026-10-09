@@ -285,6 +285,9 @@ model User {
   exoticBets       ExoticBet[]
   multiBets        MultiBet[]
   bankrollHistory  BankrollHistory[]
+  slips            Slip[]
+  userPreference   UserPreference?
+  savedScreens     SavedScreen[]
 
   @@schema("public")
 }
@@ -599,4 +602,225 @@ model DailyEVFeed {
   @@map("daily_ev_feed")
   @@schema("public")
 }
+
+// -------------------------------------------------------------
+// Core Sports & Player Telemetry (Phase 0)
+// -------------------------------------------------------------
+
+model Player {
+  id          String           @id @default(cuid())
+  sport       String           // 'NBA', 'NFL', 'AFL', 'NRL', 'SOCCER'
+  externalId  String           // ID in upstream provider (BallDontLie, NRL, etc.)
+  fullName    String
+  team        String
+  position    String?
+  jerseyNum   Int?
+  status      String           @default("ACTIVE") // ACTIVE, INJURED, OUT
+  createdAt   DateTime         @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime         @updatedAt @db.Timestamptz(6)
+  gameStats   PlayerGameStat[]
+  propMarkets PropMarket[]
+
+  @@unique([sport, externalId])
+  @@index([sport, team])
+  @@schema("public")
+}
+
+model PlayerGameStat {
+  id          String   @id @default(cuid())
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  sport       String
+  gameId      String
+  gameDate    DateTime @db.Date
+  opponent    String
+  isHome      Boolean  @default(true)
+  minutes     Float?
+  statsJson   Json     // Disposals, points, rebounds, passing yards, metres, etc.
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([playerId, gameId])
+  @@index([playerId, gameDate])
+  @@index([sport, gameDate])
+  @@schema("public")
+}
+
+model TeamGameStat {
+  id          String   @id @default(cuid())
+  sport       String
+  team        String
+  gameId      String
+  gameDate    DateTime @db.Date
+  opponent    String
+  isHome      Boolean  @default(true)
+  score       Int?
+  oppScore    Int?
+  pace        Float?
+  metricsJson Json     // Advanced team stats (possession, defensive rating, inside 50s)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([sport, team, gameId])
+  @@index([sport, team, gameDate])
+  @@schema("public")
+}
+
+// -------------------------------------------------------------
+// Prop Markets & Real-time Odds (Phase 0)
+// -------------------------------------------------------------
+
+model PropMarket {
+  id             String     @id @default(cuid())
+  sport          String
+  gameId         String
+  playerId       String?
+  player         Player?    @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  marketType     String     // e.g., 'POINTS_OU', 'DISPOSALS_OU', 'ANYTIME_TRY'
+  line           Float?     // e.g., 24.5
+  status         String     @default("OPEN") // OPEN, SUSPENDED, SETTLED
+  createdAt      DateTime   @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime   @updatedAt @db.Timestamptz(6)
+  odds           PropOdds[]
+
+  @@index([sport, gameId])
+  @@index([playerId, marketType])
+  @@schema("public")
+}
+
+model PropOdds {
+  id           String     @id @default(cuid())
+  propMarketId String
+  propMarket   PropMarket @relation(fields: [propMarketId], references: [id], onDelete: Cascade)
+  bookmaker    String     // 'BETFAIR', 'TAB', 'SPORTSBET', etc.
+  selection    String     // 'OVER', 'UNDER', 'YES', 'NO'
+  price        Float
+  fairPrice    Float?     // Model fair price
+  edgePct      Float?     // Model edge percentage
+  trueProb     Float?     // Model calibrated probability
+  capturedAt   DateTime   @default(now()) @db.Timestamptz(6)
+
+  @@index([propMarketId, capturedAt])
+  @@schema("public")
+}
+
+// -------------------------------------------------------------
+// Persistent Multi Slips (Phase 0 / Items 39, 44, 49, 50, 55)
+// -------------------------------------------------------------
+
+model Slip {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String?   @default("My Multi")
+  slipType       String    @default("MULTI") // SINGLES, MULTI, SGM, ROUND_ROBIN
+  riskProfile    String?   // SAFE, BALANCED, LONG_SHOT
+  healthScore    String?   // 'A', 'B', 'C', 'D', 'F'
+  combinedOdds   Float     @default(1.0)
+  fairOdds       Float?
+  edgePct        Float?
+  kellyStake     Float?
+  actualStake    Float?
+  isShared       Boolean   @default(false)
+  shareCode      String?   @unique
+  status         String    @default("DRAFT") // DRAFT, PLACED, WON, LOST, VOID
+  settledAt      DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(6)
+  legs           SlipLeg[]
+
+  @@index([userId, status])
+  @@schema("public")
+}
+
+model SlipLeg {
+  id             String   @id @default(cuid())
+  slipId         String
+  slip           Slip     @relation(fields: [slipId], references: [id], onDelete: Cascade)
+  sport          String
+  gameId         String
+  marketType     String
+  selection      String
+  line           Float?
+  odds           Float
+  fairOdds       Float?
+  modelProb      Float?
+  edgePct        Float?
+  confidence     Float?
+  rationale      String?
+  correlationTag String?
+  isWeakestLeg   Boolean  @default(false)
+  status         String   @default("PENDING") // PENDING, WON, LOST, VOID
+  resultValue    Float?
+  createdAt      DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([slipId])
+  @@schema("public")
+}
+
+// -------------------------------------------------------------
+// User Preferences, Alerts & Saved Screens (Phase 0 / Items 25, 34, 72)
+// -------------------------------------------------------------
+
+model SavedScreen {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  filterJson Json     // { sport: 'AFL', minEdge: 0.05, minHitRate: 0.7, marketTypes: [...] }
+  createdAt  DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+
+  @@index([userId])
+  @@schema("public")
+}
+
+model UserPreference {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sports        String[] // ['AFL', 'NBA', 'RACING']
+  favoriteTeams String[]
+  riskTolerance String   @default("BALANCED") // SAFE, BALANCED, LONG_SHOT
+  onboarded     Boolean  @default(false)
+  createdAt     DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @db.Timestamptz(6)
+
+  @@schema("public")
+}
+
+model Alert {
+  id          String   @id @default(cuid())
+  sport       String
+  targetType  String   // 'PLAYER', 'GAME', 'MARKET'
+  targetId    String
+  title       String
+  message     String
+  impactJson  Json?    // { repriceFactor: 1.15, oldLine: 24.5, newLine: 22.5 }
+  isResolved  Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([sport, createdAt])
+  @@schema("public")
+}
+
+// -------------------------------------------------------------
+// Trust & Model Track Record (Phase 0 / Items 82, 84)
+// -------------------------------------------------------------
+
+model ModelPerformance {
+  id              String   @id @default(cuid())
+  sport           String
+  modelVariant    String   // 'NBA_PROP_SIM', 'AFL_CORRELATION', 'RACING_HARVILLE'
+  evalDate        DateTime @db.Date
+  sampleSize      Int
+  brierScore      Float?
+  calibrationJson Json     // [{ bin: '60-70%', predicted: 0.65, actual: 0.63 }]
+  simulatedRoi    Float
+  actualRoi       Float?
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([sport, modelVariant, evalDate])
+  @@index([sport, evalDate])
+  @@schema("public")
+}
+
 

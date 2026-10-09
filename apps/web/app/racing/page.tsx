@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import type {
   BobExplanation,
@@ -62,6 +62,7 @@ import RaceCodeFilter from "../components/racing/RaceCodeFilter";
 import VenueCard from "../components/racing/VenueCard";
 import MeetingOverview from "../components/racing/MeetingOverview";
 import SingleRaceCard from "../components/racing/SingleRaceCard";
+import QuaddiePlannerModal from "../components/racing/QuaddiePlannerModal";
 
 type BlackbookConfig = {
   probability_threshold: number;
@@ -300,6 +301,7 @@ function RacingPageContent() {
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
+  const [isQuaddieModalOpen, setIsQuaddieModalOpen] = useState(false);
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
@@ -567,6 +569,46 @@ function RacingPageContent() {
   const selectedVenueRaces = selectedVenueName ? (venueGroups[selectedVenueName] ?? []) : [];
   const selectedRace = selectedRaceId ? filteredRaces.find((r) => r.race_id === selectedRaceId) : null;
 
+  const quaddieRacesForModal = useMemo(() => {
+    return selectedVenueRaces.map((r) => {
+      const racePred = predictions[r.race_id];
+      const runners = (r.horses || []).map((h, i) => {
+        const pred = racePred?.predictions?.find((p) => p.horse_id === h.horse_id);
+        const rank = pred && racePred?.predictions
+          ? racePred.predictions.findIndex((p) => p.horse_id === h.horse_id) + 1
+          : i + 1;
+        const winProb = pred
+          ? pred.win_probability
+          : h.betfair_back_price
+          ? 1 / h.betfair_back_price
+          : 0;
+
+        return {
+          horse_id: h.horse_id,
+          name: h.name,
+          barrier: h.barrier,
+          modelRank: rank,
+          winProbability: winProb,
+          fairOdds: pred?.fair_odds,
+          marketOdds: h.betfair_back_price,
+          edgePercent:
+            pred && h.betfair_back_price
+              ? getEdgePercent(pred.fair_odds, h.betfair_back_price)
+              : null,
+        };
+      });
+
+      return {
+        race_id: r.race_id,
+        race_number: r.race_number,
+        venue: r.venue,
+        distance: r.distance,
+        start_time: r.start_time,
+        runners,
+      };
+    });
+  }, [selectedVenueRaces, predictions]);
+
   return (
     <div className="space-y-5 px-4 sm:px-6 py-6 max-w-7xl mx-auto">
       <ExplainDrawer
@@ -677,6 +719,13 @@ function RacingPageContent() {
             onBack={() => setSelectedVenueName(null)}
             onSelectRace={(id) => setSelectedRaceId(id)}
             selectedRaceId={selectedRaceId}
+            onOpenQuaddie={() => setIsQuaddieModalOpen(true)}
+          />
+          <QuaddiePlannerModal
+            isOpen={isQuaddieModalOpen}
+            onClose={() => setIsQuaddieModalOpen(false)}
+            venue={selectedVenueName}
+            races={quaddieRacesForModal}
           />
         </ErrorBoundary>
       ) : whenParam === "next" ? (

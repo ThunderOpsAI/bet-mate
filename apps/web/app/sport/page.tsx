@@ -16,6 +16,7 @@ import {
   Clock,
   Sparkles,
   RefreshCw,
+  BarChart3,
 } from "lucide-react";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
@@ -28,6 +29,7 @@ import SportMatchupDrawer, { type MatchupDrawerData } from "../components/sport/
 import ErrorBoundary from "../components/ErrorBoundary";
 import ErrorState from "../components/ErrorState";
 import RefreshControls from "../components/RefreshControls";
+import MultiWizardModal from "../components/multi-builder/MultiWizardModal";
 
 type SportKey = "all" | "afl" | "nrl" | "nba" | "soccer" | "mma" | "golf";
 
@@ -77,6 +79,7 @@ export default function SportDashboardPage() {
   const [refreshFailed, setRefreshFailed] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [drawerMatchup, setDrawerMatchup] = useState<MatchupDrawerData | null>(null);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
   const isMountedRef = useRef(true);
 
   const loadData = async () => {
@@ -299,7 +302,22 @@ export default function SportDashboardPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 self-start md:self-auto">
+        <div className="flex items-center gap-2.5 shrink-0 self-start md:self-auto flex-wrap">
+          <button
+            type="button"
+            onClick={() => setIsWizardOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white shadow-md shadow-purple-900/30 transition-all cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>⚡ Guided Multi Wizard</span>
+          </button>
+          <Link
+            href="/stats"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/25 transition-all shadow-sm"
+          >
+            <BarChart3 className="w-3.5 h-3.5" />
+            <span>Props & Hit Rates</span>
+          </Link>
           <RefreshControls
             lastUpdated={lastUpdated}
             isRefreshing={refreshing}
@@ -475,6 +493,12 @@ export default function SportDashboardPage() {
         isOpen={drawerMatchup !== null}
         onClose={() => setDrawerMatchup(null)}
         matchup={drawerMatchup}
+      />
+
+      {/* 6. Guided Multi Wizard Modal (Item 73) */}
+      <MultiWizardModal
+        isOpen={isWizardOpen}
+        onClose={() => setIsWizardOpen(false)}
       />
     </div>
   );

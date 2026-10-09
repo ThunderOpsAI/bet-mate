@@ -774,6 +774,12 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         },
         "odds_used": round(odds, 2),
         "odds_sources": odds_sources,
+        "correlation_score": model_pricing.get("correlation_score"),
+        "correlation_index": model_pricing.get("correlation_index"),
+        "health_grade": model_pricing.get("health_grade"),
+        "health_score": model_pricing.get("health_score"),
+        "scored_legs": model_pricing.get("scored_legs"),
+        "bookie_comparison": model_pricing.get("bookie_comparison"),
     }
 
 
