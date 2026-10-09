@@ -80,8 +80,36 @@ function HomePageContent() {
         return startMs > nowMs - 2 * 60 * 1000;
       });
 
+      let opps: RankedOpportunity[] = [];
+      let evCandidates: any[] = [];
+
+      try {
+        const evRes = await fetchWithTimeout(`/api/ev-feed/today`, { timeoutMs: 15000 });
+        if (evRes.ok) {
+          const evData = await safeResponseJson(evRes);
+          const legs: any[] = Array.isArray(evData) ? evData : (evData?.feed || []);
+          evCandidates = legs.map((leg) => ({
+            id: leg.id,
+            sport: leg.sport,
+            selectionName: leg.legDescription || leg.leg_description,
+            eventLabel: leg.gameContext || leg.game_context,
+            probability: leg.trueProb ?? leg.true_prob ?? 0.5,
+            fairOdds: (leg.trueProb ?? leg.true_prob ?? 0.5) > 0 ? 1 / (leg.trueProb ?? leg.true_prob ?? 0.5) : 2.0,
+            marketOdds: leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? null,
+            confidenceSignal: { tone: "strong", label: "Model Edge", icon: "zap" },
+            urgencySignal: { tone: "today", label: "Live Feed", icon: "clock" },
+            href: `/${leg.sport === 'racing' ? 'racing' : leg.sport}`,
+          }));
+        }
+      } catch (err) {
+        console.warn("EV Feed fetch failed:", err);
+      }
+
       if (racesData.length === 0) {
-        return { upcomingRaces: [], opportunities: [] };
+        return { 
+          upcomingRaces: [], 
+          opportunities: evCandidates.length > 0 ? rankOpportunities(evCandidates).slice(0, 5) : []
+        };
       }
 
       // 1. Map upcoming races
@@ -118,40 +146,7 @@ function HomePageContent() {
         };
       });
 
-      // 2. Map fallback High EV opportunities
-      const fallbackCandidates = racesData.flatMap((race) => {
-        if (!race.horses || race.horses.length === 0) return [];
-        const urgencySignal = getUrgencySignal({
-          startTime: race.start_time,
-          eventDate: race.meeting_date,
-        });
-        const confidenceSignal = getConfidenceSignal(null);
-
-        return race.horses.map((horse) => {
-          const mktOdds = horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : 3.8;
-          const impliedProb = 1 / mktOdds;
-          const winProb = Math.min(0.95, Number((impliedProb * 1.15).toFixed(3)));
-          const fairOdds = Math.max(1.01, Number((mktOdds * 0.87).toFixed(2)));
-
-          return {
-            id: `${race.race_id}-${horse.horse_id}`,
-            sport: "racing" as const,
-            selectionName: horse.name,
-            eventLabel: `${race.venue} R${race.race_number}`,
-            probability: winProb,
-            fairOdds: fairOdds,
-            marketOdds: horse.betfair_back_price && horse.betfair_back_price > 1 ? horse.betfair_back_price : null,
-            confidenceSignal,
-            urgencySignal,
-            eventTime: race.start_time || race.meeting_date,
-            href: raceType !== "T" ? `/racing?type=${raceType}` : "/racing",
-          };
-        });
-      });
-
-      let opps = rankOpportunities(fallbackCandidates).slice(0, 5);
-
-      // 3. Fetch ML predictions
+      // 2. Fetch ML predictions
       try {
         const predsRes = await fetchWithTimeout(`${ML_API}/api/predict/racing/batch`, {
           method: "POST",
@@ -160,9 +155,10 @@ function HomePageContent() {
           timeoutMs: 60000,
         });
         
+        let candidates: any[] = [];
         if (predsRes.ok) {
           const predsData: Record<string, RacePrediction> = (await safeResponseJson(predsRes)) || {};
-          const candidates = racesData.flatMap((race) => {
+          candidates = racesData.flatMap((race) => {
             const pred = predsData[race.race_id];
             if (!pred) return [];
             const confidenceSignal = getConfidenceSignal(pred.ai_insights_context);
@@ -187,12 +183,17 @@ function HomePageContent() {
               };
             });
           });
-          if (candidates.length > 0) {
-            opps = rankOpportunities(candidates).slice(0, 5);
-          }
+        }
+        
+        const allCandidates = [...evCandidates, ...candidates];
+        if (allCandidates.length > 0) {
+          opps = rankOpportunities(allCandidates).slice(0, 5);
         }
       } catch (err) {
-        console.warn("Prediction fetch failed, using fallback.", err);
+        console.warn("Prediction fetch failed:", err);
+        if (evCandidates.length > 0) {
+          opps = rankOpportunities(evCandidates).slice(0, 5);
+        }
       }
       
       return { upcomingRaces: mappedRaces, opportunities: opps };
@@ -340,7 +341,7 @@ function HomePageContent() {
   const upcomingSports = upcomingSportsData ?? [];
   const sportsError = sportsErrorObj ? sportsErrorObj.message : null;
 
-  const racingLinkHref = raceType !== "T" ? `/racing?type=${raceType}` : "/racing";
+  const racingLinkHref = "/high-ev";
 
   return (
     <ErrorBoundary sectionName="Home Landing">

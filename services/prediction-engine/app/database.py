@@ -494,6 +494,26 @@ def _run_sqlite_schema(conn):
     _ensure_sqlite_column(conn, "paper_bet_log", "system_bet_id", "INTEGER")
     _ensure_sqlite_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
     _ensure_sqlite_column(conn, "system_bets", "legs_json", "TEXT")
+    _ensure_sqlite_column(conn, "daily_strategy_runs", "strategy_variant", "TEXT")
+    _ensure_sqlite_column(conn, "daily_strategy_runs", "leg_count", "INTEGER")
+    _ensure_sqlite_column(conn, "system_bets", "strategy_variant", "TEXT")
+    _ensure_sqlite_column(conn, "system_bets", "leg_count", "INTEGER")
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS daily_ev_feed (
+            id TEXT PRIMARY KEY,
+            sport TEXT NOT NULL,
+            game_context TEXT NOT NULL,
+            leg_description TEXT NOT NULL,
+            true_prob REAL NOT NULL,
+            best_odds REAL NOT NULL,
+            edge_pct REAL NOT NULL,
+            correlation_group TEXT,
+            back_price REAL,
+            lay_price REAL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
 
     # Indexes
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
@@ -670,6 +690,26 @@ def _run_pg_schema(cursor):
     cursor.execute("ALTER TABLE paper_bet_log ALTER COLUMN user_id SET DEFAULT 'legacy'")
     cursor.execute("ALTER TABLE paper_bet_log ALTER COLUMN user_id SET NOT NULL")
     cursor.execute("ALTER TABLE system_bets ADD COLUMN IF NOT EXISTS legs_json JSONB")
+    cursor.execute("ALTER TABLE daily_strategy_runs ADD COLUMN IF NOT EXISTS strategy_variant TEXT")
+    cursor.execute("ALTER TABLE daily_strategy_runs ADD COLUMN IF NOT EXISTS leg_count INTEGER")
+    cursor.execute("ALTER TABLE system_bets ADD COLUMN IF NOT EXISTS strategy_variant TEXT")
+    cursor.execute("ALTER TABLE system_bets ADD COLUMN IF NOT EXISTS leg_count INTEGER")
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS daily_ev_feed (
+            id TEXT PRIMARY KEY,
+            sport TEXT NOT NULL,
+            game_context TEXT NOT NULL,
+            leg_description TEXT NOT NULL,
+            true_prob DOUBLE PRECISION NOT NULL,
+            best_odds DOUBLE PRECISION NOT NULL,
+            edge_pct DOUBLE PRECISION NOT NULL,
+            correlation_group TEXT,
+            back_price DOUBLE PRECISION,
+            lay_price DOUBLE PRECISION,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
 
     # Indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")

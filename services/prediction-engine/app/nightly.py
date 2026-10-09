@@ -57,11 +57,11 @@ def ingest_completed_results(
     afl_year: Optional[int] = None,
     nba_days_back: int = 7,
 ) -> Dict[str, Any]:
-    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba", "racing")) if str(sport).strip()}
+    requested = {sport.strip().lower() for sport in (sports or ("afl", "nba", "racing", "nfl")) if str(sport).strip()}
     if "all" in requested:
-        requested = {"afl", "nba", "racing"}
+        requested = {"afl", "nba", "racing", "nfl"}
 
-    unsupported = sorted(requested - {"afl", "nba", "racing"})
+    unsupported = sorted(requested - {"afl", "nba", "racing", "nfl"})
     if unsupported:
         raise ValueError(f"Result ingestion is not available for: {', '.join(unsupported)}")
 
@@ -169,11 +169,11 @@ def run_nightly_cycle(
     ingestion = {
         "skipped": True,
         "reason": "ingestion disabled",
-        "sports": list(ingest_sports or ("afl", "nba", "racing")),
+        "sports": list(ingest_sports or ("afl", "nba", "racing", "nfl")),
     }
     if ingest_results_enabled:
         ingestion = ingest_completed_results(
-            sports=ingest_sports or ("afl", "nba", "racing"),
+            sports=ingest_sports or ("afl", "nba", "racing", "nfl"),
             max_results=max_results,
             afl_year=afl_year,
             nba_days_back=nba_days_back,

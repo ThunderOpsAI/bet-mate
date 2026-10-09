@@ -251,25 +251,7 @@ export class RealtimeFlucsService extends EventEmitter {
     });
   }
 
-  /**
-   * Helper to simulate fluc ticks for demo or testing purposes
-   */
-  public simulateTick(raceId: string, runnerId?: string): FlucUpdateEvent | null {
-    const snapshot = this.getRaceSnapshot(raceId);
-    const runnerIds = Object.keys(snapshot.runners);
-    if (runnerIds.length === 0) return null;
 
-    const targetId = runnerId || runnerIds[Math.floor(Math.random() * runnerIds.length)];
-    const runner = snapshot.runners[targetId];
-    if (!runner) return null;
-
-    // Simulate price fluctuation (-5% to +5%)
-    const delta = (Math.random() - 0.5) * 0.1 * runner.currentOdds;
-    let newOdds = Number((runner.currentOdds + delta).toFixed(2));
-    if (newOdds < 1.1) newOdds = 1.1;
-
-    return this.recordFluc(raceId, targetId, newOdds, runner.runnerName);
-  }
 }
 
 export const realtimeFlucsService = new RealtimeFlucsService();

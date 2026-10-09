@@ -120,7 +120,8 @@ export default function OpportunitySection({
             );
 
             const displayOdds = opp.marketOdds ?? opp.fairOdds;
-            const probPct = (opp.probability * 100).toFixed(1);
+            const rawProb = opp.probability > 1 ? opp.probability : opp.probability * 100;
+            const probPct = Math.min(99.9, Math.max(0.1, rawProb)).toFixed(1);
 
             return (
               <article

@@ -6,6 +6,7 @@ import { ArrowLeft, Star, TrendingUp, AlertTriangle, Bookmark, Check, Plus } fro
 import { API_BASE, safeResponseJson } from "../../lib/api";
 import { useBlackbookQuickAdd } from "../../lib/useBlackbookQuickAdd";
 import ErrorBoundary from "../../components/ErrorBoundary";
+import RunnerMultiActions from "../../components/racing/RunnerMultiActions";
 
 type Prediction = {
   horseName: string;
@@ -298,6 +299,33 @@ export default function RaceDetailPage() {
                       ${pred.odds.toFixed(2)}
                     </div>
                   )}
+                </div>
+
+                {/* Item 56 & Item 57: Multi / Banker / Roughie Actions & Odds / Edge comparison */}
+                <div className="pt-2.5 border-t border-slate-800/80 w-full flex items-center justify-between flex-wrap gap-2">
+                  <RunnerMultiActions
+                    runnerId={pred.horseName}
+                    runnerName={pred.horseName}
+                    barrier={pred.barrier}
+                    race={{
+                      race_id: race.id,
+                      venue: race.venue || "Venue",
+                      race_number: race.raceNumber,
+                      start_time: race.raceDate,
+                      meeting_date: race.raceDate,
+                    }}
+                    modelRank={pred.finishPosition || i + 1}
+                    winProbability={pred.winProbability}
+                    fairOdds={pred.winProbability > 0 ? 1 / pred.winProbability : undefined}
+                    marketOdds={pred.odds}
+                    edgePercent={
+                      pred.winProbability > 0 && pred.odds
+                        ? ((pred.odds / (1 / pred.winProbability)) - 1) * 100
+                        : null
+                    }
+                    compact={false}
+                    showOddsComparison={true}
+                  />
                 </div>
               </div>
             );

@@ -410,6 +410,7 @@ def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] =
             continue
         if not _allowlist_allows_meeting(prepared):
             continue
+        prepared = _enrich_with_racing_australia(prepared)
         prepared_races.append(prepared)
 
     if include_futures:
@@ -541,36 +542,44 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
     
     all_markets = []
     from_record = 0
-    page_size = 200
+    page_size = 1000
 
-    market_filter = {
-        "filter": {
-            "eventTypeIds": event_type_ids,
-            "marketCountries": ["AU", "NZ", "HK"],
-            "marketTypeCodes": ["WIN"],
-            "marketStartTime": market_start_time,
-        },
-        "maxResults": page_size,
-        "sort": "FIRST_TO_START",
-        "marketProjection": [
-            "EVENT",
-            "RUNNER_DESCRIPTION",
-            "MARKET_START_TIME",
-            "MARKET_DESCRIPTION",
-            "RUNNER_METADATA",
-        ],
-    }
+    while True:
+        market_filter = {
+            "filter": {
+                "eventTypeIds": event_type_ids,
+                "marketCountries": ["AU", "NZ", "HK"],
+                "marketTypeCodes": ["WIN"],
+                "marketStartTime": market_start_time,
+            },
+            "maxResults": page_size,
+            "from": str(from_record),
+            "sort": "FIRST_TO_START",
+            "marketProjection": [
+                "EVENT",
+                "RUNNER_DESCRIPTION",
+                "MARKET_START_TIME",
+                "MARKET_DESCRIPTION",
+                "RUNNER_METADATA",
+            ],
+        }
 
-    response = requests.post(
-        api_url,
-        data=json.dumps(market_filter),
-        headers=headers,
-        timeout=15,
-    )
-    if response.status_code != 200:
-        print(f"[Betfair] listMarketCatalogue error: {response.text}")
-    response.raise_for_status()
-    all_markets = response.json()
+        response = requests.post(
+            api_url,
+            data=json.dumps(market_filter),
+            headers=headers,
+            timeout=15,
+        )
+        if getattr(response, "status_code", 200) != 200:
+            print(f"[Betfair] listMarketCatalogue error: {getattr(response, 'text', '')}")
+        response.raise_for_status()
+        batch = response.json()
+        if not batch:
+            break
+        all_markets.extend(batch)
+        if len(batch) < page_size:
+            break
+        from_record += len(batch)
 
     if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
@@ -724,7 +733,7 @@ def _prepare_race_card(race: dict, default_meeting_date: Optional[str] = None) -
     meeting_region = (
         allowlist_entry.get("region", "")
         if allowlist_entry
-        else country_code
+        else race.get("meeting_region", "")
     )
     meeting_type = allowlist_entry.get("meeting_type", "unknown") if allowlist_entry else "unknown"
     state = allowlist_entry.get("state", "") if allowlist_entry else ""

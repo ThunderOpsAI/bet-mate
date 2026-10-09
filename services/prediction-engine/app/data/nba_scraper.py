@@ -85,7 +85,7 @@ def _is_back_to_back(state, game_at) -> int:
     return int((game_at.date() - last_game_at.date()).days == 1)
 
 
-def fetch_historical_nba_training_data(start_season=None, end_season=None, min_rows=200, max_pages_per_season=2):
+def fetch_historical_nba_training_data(start_season=None, end_season=None, min_rows=200, max_pages_per_season=15):
     """
     Build supervised training rows from completed Ball Don't Lie games.
     Features use each team's state before the current game, then update state
@@ -94,7 +94,7 @@ def fetch_historical_nba_training_data(start_season=None, end_season=None, min_r
     current_year = datetime.now().year
     current_season = current_year if datetime.now().month >= 10 else current_year - 1
     end_season = end_season or current_season
-    start_season = start_season or end_season
+    start_season = start_season or (current_season - 2)
 
     raw_games = []
     for season in range(start_season, end_season + 1):

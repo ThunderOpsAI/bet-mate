@@ -68,6 +68,8 @@ const createExoticBetSchema = z.object({
 });
 
 const multiLegSchema = z.object({
+  sport: z.string().optional(),
+  gameContext: z.string().optional(),
   marketType: z.string().min(1),
   selectionId: z.string().optional(),
   selectionLabel: z.string().min(1),
@@ -78,12 +80,17 @@ const multiLegSchema = z.object({
 });
 
 const createMultiBetSchema = z.object({
-  multiType: z.enum(["SGM", "SRM"]),
-  eventType: z.string().min(1),
-  eventId: z.string().min(1),
-  eventName: z.string().min(1),
+  multiType: z.string().min(1).default("SGM"),
+  eventType: z.string().min(1).default("multi"),
+  eventId: z.string().min(1).default("multi"),
+  eventName: z.string().min(1).default("Multi Bet"),
   stake: z.number().positive(),
   legs: z.array(multiLegSchema).min(2),
+  fairOdds: z.number().positive().optional(),
+  adjustedOdds: z.number().positive().optional(),
+  adjustedProbability: z.number().gt(0).lt(1).optional(),
+  correlationHaircut: z.number().optional(),
+  edgePct: z.number().optional(),
 });
 
 function uniqueCount(values: string[]) {
@@ -260,8 +267,8 @@ router.post("/exotics", async (req: AuthRequest, res) => {
   }
 });
 
-// POST /api/bets/sgm — log same-game or same-race multi with correlation-adjusted odds
-router.post("/sgm", async (req: AuthRequest, res) => {
+// POST /api/bets/sgm & /api/bets/multi — log same-game, same-race, or cross-sport multi
+const handleCreateMulti = async (req: AuthRequest, res: any) => {
   const parsed = createMultiBetSchema.safeParse(req.body);
   if (!parsed.success) {
     return res
@@ -271,7 +278,14 @@ router.post("/sgm", async (req: AuthRequest, res) => {
 
   const userId = req.userId!;
   const data = parsed.data;
-  const pricing = priceMulti(data.legs);
+  const defaultPricing = priceMulti(data.legs);
+  const pricing = {
+    fairOdds: data.fairOdds ?? defaultPricing.fairOdds,
+    adjustedOdds: data.adjustedOdds ?? defaultPricing.adjustedOdds,
+    impliedProbability: data.adjustedProbability ?? defaultPricing.impliedProbability,
+    correlationHaircut: data.correlationHaircut ?? defaultPricing.correlationHaircut,
+    edgePct: data.edgePct ?? null,
+  };
 
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -288,11 +302,22 @@ router.post("/sgm", async (req: AuthRequest, res) => {
           eventId: data.eventId,
           eventName: data.eventName,
           stake: data.stake,
-          ...pricing,
+          fairOdds: pricing.fairOdds,
+          adjustedOdds: pricing.adjustedOdds,
+          impliedProbability: pricing.impliedProbability,
+          correlationHaircut: pricing.correlationHaircut,
+          edgePct: pricing.edgePct,
           legs: {
             create: data.legs.map((leg) => ({
-              ...leg,
-              probability: leg.probability ?? 1 / leg.odds,
+              sport: leg.sport || null,
+              gameContext: leg.gameContext || null,
+              marketType: leg.marketType,
+              selectionId: leg.selectionId || null,
+              selectionLabel: leg.selectionLabel,
+              odds: leg.odds,
+              probability: leg.probability ?? (leg.odds > 1 ? 1 / leg.odds : 0.5),
+              correlationGroup: leg.correlationGroup || null,
+              line: leg.line ?? null,
             })),
           },
         },
@@ -318,7 +343,42 @@ router.post("/sgm", async (req: AuthRequest, res) => {
     console.error("Multi bet creation error:", err);
     return res.status(500).json({ error: "Failed to create multi bet" });
   }
-});
+};
+
+router.post("/sgm", handleCreateMulti);
+router.post("/multi", handleCreateMulti);
+
+// POST /api/bets/multi/price & /api/bets/sgm/price
+const handlePriceMulti = async (req: AuthRequest, res: any) => {
+  try {
+    const { legs, sport } = req.body;
+    if (!Array.isArray(legs) || legs.length < 2) {
+      return res.status(400).json({ error: "At least 2 legs required" });
+    }
+    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    try {
+      const mlRes = await fetch(`${mlApi}/api/sgm/price`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sport: sport || "nba", legs }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (mlRes.ok) {
+        const mlPrice = await mlRes.json();
+        return res.json(mlPrice);
+      }
+    } catch {
+      // ML API unreachable, fallback to local pricing calculation
+    }
+    const fallbackPricing = priceMulti(legs);
+    return res.json(fallbackPricing);
+  } catch (err: any) {
+    return res.status(500).json({ error: "Failed to price multi" });
+  }
+};
+
+router.post("/sgm/price", handlePriceMulti);
+router.post("/multi/price", handlePriceMulti);
 
 // POST /api/bets — log a new bet
 router.post("/", async (req: AuthRequest, res) => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState , useMemo} from "react";
 import type {
   BobExplanation,
   FeatureImpactItem,
@@ -154,6 +154,7 @@ async function fetchMmaPredictions(games: MMAMatchup[]) {
 
 export default function MMAPage() {
   const [games, setGames] = useState<MMAMatchup[]>([]);
+  const [sortMode, setSortMode] = useState<"time" | "win_probability" | "edge_percent">("time");
   const [predictions, setPredictions] = useState<Record<string, MMAPrediction>>(
     {},
   );
@@ -167,6 +168,41 @@ export default function MMAPage() {
   const [activeExplanation, setActiveExplanation] = useState<BobExplanation | null>(
     null,
   );
+
+  const sortedGames = useMemo(() => {
+    const list = games.filter(game => game.home_team !== "Team None" && game.away_team !== "Team None");
+    return list.sort((a, b) => {
+      if (sortMode === "time") {
+        const timeA = a.date ? new Date(a.date).getTime() : Infinity;
+        const timeB = b.date ? new Date(b.date).getTime() : Infinity;
+        return timeA - timeB;
+      }
+      
+      const predA = predictions[a.game_id]?.predictions;
+      const predB = predictions[b.game_id]?.predictions;
+      
+      if (sortMode === "win_probability") {
+        const maxProbA = predA ? Math.max(predA.home_win_probability ?? 50, predA.away_win_probability ?? 50) : 0;
+        const maxProbB = predB ? Math.max(predB.home_win_probability ?? 50, predB.away_win_probability ?? 50) : 0;
+        return maxProbB - maxProbA;
+      }
+      
+      if (sortMode === "edge_percent") {
+        const edgeAHome = predA && predA.market_odds_home && predA.home_win_probability ? ((predA.home_win_probability / 100) * predA.market_odds_home) - 1 : 0;
+        const edgeAAway = predA && predA.market_odds_away && predA.away_win_probability ? ((predA.away_win_probability / 100) * predA.market_odds_away) - 1 : 0;
+        const maxEdgeA = Math.max(edgeAHome, edgeAAway);
+        
+        const edgeBHome = predB && predB.market_odds_home && predB.home_win_probability ? ((predB.home_win_probability / 100) * predB.market_odds_home) - 1 : 0;
+        const edgeBAway = predB && predB.market_odds_away && predB.away_win_probability ? ((predB.away_win_probability / 100) * predB.market_odds_away) - 1 : 0;
+        const maxEdgeB = Math.max(edgeBHome, edgeBAway);
+        
+        return maxEdgeB - maxEdgeA;
+      }
+      
+      return 0;
+    });
+  }, [games, predictions, sortMode]);
+
   const isMountedRef = useRef(true);
   const refreshingRef = useRef(false);
 
@@ -382,8 +418,23 @@ export default function MMAPage() {
           </ErrorBoundary>
 
           <ErrorBoundary sectionName="MMA predictions">
-            <div className="game-cards-list">
-              {games.map((game) => {
+            
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-4 px-1">
+          <h2 className="text-xl font-extrabold text-slate-100 flex items-center gap-2">
+            Matchups
+          </h2>
+          <select
+            value={sortMode}
+            onChange={(e) => setSortMode(e.target.value as any)}
+            className="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:border-emerald-500 w-full sm:w-auto"
+          >
+            <option value="time">Sort by Time</option>
+            <option value="win_probability">Highest Win Prob</option>
+            <option value="edge_percent">Highest Edge %</option>
+          </select>
+        </div>
+        <div className="game-cards-list">
+          {sortedGames.map((game) => {
                 const prediction = predictions[game.game_id];
                 const gameComplete = Number(game.complete ?? 0);
                 const scoreLabel = gameComplete >= 100 ? "Final Fight Result" : null;

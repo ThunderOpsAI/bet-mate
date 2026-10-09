@@ -73,7 +73,7 @@ def test_best_edge_cross_sport_selection_beats_strict_sport_fallback():
 
 def test_bankroll_allocation_respects_caps_and_max_stake():
     candidates = []
-    for index, sport in enumerate(["racing", "afl", "nba", "racing", "afl"]):
+    for index, sport in enumerate(["racing", "afl", "nba", "nfl", "racing", "afl"]):
         candidates.append(
             {
                 "sport": sport,

@@ -48,3 +48,4 @@ services/prediction-engine/client-2048.crt
 services/prediction-engine/client-2048.key
 # Added by code-review-graph
 .code-review-graph/
+.vercel

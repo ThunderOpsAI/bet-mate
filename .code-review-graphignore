@@ -1,0 +1,4 @@
+# Ignore agent configs and skills
+.agents/
+.kiro/
+.github/

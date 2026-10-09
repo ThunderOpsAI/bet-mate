@@ -105,6 +105,10 @@ ALLOWED_SCOPE_HINTS = [
     "paper bet",
     "system bet",
     "today",
+    "multi",
+    "multis",
+    "sgm",
+    "parlay",
 ]
 
 
@@ -171,6 +175,21 @@ def build_local_bob_fallback(messages: List[Dict[str, str]], bob_context: Dict[s
             f"Recorded edge was {item['edge']:.4f} and odds provenance was {item['odds_source']}."
         )
 
+    if any(k in latest_question.casefold() for k in ["multi", "multis", "parlay", "sgm"]):
+        bobs_multis = get_bobs_daily_multis(date=bob_context.get("card_date"))
+        if bobs_multis.get("multis"):
+            top_m = bobs_multis["multis"][0]
+            return (
+                f"{latest_question}\n\n"
+                f"Bob's top multi recommendation today has {top_m['leg_count']} legs at ${top_m['actual_odds']:.2f} odds "
+                f"with +{top_m['combined_edge_pct']:.1f}% EV and Health Grade {top_m['health_grade']}. "
+                f"{top_m.get('bob_rationale', top_m.get('rationale', ''))}"
+            )
+        return (
+            f"{latest_question}\n\n"
+            f"Bob has no qualifying multis for {bob_context['card_date']} that meet our value and risk criteria."
+        )
+
     if top_bet:
         return (
             f"{latest_question}\n\n"
@@ -187,6 +206,16 @@ def build_local_bob_fallback(messages: List[Dict[str, str]], bob_context: Dict[s
     )
 
 
+def get_bobs_daily_multis(
+    date: str | None = None,
+    sports: Sequence[str] | str | None = None,
+    candidate_pool: Sequence[Mapping[str, Any]] | None = None,
+    bankroll: float = 1000.0,
+) -> Dict[str, Any]:
+    from app.recommendations import generate_bobs_multis
+    return generate_bobs_multis(date=date, sports=sports, candidate_pool=candidate_pool, bankroll=bankroll)
+
+
 def build_bob_provider_from_env():
     api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
@@ -194,3 +223,4 @@ def build_bob_provider_from_env():
     model = os.getenv("BETMATE_BOB_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
     timeout_seconds = float(os.getenv("BETMATE_BOB_TIMEOUT_SECONDS", "30") or 30)
     return GeminiBobProvider(api_key=api_key, model=model, timeout_seconds=timeout_seconds)
+

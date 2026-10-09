@@ -26,6 +26,7 @@ class StrategyService:
     racing_predictor: Any
     afl_predictor: Any
     nba_predictor: Any
+    nfl_predictor: Any = None
 
     def get_or_create_card(self, profile_key: str, run_date: str, candidates: Optional[List[Dict[str, Any]]] = None):
         existing = storage.get_strategy_card(profile_key, run_date)
@@ -66,11 +67,74 @@ class StrategyService:
         candidates.extend(self._racing_candidates(run_date))
         candidates.extend(self._afl_candidates(run_date))
         candidates.extend(self._nba_candidates(run_date))
+        candidates.extend(self._nfl_candidates(run_date))
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
+
+        # Rank single legs by Edge % = (model_probability * odds_used) - 1.0 and upsert Top 10 EV Feed
+        ev_legs = []
+        for c in candidates:
+            prob = float(c.get("model_probability") or 0.0)
+            odds = float(c.get("market_odds") or c.get("odds_used") or c.get("derived_odds") or 0.0)
+            if prob > 0 and odds > 1:
+                edge_pct = round(((prob * odds) - 1.0) * 100.0, 2)
+                ev_legs.append({
+                    "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
+                    "sport": c.get("sport", "nba"),
+                    "game_context": c.get("event_name", ""),
+                    "leg_description": f"{c.get('selection')} to Win",
+                    "true_prob": round(prob, 4),
+                    "best_odds": round(odds, 2),
+                    "edge_pct": edge_pct,
+                    "back_price": round(odds, 2),
+                    "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
+                    "correlation_group": c.get("event_id"),
+                })
+        ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
+        if ev_legs:
+            try:
+                storage.upsert_daily_ev_feed(ev_legs[:10])
+            except Exception as e:
+                print(f"[Strategy] Failed to upsert daily_ev_feed: {e}")
+
+        return candidates
+
+    def _nfl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
+        if not self.nfl_predictor:
+            return []
+        candidates: List[Dict[str, Any]] = []
+        try:
+            import nfl_data_py as nfl
+            from datetime import datetime
+            dt = datetime.fromisoformat(run_date) if run_date else datetime.now()
+            schedules = nfl.import_schedules([dt.year])
+            today_str = dt.strftime("%Y-%m-%d")
+            games = schedules[schedules["gameday"] == today_str]
+            for _, g in games.iterrows():
+                home = str(g["home_team"])
+                away = str(g["away_team"])
+                features = {
+                    "epa_diff": 0.0,
+                    "rest_diff": float(g.get("home_rest", 7) - g.get("away_rest", 7)),
+                    "is_dome": 1.0 if str(g.get("roof", "")).lower() in ["dome", "closed"] else 0.0,
+                    "spread_line": float(g.get("spread_line", 0.0)),
+                }
+                pred = self.nfl_predictor.predict(features)
+                home_p = pred["home_win_prob"]
+                away_p = pred["away_win_prob"]
+                game_obj = {
+                    "game_id": str(g.get("game_id", f"nfl_{home}_{away}")),
+                    "home_team": home,
+                    "away_team": away,
+                    "features": features,
+                }
+                candidates.extend([
+                    build_head_to_head_candidate("nfl", game_obj, home, home_p, 0.5),
+                    build_head_to_head_candidate("nfl", game_obj, away, away_p, 0.5),
+                ])
+        except Exception as exc:
+            print(f"[NFL] Candidates note: {exc}")
         return candidates
 
 
@@ -162,9 +226,7 @@ class StrategyService:
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
@@ -210,9 +272,7 @@ class StrategyService:
                 build_head_to_head_candidate("afl", game, game["away_team"], away_probability, baseline_away),
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
@@ -258,9 +318,7 @@ class StrategyService:
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
-            import threading
-            logs_copy = self._racing_logs[:]
-            threading.Thread(target=storage.log_prediction_batch, args=("racing", "BATCH", "BATCH", logs_copy, None)).start()
+            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
 
@@ -422,9 +480,9 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     selected = []
     per_sport_cap = {
         sport: bankroll_available * float(rule_set["sport_weights"].get(sport, 0.0))
-        for sport in ("racing", "afl", "nba")
+        for sport in ("racing", "afl", "nba", "nfl")
     }
-    per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba")}
+    per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba", "nfl")}
     selection_pool = []
     
     # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
@@ -596,7 +654,7 @@ def build_multi_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]
         combined_probability *= leg_probability
         implied_probability *= (1 / leg_odds)
         sport = str(leg.get("sport", "")).strip().lower()
-        if sport in {"racing", "afl", "nba"}:
+        if sport in {"racing", "afl", "nba", "nfl"}:
             sport_counts[sport] = sport_counts.get(sport, 0) + 1
         normalized_legs.append(
             {
@@ -667,7 +725,7 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         })
 
         leg_sport = str(leg.get("sport", "")).strip().lower()
-        if leg_sport in {"racing", "afl", "nba"}:
+        if leg_sport in {"racing", "afl", "nba", "nfl"}:
             sport_counts[leg_sport] = sport_counts.get(leg_sport, 0) + 1
             
         normalized_legs.append(
@@ -716,6 +774,12 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         },
         "odds_used": round(odds, 2),
         "odds_sources": odds_sources,
+        "correlation_score": model_pricing.get("correlation_score"),
+        "correlation_index": model_pricing.get("correlation_index"),
+        "health_grade": model_pricing.get("health_grade"),
+        "health_score": model_pricing.get("health_score"),
+        "scored_legs": model_pricing.get("scored_legs"),
+        "bookie_comparison": model_pricing.get("bookie_comparison"),
     }
 
 
@@ -772,10 +836,10 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
         return {
             sport: float(weight)
             for sport, weight in allocation.items()
-            if sport in {"racing", "afl", "nba"} and float(weight) > 0
+            if sport in {"racing", "afl", "nba", "nfl"} and float(weight) > 0
         }
     sport = candidate.get("sport")
-    if sport in {"racing", "afl", "nba"}:
+    if sport in {"racing", "afl", "nba", "nfl"}:
         return {sport: 1.0}
     return {}
 
@@ -783,7 +847,7 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
 def _candidate_supports_multi_settlement(candidate: Dict[str, Any]) -> bool:
     sport = str(candidate.get("sport", "")).strip().lower()
     market_type = str(candidate.get("market_type", "")).strip().lower()
-    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba"})
+    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba", "nfl"})
 
 
 def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:

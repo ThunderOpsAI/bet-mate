@@ -420,28 +420,57 @@ export default function StrategyPage() {
 function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
   const isMulti = bet.market_type === "multi" || bet.market_type === "sgm";
   const displaySport = isMulti ? "SRM" : bet.sport.slice(0, 1).toUpperCase();
-  const displayEvent = isMulti ? (bet.legs?.[0]?.event_name || "Multi") : `${bet.event_name} · ${bet.market_type}`;
+  
+  // Extract race number from event_name or event_id for racing bets
+  const raceMatch = bet.event_name?.match(/\b(?:R|Race\s*)(\d+)\b/i) || bet.event_id?.match(/[-_r](\d+)$/i);
+  const raceNumber = raceMatch ? `R${raceMatch[1]}` : null;
+  const venueClean = bet.event_name ? bet.event_name.replace(/\b(?:R|Race\s*)\d+\b/gi, "").trim() : "";
   
   return (
     <div className="bg-slate-900/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3 shadow-sm flex items-center justify-between gap-4 transition-all shrink-0">
        {/* Event and Selection on the left */}
        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-500/30">
+          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-500/30 shrink-0">
                {displaySport}
              </span>
-             <span className="text-xs text-slate-400 truncate">
-               {displayEvent}
+             {raceNumber && (
+               <span className="text-[10px] font-black font-mono text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded border border-amber-500/30 shrink-0">
+                 {raceNumber}
+               </span>
+             )}
+             <span className="text-xs text-slate-300 font-medium truncate">
+               {isMulti ? (bet.legs?.[0]?.event_name || "Multi") : (venueClean || bet.event_name)}
              </span>
+             {!isMulti && (
+               <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded shrink-0">
+                 {bet.market_type}
+               </span>
+             )}
           </div>
           <div className="flex flex-col gap-1.5">
              {isMulti && bet.legs && bet.legs.length > 0 ? (
-               bet.legs.map((leg, i) => (
-                 <div key={i} className="text-sm font-semibold text-slate-200 flex items-center gap-2 truncate">
-                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                   <span className="truncate">{leg.selection}</span>
-                 </div>
-               ))
+               bet.legs.map((leg, i) => {
+                 const legRaceMatch = leg.event_name?.match(/\b(?:R|Race\s*)(\d+)\b/i) || leg.event_id?.match(/[-_r](\d+)$/i);
+                 const legRace = legRaceMatch ? `R${legRaceMatch[1]}` : null;
+                 const legVenueClean = leg.event_name ? leg.event_name.replace(/\b(?:R|Race\s*)\d+\b/gi, "").trim() : "";
+                 return (
+                   <div key={i} className="text-xs font-semibold text-slate-200 flex items-center gap-1.5 truncate">
+                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                     {legRace && (
+                       <span className="text-[10px] font-black font-mono text-amber-300 bg-amber-500/20 px-1.5 py-0.2 rounded shrink-0">
+                         {legRace}
+                       </span>
+                     )}
+                     <span className="truncate">{leg.selection}</span>
+                     {legVenueClean && (
+                       <span className="text-[11px] text-slate-400 font-normal truncate">
+                         · {legVenueClean}
+                       </span>
+                     )}
+                   </div>
+                 );
+               })
              ) : (
                <div className="text-sm font-semibold text-slate-200 flex items-center gap-2 truncate">
                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>

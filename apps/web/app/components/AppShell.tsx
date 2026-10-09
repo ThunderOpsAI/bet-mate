@@ -13,6 +13,7 @@ import {
   Info,
   X,
   Home,
+  Calendar,
   Trophy,
   Zap,
   FlaskConical,
@@ -144,7 +145,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell flex flex-col min-h-screen">
       <div className="main-area flex-1 flex flex-col min-w-0">
-        <header className="top-header px-3 sm:px-6 flex items-center justify-between gap-2 overflow-hidden">
+        <header className="top-header px-3 sm:px-6 flex items-center justify-between gap-2">
           <div className="top-header-primary shrink-0 min-w-0 flex items-center">
             <Link href="/" className="flex items-center gap-1.5 group shrink-0">
               <Image
@@ -160,6 +161,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <h2 className="hidden md:block text-slate-200 text-sm font-semibold ml-2 border-l border-slate-700/60 pl-3 truncate">
               {getPageTitle(pathname)}
             </h2>
+            <Link
+              href="/today"
+              className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all ml-2.5 ${
+                pathname === "/today"
+                  ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                  : "bg-slate-900 text-slate-300 hover:text-white border border-slate-800"
+              }`}
+            >
+              <Calendar size={13} className="text-cyan-400" />
+              <span>Today</span>
+            </Link>
           </div>
 
           <div className="flex-1 mx-4 hidden lg:block max-w-xl">
@@ -349,7 +361,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         {/* Global Footer & Responsible Gambling Compliance */}
-        <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16 md:mb-0">
+        <footer className="w-full bg-slate-950/90 border-t border-slate-800/80 py-6 px-4 text-center text-xs text-slate-400 mt-auto mb-16">
           <div className="max-w-4xl mx-auto space-y-3">
             <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 max-w-2xl mx-auto text-slate-300 font-semibold space-y-1">
               <div className="flex items-center justify-center gap-1.5 text-amber-400">
@@ -375,6 +387,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           >
             <Home size={20} />
             <span>Home</span>
+          </Link>
+          <Link
+            href="/today"
+            className={`bottom-nav-item ${pathname === "/today" ? "active" : ""}`}
+          >
+            <Calendar size={20} />
+            <span>Today</span>
           </Link>
           <Link
             href="/racing"
@@ -430,8 +449,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
 function getPageTitle(path: string) {
   if (path === "/") return "Home";
+  if (path === "/today") return "Today Hub";
   if (path === "/racing") return "Racing Predictions";
   if (path === "/sport") return "Sports Dashboard";
+  if (path === "/stats/custom-query") return "Custom Stat Builder";
+  if (path === "/track-record") return "Model Track Record";
   if (path === "/afl") return "AFL Predictions";
   if (path === "/nba") return "NBA Predictions";
   if (path === "/nrl") return "NRL Predictions";

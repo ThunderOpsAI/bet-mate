@@ -93,7 +93,7 @@ body {
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 /* ---- Scrollbar ---- */
@@ -111,7 +111,6 @@ body {
   display: flex;
   min-height: 100vh;
   min-width: 0;
-  overflow-x: hidden;
   width: 100%;
 }
 
@@ -260,26 +259,26 @@ body {
 
 .main-area {
   flex: 1;
-  margin-left: var(--sidebar-width);
+  margin-left: 0;
   display: flex;
   flex-direction: column;
   min-height: 100vh;
   min-width: 0;
-  overflow-x: hidden;
   max-width: 100%;
 }
 
 .top-header {
   height: var(--header-height);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid rgba(45, 212, 191, 0.22);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 1.5rem;
   position: sticky;
   top: 0;
-  background: rgba(15, 23, 42, 0.95);
+  background: rgba(32, 86, 94, 0.96);
   backdrop-filter: blur(12px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
   z-index: 50;
   color: #ffffff;
 }
@@ -4321,17 +4320,18 @@ button:disabled {
   }
 }
 
-/* ---- Mobile Bottom Navigation ---- */
+/* ---- Bottom Navigation Bar (Consistent Across Web & Mobile) ---- */
 .mobile-bottom-nav {
-  display: none;
+  display: flex;
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   height: 64px;
-  background: rgba(15, 23, 42, 0.97);
+  background: rgba(32, 86, 94, 0.98);
   backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(45, 212, 191, 0.22);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.25);
   z-index: 50;
   justify-content: space-around;
   align-items: center;
@@ -4348,7 +4348,7 @@ button:disabled {
   gap: 0.2rem;
   padding: 0.4rem 0.75rem;
   border-radius: 8px;
-  color: var(--text-muted);
+  color: #cbd5e1;
   font-size: 0.65rem;
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -4382,14 +4382,8 @@ button:disabled {
   border-radius: 1px;
 }
 
-@media (max-width: 768px) {
-  .mobile-bottom-nav {
-    display: flex;
-  }
-  
-  .page-content {
-    padding-bottom: 80px;
-  }
+.page-content {
+  padding-bottom: 80px;
 }
 
 /* ---- Racing / Sport Lab Design System Enhancements ---- */

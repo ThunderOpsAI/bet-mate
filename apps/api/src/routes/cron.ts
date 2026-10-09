@@ -29,7 +29,7 @@ function getMelbourneMonthStart(): Date {
 }
 
 // Weekly 10k Virtual Bankroll Reset Cron (Every Monday, 00:00 Australia/Melbourne)
-router.post("/weekly-reset", async (req, res) => {
+router.all("/weekly-reset", async (req, res) => {
   try {
     const melbourneNow = getMelbourneTime();
     const isMonday = melbourneNow.getDay() === 1;
@@ -38,13 +38,25 @@ router.post("/weekly-reset", async (req, res) => {
     if (isMonday || isForce) {
       // 1. Calculate previous week champion before resetting
       const allBankrolls = await prisma.bankroll.findMany();
-      const rawEligible = allBankrolls
+      let rawEligible = allBankrolls
         .filter(b => b.weeklyBetsPlaced > 0 && b.weeklySpend > 0)
         .map(b => {
           const roiPct = ((b.balance - b.startingBalance) / b.weeklySpend) * 100;
           const netProfit = b.balance - b.startingBalance;
           return { ...b, roiPct, netProfit };
         });
+
+      // If no human bankrolls were active this week, check strategy bots with bets
+      if (rawEligible.length === 0) {
+        rawEligible = allBankrolls
+          .filter(b => b.totalBetsPlaced > 0)
+          .map(b => {
+            const spend = b.weeklySpend > 0 ? b.weeklySpend : (b.totalBetsPlaced * 10);
+            const roiPct = ((b.balance - b.startingBalance) / spend) * 100;
+            const netProfit = b.balance - b.startingBalance;
+            return { ...b, roiPct, netProfit };
+          });
+      }
 
       const maxRoi = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.roiPct)) || 1) : 1;
       const maxProfit = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.netProfit)) || 1) : 1;
@@ -142,7 +154,7 @@ router.post("/monthly-reset", async (req, res) => {
 
 // Settle Paper & Strategy Bets background job (Runs at 04:00 AM Australia/Melbourne)
 // Cron expression target: '0 4 * * *' (Australia/Melbourne)
-router.post("/settle-bets", async (req, res) => {
+router.all("/settle-bets", async (req, res) => {
   try {
     const melbourneNow = getMelbourneTime();
     const weekStart = getMelbourneWeekStart();

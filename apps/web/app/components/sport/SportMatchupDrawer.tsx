@@ -35,6 +35,7 @@ import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
 import { useAuth } from "../../providers/AuthProvider";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import type { ConfidenceSignal, UrgencySignal } from "../../lib/predictionSignals";
+import SGMTemplateSelector from "./SGMTemplateSelector";
 
 export interface DrawerOutcome {
   id?: string;
@@ -383,6 +384,11 @@ export default function SportMatchupDrawer({
                   );
                 })}
               </div>
+            </div>
+
+            {/* Item 66: "Build SGM from this game" (game-script templates) */}
+            <div className="pt-2 border-t border-slate-800">
+              <SGMTemplateSelector matchup={matchup} />
             </div>
 
             {/* ======================================================== */}
