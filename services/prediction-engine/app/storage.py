@@ -4,7 +4,7 @@ import os
 import re
 import unicodedata
 from datetime import date, datetime, timedelta, timezone
-from typing import Sequence, Any, Dict, Iterable, List, Optional, Union
+from typing import Sequence, Any, Dict, Iterable, List, Optional, Union, Mapping
 
 from app.database import get_connection, init_database
 from app.time_utils import is_melbourne_premium_day, today_melbourne
@@ -290,6 +290,87 @@ def log_prediction_batch(
             conn.commit()
     except Exception as e:
         print(f"[Storage] Prediction log write failed: {e}")
+
+
+def log_prediction_batches_bulk(
+    batches: List[Dict[str, Any]],
+) -> None:
+    if not batches:
+        return
+
+    try:
+        created_at = datetime.now(timezone.utc).isoformat()
+        records = []
+        for batch in batches:
+            sport = batch.get("sport", "racing")
+            event_id = batch.get("event_id", "")
+            event_name = batch.get("event_name", "")
+            feature_impact = batch.get("feature_impact") or {}
+            dumped_impact = _dumps_json(feature_impact)
+            for row in batch.get("predictions", []):
+                records.append((
+                    created_at,
+                    created_at,
+                    sport,
+                    event_id,
+                    event_name,
+                    str(row.get("selection", "")),
+                    float(row.get("probability", 0.0)),
+                    _optional_float(row.get("fair_odds")),
+                    _dumps_json(row.get("payload", row)),
+                    dumped_impact,
+                ))
+
+        if not records:
+            return
+
+        with _connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO prediction_log (
+                    created_at,
+                    updated_at,
+                    sport,
+                    event_id,
+                    event_name,
+                    selection,
+                    probability,
+                    fair_odds,
+                    payload_json,
+                    feature_impact_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(sport, event_id, selection) DO UPDATE SET
+                    updated_at = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.updated_at
+                        ELSE prediction_log.updated_at
+                    END,
+                    event_name = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.event_name
+                        ELSE prediction_log.event_name
+                    END,
+                    probability = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.probability
+                        ELSE prediction_log.probability
+                    END,
+                    fair_odds = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.fair_odds
+                        ELSE prediction_log.fair_odds
+                    END,
+                    payload_json = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.payload_json
+                        ELSE prediction_log.payload_json
+                    END,
+                    feature_impact_json = CASE
+                        WHEN prediction_log.settled_at IS NULL THEN excluded.feature_impact_json
+                        ELSE prediction_log.feature_impact_json
+                    END
+                """,
+                records,
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[Storage] Prediction log bulk write failed: {e}")
 
 
 def get_recent_predictions(limit: int = 50) -> List[Dict[str, Any]]:
@@ -1368,7 +1449,63 @@ def get_strategy_cards(run_date: str) -> List[Dict[str, Any]]:
             """,
             (run_date,),
         ).fetchall()
-        return [_hydrate_strategy_card(conn, row) for row in rows]
+        if not rows:
+            return []
+
+        # Batch-fetch strategy profiles
+        profile_keys = list({row["profile_key"] for row in rows})
+        placeholders_prof = ",".join("?" for _ in profile_keys)
+        prof_rows = conn.execute(
+            f"SELECT * FROM strategy_profiles WHERE profile_key IN ({placeholders_prof})",
+            profile_keys,
+        ).fetchall()
+        profiles_by_key = {r["profile_key"]: r for r in prof_rows}
+
+        # Batch-fetch system bets
+        run_ids = [row["id"] for row in rows]
+        placeholders_runs = ",".join("?" for _ in run_ids)
+        bet_rows = conn.execute(
+            f"""
+            SELECT *
+            FROM system_bets
+            WHERE run_id IN ({placeholders_runs})
+            ORDER BY id ASC
+            """,
+            run_ids,
+        ).fetchall()
+        bets_by_run_id: Dict[int, list] = {rid: [] for rid in run_ids}
+        for b in bet_rows:
+            bets_by_run_id.setdefault(b["run_id"], []).append(b)
+
+        # Batch-fetch profile performance in a single aggregate query
+        all_perf = get_all_profiles_performance(conn=conn)
+
+        cards = []
+        for row in rows:
+            pkey = row["profile_key"]
+            prof_row = profiles_by_key.get(pkey)
+            run_bets = bets_by_run_id.get(row["id"], [])
+            perf = all_perf.get(pkey) or {
+                "profile_key": pkey,
+                "total_bets": 0,
+                "settled_bets": 0,
+                "won_bets": 0,
+                "lost_bets": 0,
+                "void_bets": 0,
+                "total_staked": 0.0,
+                "net_profit": 0.0,
+                "roi": 0.0,
+            }
+            cards.append(
+                _hydrate_strategy_card(
+                    conn,
+                    row,
+                    profile_row=prof_row,
+                    bets=run_bets,
+                    performance=perf,
+                )
+            )
+        return cards
 
 
 def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str, Any]:
@@ -1562,34 +1699,91 @@ def list_system_bets(profile_key: Optional[str] = None, limit: int = 200) -> Lis
     return [_row_to_system_bet(row) for row in rows]
 
 
-def get_profile_performance(profile_key: str) -> Dict[str, Any]:
-    with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM system_bets
-            WHERE profile_key = ?
-            ORDER BY created_at ASC, id ASC
-            """,
-            (profile_key,),
-        ).fetchall()
+def get_profile_performance(profile_key: str, conn=None) -> Dict[str, Any]:
+    query = """
+        SELECT
+            profile_key,
+            COUNT(*) as total_bets,
+            SUM(CASE WHEN status != 'pending' THEN 1 ELSE 0 END) as settled_bets,
+            SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as won_bets,
+            SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as lost_bets,
+            SUM(CASE WHEN status = 'void' THEN 1 ELSE 0 END) as void_bets,
+            SUM(CASE WHEN status IN ('won', 'lost') THEN stake ELSE 0 END) as total_staked,
+            SUM(CASE WHEN status != 'pending' THEN COALESCE(profit, 0) ELSE 0 END) as net_profit
+        FROM system_bets
+        WHERE profile_key = ?
+        GROUP BY profile_key
+    """
+    if conn is not None:
+        row = conn.execute(query, (profile_key,)).fetchone()
+    else:
+        with _connect() as c:
+            row = c.execute(query, (profile_key,)).fetchone()
 
-    bets = [_row_to_system_bet(row) for row in rows]
-    settled = [bet for bet in bets if bet["status"] != "pending"]
-    decision_bets = [bet for bet in bets if bet["status"] in {"won", "lost"}]
-    total_staked = sum(bet["stake"] for bet in decision_bets)
-    net_profit = sum((bet["profit"] or 0.0) for bet in settled)
+    if not row:
+        return {
+            "profile_key": profile_key,
+            "total_bets": 0,
+            "settled_bets": 0,
+            "won_bets": 0,
+            "lost_bets": 0,
+            "void_bets": 0,
+            "total_staked": 0.0,
+            "net_profit": 0.0,
+            "roi": 0.0,
+        }
+
+    staked = float(row["total_staked"] or 0.0)
+    profit = float(row["net_profit"] or 0.0)
     return {
         "profile_key": profile_key,
-        "total_bets": len(bets),
-        "settled_bets": len(settled),
-        "won_bets": sum(1 for bet in bets if bet["status"] == "won"),
-        "lost_bets": sum(1 for bet in bets if bet["status"] == "lost"),
-        "void_bets": sum(1 for bet in bets if bet["status"] == "void"),
-        "total_staked": round(total_staked, 2),
-        "net_profit": round(net_profit, 2),
-        "roi": round(net_profit / total_staked, 4) if total_staked > 0 else 0.0,
+        "total_bets": int(row["total_bets"] or 0),
+        "settled_bets": int(row["settled_bets"] or 0),
+        "won_bets": int(row["won_bets"] or 0),
+        "lost_bets": int(row["lost_bets"] or 0),
+        "void_bets": int(row["void_bets"] or 0),
+        "total_staked": round(staked, 2),
+        "net_profit": round(profit, 2),
+        "roi": round(profit / staked, 4) if staked > 0 else 0.0,
     }
+
+
+def get_all_profiles_performance(conn=None) -> Dict[str, Dict[str, Any]]:
+    query = """
+        SELECT
+            profile_key,
+            COUNT(*) as total_bets,
+            SUM(CASE WHEN status != 'pending' THEN 1 ELSE 0 END) as settled_bets,
+            SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END) as won_bets,
+            SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as lost_bets,
+            SUM(CASE WHEN status = 'void' THEN 1 ELSE 0 END) as void_bets,
+            SUM(CASE WHEN status IN ('won', 'lost') THEN stake ELSE 0 END) as total_staked,
+            SUM(CASE WHEN status != 'pending' THEN COALESCE(profit, 0) ELSE 0 END) as net_profit
+        FROM system_bets
+        GROUP BY profile_key
+    """
+    if conn is not None:
+        rows = conn.execute(query).fetchall()
+    else:
+        with _connect() as c:
+            rows = c.execute(query).fetchall()
+
+    result = {}
+    for r in rows:
+        staked = float(r["total_staked"] or 0.0)
+        profit = float(r["net_profit"] or 0.0)
+        result[r["profile_key"]] = {
+            "profile_key": r["profile_key"],
+            "total_bets": int(r["total_bets"] or 0),
+            "settled_bets": int(r["settled_bets"] or 0),
+            "won_bets": int(r["won_bets"] or 0),
+            "lost_bets": int(r["lost_bets"] or 0),
+            "void_bets": int(r["void_bets"] or 0),
+            "total_staked": round(staked, 2),
+            "net_profit": round(profit, 2),
+            "roi": round(profit / staked, 4) if staked > 0 else 0.0,
+        }
+    return result
 
 
 def auto_tune_strategy_profile(profile_key: str, reference_date: Optional[str] = None) -> Dict[str, Any]:
@@ -1952,25 +2146,28 @@ def _row_to_system_bet(row) -> Dict[str, Any]:
     return bet
 
 
-def _hydrate_strategy_card(conn, run_row) -> Dict[str, Any]:
+def _hydrate_strategy_card(conn, run_row, profile_row=None, bets=None, performance=None) -> Dict[str, Any]:
     run_payload = _loads_json(run_row["run_payload_json"] or {})
     if not isinstance(run_payload, dict):
         run_payload = {}
-    profile_row = conn.execute(
-        "SELECT * FROM strategy_profiles WHERE profile_key = ?",
-        (run_row["profile_key"],),
-    ).fetchone()
-    bets = conn.execute(
-        """
-        SELECT *
-        FROM system_bets
-        WHERE run_id = ?
-        ORDER BY id ASC
-        """,
-        (run_row["id"],),
-    ).fetchall()
+    if profile_row is None:
+        profile_row = conn.execute(
+            "SELECT * FROM strategy_profiles WHERE profile_key = ?",
+            (run_row["profile_key"],),
+        ).fetchone()
+    if bets is None:
+        bets = conn.execute(
+            """
+            SELECT *
+            FROM system_bets
+            WHERE run_id = ?
+            ORDER BY id ASC
+            """,
+            (run_row["id"],),
+        ).fetchall()
     selected_bets = [_row_to_system_bet(row) for row in bets]
-    performance = get_profile_performance(run_row["profile_key"])
+    if performance is None:
+        performance = get_profile_performance(run_row["profile_key"], conn=conn)
     return {
         "profile_key": run_row["profile_key"],
         "display_name": profile_row["display_name"] if profile_row else run_row["profile_key"],
