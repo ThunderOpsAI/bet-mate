@@ -49,3 +49,8 @@ services/prediction-engine/client-2048.key
 # Added by code-review-graph
 .code-review-graph/
 .vercel
+# Added by git setup script
+.env.local
+.env.*.local
+*.log
+venv/
