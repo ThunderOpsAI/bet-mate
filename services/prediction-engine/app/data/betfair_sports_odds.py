@@ -15,6 +15,7 @@ SPORT_EVENT_TYPE_IDS = {
     "afl": "61420",
     "nrl": "1477",
     "nba": "7522",
+    "nfl": "6423",
     "mma": "26420387",
     "soccer": "1",
     "cricket": "4",

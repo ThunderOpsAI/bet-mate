@@ -258,31 +258,6 @@ export default function RunnerMultiActions({
 
       {/* Item 56: Quick Action Chips */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {/* + Multi Chip */}
-        <motion.button
-          type="button"
-          whileHover={{ scale: 1.04 }}
-          whileTap={{ scale: 0.96 }}
-          onClick={handleToggleMulti}
-          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
-            isInMulti && !isBanker && !isRoughie
-              ? "bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-900/40"
-              : "bg-slate-900/90 text-purple-300 hover:text-white hover:bg-purple-950/70 border-purple-500/30 hover:border-purple-400"
-          }`}
-          title={isInMulti ? "Remove from Multi" : "Add to Multi betslip"}
-        >
-          {isInMulti && !isBanker && !isRoughie ? (
-            <>
-              <Check size={12} className="text-white" />
-              <span>In Multi</span>
-            </>
-          ) : (
-            <>
-              <Plus size={12} className="text-purple-400" />
-              <span>+ Multi</span>
-            </>
-          )}
-        </motion.button>
 
         {/* Banker Chip (Anchor) */}
         <motion.button

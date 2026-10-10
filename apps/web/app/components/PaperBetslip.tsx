@@ -302,20 +302,38 @@ function PaperBetslipContent() {
     );
   }, [bets]);
 
+  // Derive unique multi legs from singlesBets so selecting both Win and Place for the same runner
+  // does not accidentally create two legs of one Multi
+  const multiLegs = useMemo(() => {
+    const seen = new Map<string, (typeof bets)[0]>();
+    for (const b of singlesBets) {
+      const key = `${b.event_id}::${(b.selection || "").trim().toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.set(key, b);
+      } else {
+        const existing = seen.get(key)!;
+        if (existing.bet_type === "place" && b.bet_type === "win") {
+          seen.set(key, b);
+        }
+      }
+    }
+    return Array.from(seen.values());
+  }, [singlesBets]);
+
   const combinedMultiOdds = useMemo(() => {
-    if (singlesBets.length < 2) return 0;
-    return singlesBets.reduce((acc, b) => {
+    if (multiLegs.length < 2) return 0;
+    return multiLegs.reduce((acc, b) => {
       const o = b.odds && b.odds > 1 ? b.odds : 1.0;
       return acc * o;
     }, 1.0);
-  }, [singlesBets]);
+  }, [multiLegs]);
 
   const estMultiCollect = useMemo(() => {
     return (multiStake || 0) * combinedMultiOdds;
   }, [multiStake, combinedMultiOdds]);
 
   const weakestLegIndex = useMemo(() => {
-    if (singlesBets.length < 2) return -1;
+    if (multiLegs.length < 2) return -1;
     if (
       multiEvaluation &&
       typeof (multiEvaluation as any).weakest_leg_index === "number" &&
@@ -325,7 +343,7 @@ function PaperBetslipContent() {
     }
     let worstIdx = 0;
     let minEdge = 9999;
-    singlesBets.forEach((b, idx) => {
+    multiLegs.forEach((b, idx) => {
       const p = b.model_prob
         ? b.model_prob > 1
           ? b.model_prob / 100
@@ -338,10 +356,10 @@ function PaperBetslipContent() {
       }
     });
     return worstIdx;
-  }, [singlesBets, multiEvaluation]);
+  }, [multiLegs, multiEvaluation]);
 
   const roundRobinData = useMemo(() => {
-    const legsCount = singlesBets.length;
+    const legsCount = multiLegs.length;
     if (legsCount < 3) return null;
 
     const doubles = (legsCount * (legsCount - 1)) / 2;
@@ -351,22 +369,22 @@ function PaperBetslipContent() {
 
     let estReturn = 0;
     for (let i = 0; i < legsCount; i++) {
-      const legA = singlesBets[i];
+      const legA = multiLegs[i];
       const oA = legA?.odds && legA.odds > 1 ? legA.odds : 1.0;
       for (let j = i + 1; j < legsCount; j++) {
-        const legB = singlesBets[j];
+        const legB = multiLegs[j];
         const oB = legB?.odds && legB.odds > 1 ? legB.odds : 1.0;
         estReturn += (roundRobinUnitStake || 0) * oA * oB;
       }
     }
     for (let i = 0; i < legsCount; i++) {
-      const legA = singlesBets[i];
+      const legA = multiLegs[i];
       const oA = legA?.odds && legA.odds > 1 ? legA.odds : 1.0;
       for (let j = i + 1; j < legsCount; j++) {
-        const legB = singlesBets[j];
+        const legB = multiLegs[j];
         const oB = legB?.odds && legB.odds > 1 ? legB.odds : 1.0;
         for (let k = j + 1; k < legsCount; k++) {
-          const legC = singlesBets[k];
+          const legC = multiLegs[k];
           const oC = legC?.odds && legC.odds > 1 ? legC.odds : 1.0;
           estReturn += (roundRobinUnitStake || 0) * oA * oB * oC;
         }
@@ -380,7 +398,7 @@ function PaperBetslipContent() {
       totalCost,
       estReturn: Math.round(estReturn * 100) / 100,
     };
-  }, [singlesBets, roundRobinUnitStake]);
+  }, [multiLegs, roundRobinUnitStake]);
 
   const tabBets = bets.filter((bet) => {
     if (
@@ -844,16 +862,16 @@ function PaperBetslipContent() {
                 onModeChange={(mode) => setActiveTab(mode as any)}
                 counts={{
                   singles: singlesBets.length,
-                  multi: singlesBets.length >= 2 ? singlesBets.length : 0,
+                  multi: multiLegs.length >= 2 ? multiLegs.length : 0,
                   sgm: bets.filter((b) => b.bet_family === "sgm").length,
-                  round_robin: singlesBets.length >= 3 ? singlesBets.length : 0,
+                  round_robin: multiLegs.length >= 3 ? multiLegs.length : 0,
                 }}
               />
             </div>
 
             {/* Dedicated Multi Accumulator View (Item 40, 41, 42, 43, 46, 47, 48, 52) */}
             {activeTab === "multi" && (
-              singlesBets.length < 2 ? (
+              multiLegs.length < 2 ? (
                 <div className="betslip-empty p-6 text-center">
                   <div className="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-2 text-emerald-400">
                     <Sparkles size={20} />
@@ -867,9 +885,9 @@ function PaperBetslipContent() {
                 <div className="space-y-3 p-3">
                   {/* Live Multi Maths (Item 40, 48) */}
                   <MultiLiveMaths
-                    legs={singlesBets}
+                    legs={multiLegs}
                     totalStake={multiStake > 0 ? multiStake : defaultStake}
-                    sport={singlesBets[0]?.sport || "sport"}
+                    sport={multiLegs[0]?.sport || "sport"}
                     onEvaluationResult={(res) => setMultiEvaluation(res)}
                   />
 
@@ -884,7 +902,7 @@ function PaperBetslipContent() {
                     <div className="bg-slate-900/90 p-3 border-b border-slate-800 flex justify-between items-center">
                       <div className="font-extrabold text-slate-100 flex items-center gap-1.5 text-sm">
                         <Layers size={15} className="text-emerald-400" />
-                        <span>{singlesBets.length}-Leg Multi Accumulator</span>
+                        <span>{multiLegs.length}-Leg Multi Accumulator</span>
                       </div>
                       <div className="text-[17.5px] font-black text-fuchsia-300 font-mono">
                         ${combinedMultiOdds.toFixed(2)}
@@ -893,7 +911,7 @@ function PaperBetslipContent() {
 
                     {/* Multi Legs List */}
                     <div className="divide-y divide-slate-800/60 p-1">
-                      {singlesBets.map((leg, index) => {
+                      {multiLegs.map((leg, index) => {
                         const legWinOdds = leg.odds && leg.odds > 1 ? leg.odds : 1.0;
                         const isWeakest = index === weakestLegIndex;
 

@@ -31,11 +31,11 @@ import ErrorState from "../components/ErrorState";
 import RefreshControls from "../components/RefreshControls";
 import MultiWizardModal from "../components/multi-builder/MultiWizardModal";
 
-type SportKey = "all" | "afl" | "nrl" | "nba" | "soccer" | "mma" | "golf";
+type SportKey = "all" | "afl" | "nrl" | "nba" | "nfl" | "soccer" | "mma" | "golf";
 
 interface BaseGame {
   game_id: string;
-  sport: "afl" | "nrl" | "nba" | "soccer" | "mma" | "golf";
+  sport: "afl" | "nrl" | "nba" | "nfl" | "soccer" | "mma" | "golf";
   home_team: string;
   away_team: string;
   date?: string;
@@ -43,6 +43,8 @@ interface BaseGame {
   round?: number;
   features?: Record<string, any>;
   complete?: number;
+  status?: string;
+  is_preseason?: number;
   hscore?: number | null;
   ascore?: number | null;
   squiggle_tip?: string;
@@ -64,6 +66,7 @@ const SPORTS_META: SportMeta[] = [
   { id: "afl", name: "AFL", icon: CircleDot, href: "/afl", colorClass: "text-emerald-400", borderClass: "border-emerald-500/40", bgClass: "bg-emerald-500/10" },
   { id: "nrl", name: "NRL", icon: Shield, href: "/nrl", colorClass: "text-amber-400", borderClass: "border-amber-500/40", bgClass: "bg-amber-500/10" },
   { id: "nba", name: "NBA", icon: Zap, href: "/nba", colorClass: "text-sky-400", borderClass: "border-sky-500/40", bgClass: "bg-sky-500/10" },
+  { id: "nfl", name: "NFL", icon: Shield, colorClass: "text-red-400", borderClass: "border-red-500/40", bgClass: "bg-red-500/10" },
   { id: "soccer", name: "Soccer", icon: Globe, href: "/soccer", colorClass: "text-violet-400", borderClass: "border-violet-500/40", bgClass: "bg-violet-500/10" },
   { id: "mma", name: "MMA", icon: Swords, href: "/mma", colorClass: "text-orange-400", borderClass: "border-orange-500/40", bgClass: "bg-orange-500/10" },
   { id: "golf", name: "Golf", icon: Flag, href: "/golf", colorClass: "text-teal-400", borderClass: "border-teal-500/40", bgClass: "bg-teal-500/10" },
@@ -88,16 +91,18 @@ export default function SportDashboardPage() {
       setRefreshFailed(false);
 
       // Fetch upcoming games from all sports concurrently with timeout
-      const [aflRes, nrlRes, nbaRes, soccerRes, mmaRes, golfRes] = await Promise.allSettled([
+      const [aflRes, nrlRes, nbaRes, nflRes, soccerRes, mmaRes, golfRes] = await Promise.allSettled([
         fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
         fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
         fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
+        fetchWithTimeout(`${ML_API}/api/nfl/games/upcoming`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
         fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
         fetchWithTimeout(`${ML_API}/api/mma/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
         fetchWithTimeout(`${ML_API}/api/golf/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
       ]);
 
       const allGames: BaseGame[] = [];
+      const nowMs = Date.now();
 
       // Helper to map and sanitize games
       const sanitizeGames = (rawList: any[], sport: BaseGame["sport"]) => {
@@ -115,16 +120,58 @@ export default function SportDashboardPage() {
           ) {
             continue;
           }
+
+          // Exclude fixtures with missing or invalid dates
+          const rawDate = g.date || g.match_time || g.game_time || g.start_time;
+          if (!rawDate) {
+            continue;
+          }
+          const parsedTime = Date.parse(rawDate);
+          if (isNaN(parsedTime)) {
+            continue;
+          }
+
+          // Exclude completed games using provider completion values & status variants
+          const statusStr = String(g.status || "").trim().toLowerCase();
+          const isComplete =
+            g.complete === 1 ||
+            g.complete === "1" ||
+            g.complete === true ||
+            String(g.complete).trim().toLowerCase() === "true" ||
+            ["final", "completed", "finished", "ft", "aet", "ended", "closed"].includes(statusStr);
+          if (isComplete) {
+            continue;
+          }
+
+          // Exclude past games unless provider data explicitly identifies them as live/in progress
+          const isLive =
+            statusStr.includes("live") ||
+            statusStr.includes("in progress") ||
+            statusStr.includes("in_progress") ||
+            statusStr.includes("quarter") ||
+            statusStr.includes("half") ||
+            statusStr.includes("period") ||
+            statusStr.includes("set") ||
+            g.is_live === true ||
+            g.is_live === 1 ||
+            g.is_live === "true";
+
+          if (parsedTime < nowMs && !isLive) {
+            continue;
+          }
+
           allGames.push({
             game_id: g.game_id || `${sport}-${g.id || `${home}-${away}`}`,
             sport,
             home_team: home,
             away_team: away,
-            date: g.date || g.match_time || g.game_time || g.start_time,
+            date: rawDate,
             venue: g.venue,
             round: g.round,
             features: g.features || {},
-            complete: g.complete,
+            complete: isComplete ? 1 : 0,
+            status: g.status,
+            is_preseason: g.is_preseason,
             hscore: g.hscore,
             ascore: g.ascore,
             squiggle_tip: g.squiggle_tip,
@@ -141,6 +188,9 @@ export default function SportDashboardPage() {
       }
       if (nbaRes.status === "fulfilled" && nbaRes.value) {
         sanitizeGames(nbaRes.value.games || nbaRes.value, "nba");
+      }
+      if (nflRes.status === "fulfilled" && nflRes.value) {
+        sanitizeGames(nflRes.value.games || nflRes.value, "nfl");
       }
       if (soccerRes.status === "fulfilled" && soccerRes.value) {
         sanitizeGames(soccerRes.value.games || soccerRes.value, "soccer");
@@ -445,7 +495,9 @@ export default function SportDashboardPage() {
                 id: game.game_id,
                 sport: game.sport,
                 title: `${game.home_team} vs ${game.away_team}`,
-                subTitle: game.round ? `Round ${game.round}` : game.venue,
+                subTitle: (game.is_preseason || (game.status && game.status.toLowerCase().includes("preseason")))
+                  ? (game.venue ? `Preseason • ${game.venue}` : "Preseason")
+                  : game.round ? `Round ${game.round}` : game.venue,
                 date: game.date,
                 venue: game.venue,
                 roundOrLeague: game.round ? `Round ${game.round}` : undefined,

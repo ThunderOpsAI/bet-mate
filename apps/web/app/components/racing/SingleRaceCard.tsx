@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { Activity, ChevronDown, Compass, BarChart3, Layers } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Activity, ChevronDown, Compass, BarChart3, Layers, Plus, Sparkles, ShieldAlert } from "lucide-react";
 import RunnerRow, { type RunnerPrediction } from "./RunnerRow";
 import PaperBetAction from "../PaperBetAction";
 import SectionalMetricsDrawer from "./SectionalMetricsDrawer";
@@ -11,6 +11,8 @@ import { ConfidenceBadge, UrgencyBadge } from "../PredictionSignalBadges";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
 import type { BobExplanation, FeatureImpactItem, ModelMetadata } from "../../lib/bob/explainer";
+import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
+import { calculatePlaceOdds } from "./LiveOddsButton";
 
 type HorseData = {
   horse_id: string;
@@ -22,6 +24,7 @@ type HorseData = {
   track_condition?: number;
   days_since_last_race?: number;
   betfair_back_price?: number;
+  betfair_place_price?: number;
   betfair_implied_prob?: number;
   jockey_name?: string | null;
   trainer_name?: string | null;
@@ -76,6 +79,74 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
   const [drawerRunner, setDrawerRunner] = useState<{ horse: HorseData; prediction: RunnerPrediction | null } | null>(null);
   const [isQuaddieModalOpen, setIsQuaddieModalOpen] = useState(false);
 
+  const { addBet, addToast } = usePaperBetslip();
+  const [srmSelections, setSrmSelections] = useState<Record<string, "win" | "top2" | "top3" | "top4">>({});
+
+  const toggleSrmSelection = (horseId: string, position: "win" | "top2" | "top3" | "top4") => {
+    setSrmSelections((prev) => {
+      const next = { ...prev };
+      if (next[horseId] === position) {
+        delete next[horseId];
+      } else {
+        next[horseId] = position;
+      }
+      return next;
+    });
+  };
+
+  const selectedSrmCount = Object.keys(srmSelections).length;
+
+  const srmOdds = useMemo(() => {
+    if (selectedSrmCount < 2) return 0;
+    let product = 1.0;
+    for (const [horseId, pos] of Object.entries(srmSelections)) {
+      const horse = race.horses.find((h) => h.horse_id === horseId);
+      const pred = prediction?.predictions?.find((p) => p.horse_id === horseId);
+      const baseWin = horse?.betfair_back_price || pred?.fair_odds || 0;
+      if (baseWin <= 1) continue;
+
+      let legOdds = baseWin;
+      if (pos === "top2") {
+        legOdds = Math.max(1.05, calculatePlaceOdds(baseWin, horse?.betfair_place_price) * 1.25);
+      } else if (pos === "top3") {
+        legOdds = calculatePlaceOdds(baseWin, horse?.betfair_place_price);
+      } else if (pos === "top4") {
+        legOdds = Math.max(1.02, calculatePlaceOdds(baseWin, horse?.betfair_place_price) * 0.85);
+      }
+      product *= legOdds;
+    }
+    const correlationFactor = Math.max(0.65, 1 - 0.08 * (selectedSrmCount - 1));
+    return Math.round(product * correlationFactor * 100) / 100;
+  }, [srmSelections, selectedSrmCount, race.horses, prediction]);
+
+  const handleAddSrmToSlip = () => {
+    if (selectedSrmCount < 2) return;
+    const legDescriptions = Object.entries(srmSelections).map(([id, pos]) => {
+      const horseName = race.horses.find((h) => h.horse_id === id)?.name || id;
+      const posLabel = pos === "win" ? "Win (1st)" : pos === "top2" ? "Top 2" : pos === "top3" ? "Top 3" : "Top 4";
+      return `${horseName} ${posLabel}`;
+    });
+
+    addBet({
+      sport: "racing",
+      event_id: race.race_id,
+      event_name: `${race.venue} R${race.race_number} SRM`,
+      selection_id: `srm-${race.race_id}`,
+      selection: legDescriptions.join(" + "),
+      runner_name: legDescriptions.join(" + "),
+      odds: srmOdds > 1 ? srmOdds : 2.0,
+      bet_type: "srm",
+      bet_family: "srm",
+      stake: 10,
+      odds_source: "market",
+      event_start_time: race.start_time,
+      event_date: race.meeting_date,
+      notes: `Same Race Multi (${selectedSrmCount} legs)`,
+    });
+    addToast(`Added ${selectedSrmCount}-Leg SRM to betslip!`, "success");
+    setSrmSelections({});
+  };
+
   const sorted = [...siblingRaces].sort((a, b) => a.race_number - b.race_number);
   const trackCond = race.horses[0]?.track_condition;
   const confidenceSignal = prediction ? getConfidenceSignal(prediction.ai_insights_context) : null;
@@ -126,23 +197,30 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
         <button type="button" className={`race-bet-tab ${activeTab === "win" ? "active" : ""}`} onClick={() => setActiveTab("win")}>
           Win / Place
         </button>
+        <button type="button" className={`race-bet-tab ${activeTab === "multi" ? "active" : ""}`} onClick={() => setActiveTab("multi")}>
+          Same Race Multi (SRM)
+        </button>
+        <button type="button" className={`race-bet-tab ${activeTab === "exotics" ? "active" : ""}`} onClick={() => setActiveTab("exotics")}>
+          Exotics & Quaddie
+        </button>
         <button type="button" className={`race-bet-tab ${activeTab === "speed_map" ? "active" : ""}`} onClick={() => setActiveTab("speed_map")}>
           <span className="inline-flex items-center gap-1.5">
             <Compass size={14} className="text-purple-400" />
             Speed Map
           </span>
         </button>
-        <button type="button" className={`race-bet-tab ${activeTab === "multi" ? "active" : ""}`} onClick={() => setActiveTab("multi")}>
-          Same Race Multi
-        </button>
-        <button type="button" className={`race-bet-tab ${activeTab === "exotics" ? "active" : ""}`} onClick={() => setActiveTab("exotics")}>
-          Exotics
-        </button>
       </div>
 
       {/* Main Tab Content */}
       {activeTab === "win" ? (
         <div className="runner-list flex flex-col gap-3">
+          <div className="hidden md:flex items-center justify-between px-3 py-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-900/50 rounded-lg border border-slate-800/60">
+            <span>Runner</span>
+            <div className="flex items-center gap-12 pr-2">
+              <span className="w-16 text-center">Win</span>
+              <span className="w-16 text-center">Place</span>
+            </div>
+          </div>
           {(prediction?.predictions ?? race.horses.map((h) => ({ horse_id: h.horse_id, name: h.name, win_probability: 0, fair_odds: 0 }))).map((pick, index) => {
             const horse = race.horses.find((h) => h.horse_id === pick.horse_id);
             const isDrawerOpen = Boolean(openSectionalRunnerIds[pick.horse_id]);
@@ -218,8 +296,83 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
           </button>
         </div>
       ) : (
-        <div className="race-tab-placeholder">
-          <p className="muted-copy">Same Race Multi is coming soon.</p>
+        <div className="srm-builder flex flex-col gap-4 p-4 bg-slate-950/80 border border-slate-800/80 rounded-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+            <div>
+              <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                <Sparkles size={16} className="text-purple-400" />
+                Same Race Multi (SRM) Builder
+              </h4>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Combine 2 or more finishing positions in {race.venue} R{race.race_number}.
+              </p>
+            </div>
+            {selectedSrmCount >= 2 ? (
+              <div className="flex items-center gap-3">
+                <div className="text-right">
+                  <span className="text-[10px] font-semibold text-slate-400 block uppercase">Est SRM Odds</span>
+                  <span className="text-base font-black text-purple-400 font-mono">${srmOdds.toFixed(2)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddSrmToSlip}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                >
+                  <Plus size={14} />
+                  <span>Add SRM to Slip</span>
+                </button>
+              </div>
+            ) : (
+              <span className="text-xs text-purple-300/80 bg-purple-950/40 border border-purple-500/20 px-3 py-1.5 rounded-lg">
+                Select 2+ runner positions below
+              </span>
+            )}
+          </div>
+
+          {race.horses.length < 2 ? (
+            <div className="p-6 text-center text-xs text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800">
+              Same Race Multi pricing is currently unavailable for this race.
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-800/60 flex flex-col gap-1">
+              {race.horses.map((horse) => {
+                const pred = prediction?.predictions?.find((p) => p.horse_id === horse.horse_id);
+                const currentPos = srmSelections[horse.horse_id];
+
+                return (
+                  <div key={horse.horse_id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="w-6 h-6 rounded-full bg-slate-800 text-slate-300 text-xs font-bold flex items-center justify-center shrink-0">
+                        {horse.barrier}
+                      </span>
+                      <span className="text-xs font-bold text-slate-200 truncate">{horse.name}</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(["win", "top2", "top3", "top4"] as const).map((pos) => {
+                        const isSelected = currentPos === pos;
+                        const label = pos === "win" ? "Win" : pos === "top2" ? "Top 2" : pos === "top3" ? "Top 3" : "Top 4";
+                        return (
+                          <button
+                            key={pos}
+                            type="button"
+                            onClick={() => toggleSrmSelection(horse.horse_id, pos)}
+                            className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer border ${
+                              isSelected
+                                ? "bg-purple-600 text-white border-purple-400 shadow-sm"
+                                : "bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200 hover:border-slate-700"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
