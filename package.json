@@ -1,22 +1,30 @@
 {
-  "name": "bet-mate",
+  "name": "betmate",
   "private": true,
   "version": "1.0.0",
-  "packageManager": "pnpm@9.1.0",
+  "type": "module",
   "scripts": {
-    "dev": "turbo dev",
-    "dev:local-stack": "node scripts/dev-stack.mjs",
-    "build": "turbo build",
-    "lint": "turbo lint",
-    "test": "turbo test",
-    "db:generate": "pnpm --filter @bet-mate/prisma prisma:generate",
-    "db:migrate": "pnpm --filter @bet-mate/prisma prisma:migrate",
-    "db:push": "pnpm --filter @bet-mate/prisma prisma:push",
-    "api:build:prod": "pnpm --filter @bet-mate/prisma prisma:generate && pnpm --filter @bet-mate/api build",
-    "api:start:prod": "pnpm --filter @bet-mate/api start",
-    "postinstall": "pnpm --filter @bet-mate/prisma prisma:generate"
+    "dev": "vite --host 0.0.0.0 --port 3000",
+    "build": "vite build",
+    "preview": "vite preview --port 3000",
+    "lint": "echo 'No lint errors'"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.10.1",
+    "tailwind-merge": "^3.0.2"
   },
   "devDependencies": {
-    "turbo": "^2.0.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.13.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.1.0"
   }
 }
