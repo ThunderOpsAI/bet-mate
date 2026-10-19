@@ -173,6 +173,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch { /* ignore */ }
   }, [token]);
 
+  useEffect(() => {
+    if (token && token !== GUEST_TOKEN) {
+      refreshUser();
+    }
+  }, [token, refreshUser]);
+
   const updateBankroll = useCallback((delta: number) => {
     setUser((prev) => {
       if (!prev) return prev;
