@@ -12,7 +12,7 @@ import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
 import type { BobExplanation, FeatureImpactItem, ModelMetadata } from "../../lib/bob/explainer";
 import { usePaperBetslip } from "../../providers/PaperBetslipProvider";
-import { calculatePlaceOdds } from "./LiveOddsButton";
+import { ML_API } from "../../lib/mlApi";
 
 type HorseData = {
   horse_id: string;
@@ -96,36 +96,44 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
 
   const selectedSrmCount = Object.keys(srmSelections).length;
 
-  const srmOdds = useMemo(() => {
-    if (selectedSrmCount < 2) return 0;
-    let product = 1.0;
-    for (const [horseId, pos] of Object.entries(srmSelections)) {
-      const horse = race.horses.find((h) => h.horse_id === horseId);
-      const pred = prediction?.predictions?.find((p) => p.horse_id === horseId);
-      const baseWin = horse?.betfair_back_price || pred?.fair_odds || 0;
-      if (baseWin <= 1) continue;
+  const [isPricingSrm, setIsPricingSrm] = useState(false);
 
-      let legOdds = baseWin;
-      if (pos === "top2") {
-        legOdds = Math.max(1.05, calculatePlaceOdds(baseWin, horse?.betfair_place_price) * 1.25);
-      } else if (pos === "top3") {
-        legOdds = calculatePlaceOdds(baseWin, horse?.betfair_place_price);
-      } else if (pos === "top4") {
-        legOdds = Math.max(1.02, calculatePlaceOdds(baseWin, horse?.betfair_place_price) * 0.85);
-      }
-      product *= legOdds;
-    }
-    const correlationFactor = Math.max(0.65, 1 - 0.08 * (selectedSrmCount - 1));
-    return Math.round(product * correlationFactor * 100) / 100;
-  }, [srmSelections, selectedSrmCount, race.horses, prediction]);
-
-  const handleAddSrmToSlip = () => {
-    if (selectedSrmCount < 2) return;
+  const handleAddSrmToSlip = async () => {
+    if (selectedSrmCount < 2 || isPricingSrm) return;
     const legDescriptions = Object.entries(srmSelections).map(([id, pos]) => {
       const horseName = race.horses.find((h) => h.horse_id === id)?.name || id;
       const posLabel = pos === "win" ? "Win (1st)" : pos === "top2" ? "Top 2" : pos === "top3" ? "Top 3" : "Top 4";
       return `${horseName} ${posLabel}`;
     });
+
+    const runners = race.horses.map((h) => ({
+      runner_id: h.horse_id,
+      name: h.name,
+      win_price: h.betfair_back_price,
+      win_probability: prediction?.predictions.find((p) => p.horse_id === h.horse_id)?.win_probability,
+    }));
+
+    let pricing: { adjusted_odds: number; input_source: "LADBROKES" | "MODEL"; fallback_reason?: string | null } | null = null;
+    setIsPricingSrm(true);
+    try {
+      const res = await fetch(`${ML_API}/api/racing/srm/price`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          venue: race.venue,
+          race_number: race.race_number,
+          legs: Object.entries(srmSelections).map(([runner_id, position]) => ({ runner_id, position })),
+          runners,
+        }),
+      });
+      if (res.ok) pricing = await res.json();
+    } catch {
+      pricing = null;
+    } finally {
+      setIsPricingSrm(false);
+    }
+
+    const estimate = pricing && pricing.adjusted_odds > 1 ? Number(pricing.adjusted_odds.toFixed(2)) : undefined;
 
     addBet({
       sport: "racing",
@@ -134,16 +142,27 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
       selection_id: `srm-${race.race_id}`,
       selection: legDescriptions.join(" + "),
       runner_name: legDescriptions.join(" + "),
-      odds: srmOdds > 1 ? srmOdds : 2.0,
+      // Actual bookmaker SRM price must be entered by the user; estimate is shown separately.
+      odds: undefined,
+      model_fair_odds: estimate,
       bet_type: "srm",
       bet_family: "srm",
       stake: 10,
-      odds_source: "market",
+      odds_source: estimate ? "model_fair" : "missing",
+      srm_input_source: pricing?.input_source,
+      srm_fallback_reason: pricing?.fallback_reason ?? null,
+      is_unavailable: !estimate,
+      unavailable_reason: estimate ? undefined : "No live or model prices available to estimate this Same Race Multi.",
       event_start_time: race.start_time,
       event_date: race.meeting_date,
-      notes: `Same Race Multi (${selectedSrmCount} legs)`,
+      notes: `Same Race Multi (${selectedSrmCount} legs) - est. ${estimate ?? "n/a"} via ${pricing?.input_source ?? "none"}`,
     });
-    addToast(`Added ${selectedSrmCount}-Leg SRM to betslip!`, "success");
+    addToast(
+      estimate
+        ? `Added ${selectedSrmCount}-Leg SRM (est. $${estimate}${pricing?.input_source === "MODEL" ? ", model only" : ""})`
+        : `Added ${selectedSrmCount}-Leg SRM selection (pricing unavailable)`,
+      "info",
+    );
     setSrmSelections({});
   };
 
@@ -310,16 +329,17 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
             {selectedSrmCount >= 2 ? (
               <div className="flex items-center gap-3">
                 <div className="text-right">
-                  <span className="text-[10px] font-semibold text-slate-400 block uppercase">Est SRM Odds</span>
-                  <span className="text-base font-black text-purple-400 font-mono">${srmOdds.toFixed(2)}</span>
+                  <span className="text-[10px] font-semibold text-amber-400 block uppercase">Pricing Status</span>
+                  <span className="text-xs font-bold text-slate-300">Market Odds Unavailable</span>
                 </div>
                 <button
                   type="button"
                   onClick={handleAddSrmToSlip}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                  disabled={isPricingSrm}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-500 disabled:opacity-60 disabled:cursor-wait text-white transition-all cursor-pointer shadow-md flex items-center gap-1.5"
                 >
                   <Plus size={14} />
-                  <span>Add SRM to Slip</span>
+                  <span>{isPricingSrm ? "Pricing SRM…" : "Add Selections to Slip"}</span>
                 </button>
               </div>
             ) : (
@@ -329,9 +349,16 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
             )}
           </div>
 
+          <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-300 text-xs">
+            <ShieldAlert size={16} className="shrink-0 text-amber-400" />
+            <span>
+              Provider-backed Same Race Multi pricing is currently unavailable for this race. You can track multi-runner combinations in your slip, but unpriced selections cannot be logged as placed bets.
+            </span>
+          </div>
+
           {race.horses.length < 2 ? (
             <div className="p-6 text-center text-xs text-slate-400 bg-slate-900/50 rounded-xl border border-slate-800">
-              Same Race Multi pricing is currently unavailable for this race.
+              Same Race Multi is unavailable for races with fewer than 2 runners.
             </div>
           ) : (
             <div className="divide-y divide-slate-800/60 flex flex-col gap-1">

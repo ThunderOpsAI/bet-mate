@@ -50,6 +50,7 @@ import SlipModeToggle, { SlipMode } from "./betslip/SlipModeToggle";
 import KellyStakeControl from "./betslip/KellyStakeControl";
 import ShareSlipModal from "./betslip/ShareSlipModal";
 import BestPriceBadge from "./betslip/BestPriceBadge";
+import SrmOddsPanel from "./betslip/SrmOddsPanel";
 
 export type ActiveBetItem = {
   id: string;
@@ -1252,7 +1253,10 @@ function PaperBetslipContent() {
                         </div>
 
                         <div className="flex flex-col space-y-3">
-                          {isRacing && (
+                          {bet.bet_family === "srm" && (
+                            <SrmOddsPanel bet={bet} onOddsChange={(odds) => updateBet(bet.id, { odds })} />
+                          )}
+                          {isRacing && bet.bet_family !== "srm" && (
                             <div className="flex space-x-2">
                               {["win", "place", "each_way"].map((t) => {
                                 const isActive = bet.bet_type === t;

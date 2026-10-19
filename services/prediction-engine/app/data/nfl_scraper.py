@@ -1,4 +1,3 @@
-import random
 import requests
 import json
 from datetime import datetime, timedelta
@@ -90,12 +89,12 @@ def _fetch_live_nfl(headers, target_date):
             elif away.lower() in r_name:
                 away_back = r_price
 
-        features = {
-            "epa_diff": round(float(random.uniform(-0.5, 0.5)), 2),
-            "rest_diff": 0.0,
-            "is_dome": 0.0,
-            "spread_line": round(float(random.uniform(-7.0, 7.0)), 1),
-        }
+        # Real kickoff timestamp preserved from provider
+        kickoff_time = m.get("marketStartTime") or event.get("openDate") or None
+
+        # Betfair market catalogue provides prices and event metadata, but does not provide
+        # EPA differentials or team schedule features. Do not fabricate random or synthetic numbers.
+        features = {}
 
         games.append({
             "game_id": f"nfl_{event_id}",
@@ -103,7 +102,7 @@ def _fetch_live_nfl(headers, target_date):
             "home_team": home,
             "away_team": away,
             "features": features,
-            "date": m.get("marketStartTime") or event.get("openDate", ""),
+            "date": kickoff_time,
             "complete": 0,
             "source": "betfair_nfl",
             "home_odds": home_back if home_back > 1 else None,
@@ -114,9 +113,32 @@ def _fetch_live_nfl(headers, target_date):
     return games
 
 
+def _compute_team_recent_margins(schedules_df, target_gameday: str) -> dict[str, float]:
+    """Compute recent rolling average margin (last 5 games) from completed games strictly before target_gameday."""
+    import numpy as np
+    import pandas as pd
+
+    completed = schedules_df.dropna(subset=["home_score", "away_score"]).copy()
+    if completed.empty:
+        return {}
+
+    completed = completed[completed["gameday"] < target_gameday].sort_values(by=["season", "week", "gameday"])
+    team_history: dict[str, list[float]] = {}
+    for _, row in completed.iterrows():
+        home = str(row["home_team"])
+        away = str(row["away_team"])
+        h_score = float(row["home_score"])
+        a_score = float(row["away_score"])
+        team_history.setdefault(home, []).append(h_score - a_score)
+        team_history.setdefault(away, []).append(a_score - h_score)
+
+    return {team: float(np.mean(margins[-5:])) for team, margins in team_history.items() if margins}
+
+
 def _fetch_nfl_data_py_or_fallback(target_date):
     try:
         import nfl_data_py as nfl
+        import pandas as pd
         year = target_date.year if target_date else datetime.now().year
         schedules = nfl.import_schedules([year])
         if not schedules.empty:
@@ -126,6 +148,7 @@ def _fetch_nfl_data_py_or_fallback(target_date):
                 (schedules["gameday"] >= target_str)
             ].head(10)
             if not upcoming.empty:
+                recent_margins = _compute_team_recent_margins(schedules, target_str)
                 games = []
                 for _, row in upcoming.iterrows():
                     gameday = str(row["gameday"])
@@ -136,21 +159,46 @@ def _fetch_nfl_data_py_or_fallback(target_date):
                             dt_et = datetime.strptime(f"{gameday} {gametime.strip()}", "%Y-%m-%d %H:%M").replace(tzinfo=ZoneInfo("America/New_York"))
                             date_str = dt_et.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%dT%H:%M:%SZ")
                         except Exception:
-                            date_str = f"{gameday}T00:00:00Z"
+                            # Do not invent 00:00:00Z if parsing fails
+                            date_str = None
                     else:
-                        date_str = f"{gameday}T00:00:00Z"
+                        # Omit kickoff timestamp if provider has no usable time
+                        date_str = None
+
+                    home = str(row["home_team"])
+                    away = str(row["away_team"])
+
+                    features = {}
+                    if home in recent_margins and away in recent_margins:
+                        h_net = recent_margins[home]
+                        a_net = recent_margins[away]
+                        features["epa_diff"] = round(float((h_net - a_net) / 10.0), 3)
+
+                    home_rest = row.get("home_rest")
+                    away_rest = row.get("away_rest")
+                    if pd.notna(home_rest) and pd.notna(away_rest):
+                        try:
+                            features["rest_diff"] = float(home_rest) - float(away_rest)
+                        except (TypeError, ValueError):
+                            pass
+
+                    roof_val = row.get("roof")
+                    if pd.notna(roof_val) and str(roof_val).strip():
+                        features["is_dome"] = 1.0 if str(roof_val).lower() in ["dome", "closed"] else 0.0
+
+                    spread_val = row.get("spread_line")
+                    if pd.notna(spread_val):
+                        try:
+                            features["spread_line"] = float(spread_val)
+                        except (TypeError, ValueError):
+                            pass
 
                     games.append({
                         "game_id": f"nfl_{row.get('game_id', len(games))}",
                         "sport": "nfl",
-                        "home_team": str(row["home_team"]),
-                        "away_team": str(row["away_team"]),
-                        "features": {
-                            "epa_diff": 0.1,
-                            "rest_diff": 0.0,
-                            "is_dome": 1.0 if str(row.get("roof", "")).lower() in ["dome", "closed"] else 0.0,
-                            "spread_line": float(row.get("spread_line", 0.0) or 0.0),
-                        },
+                        "home_team": home,
+                        "away_team": away,
+                        "features": features,
                         "date": date_str,
                         "venue": str(row.get("stadium", "") or "NFL Stadium"),
                         "complete": 0,

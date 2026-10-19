@@ -1665,6 +1665,22 @@ def predict_nfl(game: TeamGame):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class SRMPriceRequest(BaseModel):
+    venue: str
+    race_number: int
+    legs: List[Dict[str, Any]]
+    runners: List[Dict[str, Any]]
+
+
+@app.post("/api/racing/srm/price")
+def price_srm_endpoint(request: SRMPriceRequest):
+    from app.srm_odds import price_srm
+    try:
+        return price_srm(request.venue, request.race_number, request.legs, request.runners)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.post("/api/sgm/price")
 def price_sgm(request: SGMPriceRequest):
     try:
