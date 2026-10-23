@@ -1,0 +1,282 @@
+"""Tools 7, 8, 19, 20: embed_graph, get_docs_section, wiki tools."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import Any
+
+from ..embeddings import EmbeddingStore, embed_all_nodes
+from ..incremental import find_project_root, get_db_path
+from ._common import _get_store, _resolve_root, _validate_repo_root
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Tool 7: embed_graph
+# ---------------------------------------------------------------------------
+
+
+def embed_graph(
+    repo_root: str | None = None,
+    model: str | None = None,
+    provider: str | None = None,
+) -> dict[str, Any]:
+    """Compute vector embeddings for all graph nodes to enable semantic search.
+
+    Requires: ``pip install code-review-graph[embeddings]`` (local provider only;
+    cloud providers like ``openai`` / ``google`` / ``minimax`` / ``voyage`` use
+    stdlib ``urllib``).
+    Default model: all-MiniLM-L6-v2. Override via ``model`` param or
+    provider-specific env vars such as CRG_EMBEDDING_MODEL, CRG_OPENAI_MODEL, or
+    CRG_VOYAGE_MODEL.
+    Changing the model or provider re-embeds all nodes automatically.
+
+    Only embeds nodes that don't already have up-to-date embeddings.
+
+    Args:
+        repo_root: Repository root path. Auto-detected if omitted.
+        model: Embedding model name. For local: HuggingFace ID or path;
+               for openai: model ID (e.g. ``text-embedding-3-small``);
+               for google: Gemini model ID; for voyage: Voyage model ID
+               (e.g. ``voyage-code-3``). Falls back to CRG_EMBEDDING_MODEL /
+               CRG_OPENAI_MODEL / CRG_VOYAGE_MODEL env vars as appropriate.
+        provider: Provider name: ``local`` (default), ``openai``, ``google``,
+                  ``minimax``, or ``voyage``. ``openai`` requires CRG_OPENAI_BASE_URL +
+                  CRG_OPENAI_API_KEY + CRG_OPENAI_MODEL env vars and accepts
+                  any OpenAI-compatible endpoint (real OpenAI, Azure, new-api,
+                  LiteLLM, vLLM, LocalAI, Ollama openai-mode, etc.).
+                  ``voyage`` requires VOYAGE_API_KEY and defaults to
+                  voyage-code-3 unless a model arg or CRG_VOYAGE_MODEL is
+                  supplied.
+
+    Returns:
+        Number of nodes embedded and total embedding count.
+    """
+    store, root = _get_store(repo_root)
+    try:
+        db_path = get_db_path(root)
+        try:
+            emb_store = EmbeddingStore(db_path, provider=provider, model=model)
+        except ValueError as exc:
+            # Unknown provider name or missing provider env vars — surface
+            # as a structured error rather than a traceback.
+            logger.error("embed_graph: %s", exc)
+            return {"status": "error", "error": str(exc)}
+        try:
+            if not emb_store.available:
+                if provider in ("openai", "google", "minimax", "voyage"):
+                    err = (
+                        f"The '{provider}' embedding provider is not available. "
+                        "Check the required environment variables "
+                        "(see README and `get_provider()` docstring) and that "
+                        "the endpoint is reachable."
+                    )
+                else:
+                    err = (
+                        "The local embedding provider needs sentence-transformers. "
+                        "Install with: pip install code-review-graph[embeddings] — "
+                        "or switch provider to 'openai' / 'google' / 'minimax' "
+                        "/ 'voyage'."
+                    )
+                return {"status": "error", "error": err}
+
+            newly_embedded = embed_all_nodes(store, emb_store)
+            total = emb_store.count()
+
+            return {
+                "status": "ok",
+                "summary": (
+                    f"Embedded {newly_embedded} new node(s). "
+                    f"Total embeddings: {total}. "
+                    "Semantic search is now active."
+                ),
+                "newly_embedded": newly_embedded,
+                "total_embeddings": total,
+            }
+        finally:
+            emb_store.close()
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 8: get_docs_section
+# ---------------------------------------------------------------------------
+
+
+def get_docs_section(
+    section_name: str, repo_root: str | None = None
+) -> dict[str, Any]:
+    """Return a specific section from the LLM-optimized reference.
+
+    Used by skills and Claude Code to load only the exact documentation
+    section needed, keeping token usage minimal (90%+ savings).
+
+    Args:
+        section_name: Exact section name. One of: usage, review-delta,
+                      review-pr, commands, legal, watch, embeddings,
+                      languages, troubleshooting.
+        repo_root: Repository root path. Auto-detected from current
+                   directory if omitted.
+
+    Returns:
+        The section content, or an error if not found.
+    """
+    import re as _re
+
+    search_roots: list[Path] = []
+
+    # Wheel install: docs are packaged inside code_review_graph/docs.
+    in_pkg_docs = (
+        Path(__file__).parent.parent
+        / "docs"
+        / "LLM-OPTIMIZED-REFERENCE.md"
+    )
+    if repo_root:
+        try:
+            search_roots.append(_validate_repo_root(Path(repo_root)))
+        except ValueError:
+            pass
+    if in_pkg_docs.exists():
+        in_pkg_root = in_pkg_docs.parent.parent
+        if in_pkg_root not in search_roots:
+            search_roots.append(in_pkg_root)
+
+    if not repo_root:
+        project_root = find_project_root()
+        if project_root not in search_roots:
+            search_roots.append(project_root)
+
+    # Editable/source-tree fallback: docs live next to code_review_graph/.
+    pkg_docs = (
+        Path(__file__).parent.parent.parent
+        / "docs"
+        / "LLM-OPTIMIZED-REFERENCE.md"
+    )
+    if pkg_docs.exists():
+        pkg_root = pkg_docs.parent.parent
+        if pkg_root not in search_roots:
+            search_roots.append(pkg_root)
+
+    for search_root in search_roots:
+        candidate = search_root / "docs" / "LLM-OPTIMIZED-REFERENCE.md"
+        if candidate.exists():
+            content = candidate.read_text(encoding="utf-8", errors="replace")
+            match = _re.search(
+                rf'<section name="{_re.escape(section_name)}">'
+                r"(.*?)</section>",
+                content,
+                _re.DOTALL | _re.IGNORECASE,
+            )
+            if match:
+                return {
+                    "status": "ok",
+                    "section": section_name,
+                    "content": match.group(1).strip(),
+                }
+
+    available = [
+        "usage", "review-delta", "review-pr", "commands",
+        "legal", "watch", "embeddings", "languages", "troubleshooting",
+    ]
+    return {
+        "status": "not_found",
+        "error": (
+            f"Section '{section_name}' not found. "
+            f"Available: {', '.join(available)}"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Tool 19: generate_wiki  [DOCS]
+# ---------------------------------------------------------------------------
+
+
+def generate_wiki_func(
+    repo_root: str | None = None,
+    force: bool = False,
+) -> dict[str, Any]:
+    """Generate a markdown wiki from the community structure.
+
+    [DOCS] Creates a wiki page for each detected community and an index
+    page. Pages are written to ``.code-review-graph/wiki/`` inside the
+    repository. Only regenerates pages whose content has changed unless
+    force=True.
+
+    Args:
+        repo_root: Repository root path. Auto-detected if omitted.
+        force: If True, regenerate all pages even if content is unchanged.
+
+    Returns:
+        Status with pages_generated, pages_updated, pages_unchanged counts.
+    """
+    from ..incremental import get_data_dir
+    from ..wiki import generate_wiki
+
+    store, root = _get_store(repo_root)
+    try:
+        wiki_dir = get_data_dir(root) / "wiki"
+        result = generate_wiki(store, wiki_dir, force=force)
+        total = (
+            result["pages_generated"]
+            + result["pages_updated"]
+            + result["pages_unchanged"]
+        )
+        return {
+            "status": "ok",
+            "summary": (
+                f"Wiki generated: {result['pages_generated']} new, "
+                f"{result['pages_updated']} updated, "
+                f"{result['pages_unchanged']} unchanged "
+                f"({total} total pages)"
+            ),
+            "wiki_dir": str(wiki_dir),
+            **result,
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+    finally:
+        store.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 20: get_wiki_page  [DOCS]
+# ---------------------------------------------------------------------------
+
+
+def get_wiki_page_func(
+    community_name: str,
+    repo_root: str | None = None,
+) -> dict[str, Any]:
+    """Retrieve a specific wiki page by community name.
+
+    [DOCS] Returns the markdown content of the wiki page for the given
+    community. The wiki must have been generated first via generate_wiki.
+
+    Args:
+        community_name: Community name to look up (slugified for filename).
+        repo_root: Repository root path. Auto-detected if omitted.
+
+    Returns:
+        Page content or not_found status.
+    """
+    from ..incremental import get_data_dir
+    from ..wiki import get_wiki_page
+
+    root = _resolve_root(repo_root)
+    wiki_dir = get_data_dir(root) / "wiki"
+    content = get_wiki_page(wiki_dir, community_name)
+    if content is None:
+        return {
+            "status": "not_found",
+            "summary": f"No wiki page found for '{community_name}'.",
+        }
+    return {
+        "status": "ok",
+        "summary": (
+            f"Wiki page for '{community_name}' ({len(content)} chars)"
+        ),
+        "content": content,
+    }

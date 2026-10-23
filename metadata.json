@@ -1,6 +1,0 @@
-{
-  "name": "BetMate",
-  "description": "AI-powered multi-sport predictions, expected value (EV) analysis, and paper betting simulation platform with Bob AI explainer.",
-  "permissions": [],
-  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

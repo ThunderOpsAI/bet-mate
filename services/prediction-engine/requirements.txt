@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pydantic
+scikit-learn
+xgboost
+pandas
+numpy
+python-dotenv
+requests
+psycopg2-binary
+pytest
+httpx
+modal
+scipy
+appdirs
+pyarrow
+nflreadpy

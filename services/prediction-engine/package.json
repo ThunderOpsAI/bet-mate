@@ -1,0 +1,11 @@
+{
+  "name": "@bet-mate/prediction-engine",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "python -m uvicorn app.main:app --reload --port 8000",
+    "build": "echo \"No build step for prediction-engine\"",
+    "lint": "echo \"No lint configured for prediction-engine\"",
+    "test": "echo \"No tests configured for prediction-engine\""
+  }
+}
