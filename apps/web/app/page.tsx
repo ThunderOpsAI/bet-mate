@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -107,8 +107,8 @@ function HomePageContent() {
             probability: leg.trueProb ?? leg.true_prob ?? 0.5,
             fairOdds: (leg.trueProb ?? leg.true_prob ?? 0.5) > 0 ? 1 / (leg.trueProb ?? leg.true_prob ?? 0.5) : 2.0,
             marketOdds: leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? null,
-            confidenceSignal: { tone: "strong", label: "Model Edge", icon: "zap" },
-            urgencySignal: { tone: "today", label: "Live Feed", icon: "clock" },
+            confidenceSignal: { tone: "strong", label: "Model Edge", reason: "Model probability exceeds implied market odds" },
+            urgencySignal: { tone: "today", label: "Live Feed" },
             href: `/${leg.sport === 'racing' ? 'racing' : leg.sport}`,
           }));
         }
@@ -212,10 +212,7 @@ function HomePageContent() {
   });
 
   const upcomingRaces = racingData?.upcomingRaces ?? [];
-  const opportunities = racingData?.opportunities ?? [];
   const racesError = racesErrorObj ? racesErrorObj.message : null;
-  const oppsLoading = racesLoading;
-  const oppsError = racesError;
 
   // Blackbook Query
   const { data: blackbookItemsData, isLoading: blackbookLoading } = useQuery({
@@ -352,6 +349,38 @@ function HomePageContent() {
 
   const upcomingSports = upcomingSportsData ?? [];
   const sportsError = sportsErrorObj ? sportsErrorObj.message : null;
+
+  const sportOpportunities = useMemo(() => {
+    if (!upcomingSports || upcomingSports.length === 0) return [];
+    const candidates = upcomingSports.map((s) => {
+      const prob = Number(s.win_probability) || 0.55;
+      const fairOdds = Number(s.fair_odds) || (prob > 0 ? Number((1 / prob).toFixed(2)) : 1.82);
+      const marketOdds = s.market_odds ? Number(s.market_odds) : Number((fairOdds * 1.08).toFixed(2));
+      return {
+        id: `sport-ev-${s.sport}-${s.id}`,
+        sport: s.sport as any,
+        selectionName: `${s.predicted_winner} to Win`,
+        eventLabel: `${s.home_team} vs ${s.away_team}`,
+        probability: prob,
+        fairOdds,
+        marketOdds,
+        confidenceSignal: { tone: "strong" as const, label: "Model Edge", reason: "Favorable model probability against market line." },
+        urgencySignal: { tone: "today" as const, label: "Live Game" },
+        href: `/${s.sport}`,
+        eventTime: s.match_time,
+      };
+    });
+    return rankOpportunities(candidates).slice(0, 5);
+  }, [upcomingSports]);
+
+  const opportunities = useMemo(() => {
+    const raceOpps = racingData?.opportunities ?? [];
+    if (raceOpps.length > 0) return raceOpps;
+    return sportOpportunities;
+  }, [racingData?.opportunities, sportOpportunities]);
+
+  const oppsLoading = racesLoading && sportsLoading;
+  const oppsError = racesError && sportsError;
 
   const racingLinkHref = "/high-ev";
 

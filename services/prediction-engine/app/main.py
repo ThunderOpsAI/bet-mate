@@ -1805,8 +1805,23 @@ def recommend_weakest_leg(request: WeakestLegRequest):
 def recommend_swaps(request: LegSwapsRequest):
     try:
         candidates = request.candidate_pool
-        if candidates is None:
+        if not candidates:
+            # 1. Try requested sport in EV feed
             candidates = storage.get_daily_ev_feed(sport=request.sport, limit=50)
+            # 2. Fall back to any sport in EV feed
+            if not candidates:
+                candidates = storage.get_daily_ev_feed(limit=50)
+            # 3. If still empty, collect live candidates from strategy service
+            if not candidates:
+                try:
+                    from app.strategy import strategy_service
+                    import datetime
+                    today_str = datetime.date.today().isoformat()
+                    candidates = strategy_service.collect_candidates_for_date(today_str)
+                except Exception as ex:
+                    logger.warning(f"Failed to fetch live candidates for leg-swaps: {ex}")
+                    candidates = []
+
         return recommend_leg_swaps(
             legs=request.legs,
             candidate_pool=candidates,
@@ -1814,6 +1829,7 @@ def recommend_swaps(request: LegSwapsRequest):
             max_swaps=request.max_swaps,
         )
     except Exception as exc:
+        logger.error(f"Error computing leg swaps: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
 
 

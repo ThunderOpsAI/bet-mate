@@ -147,9 +147,41 @@ class StrategyService:
                     "away_team": away,
                     "features": features,
                 }
+                spread_val = float(g.get("spread_line", -3.5)) or -3.5
+                spread_sel = f"{home} {spread_val:+.1f}"
+                spread_prob = _clamp_probability(home_p * 0.94)
+                total_line = float(g.get("total_line", 44.5)) or 44.5
+                total_prob = 0.53
+
                 candidates.extend([
                     build_head_to_head_candidate("nfl", game_obj, home, home_p, 0.5),
                     build_head_to_head_candidate("nfl", game_obj, away, away_p, 0.5),
+                    {
+                        "sport": "nfl",
+                        "event_id": game_obj["game_id"],
+                        "event_name": f"{home} vs {away}",
+                        "market_type": "spread",
+                        "selection": spread_sel,
+                        "model_probability": round(spread_prob, 4),
+                        "market_odds": None,
+                        "derived_odds": 1.91,
+                        "odds_source": "model_implied",
+                        "edge": round(spread_prob - 0.50, 4),
+                        "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                    },
+                    {
+                        "sport": "nfl",
+                        "event_id": game_obj["game_id"],
+                        "event_name": f"{home} vs {away}",
+                        "market_type": "total_points",
+                        "selection": f"Over {total_line:.1f} Total Points",
+                        "model_probability": round(total_prob, 4),
+                        "market_odds": None,
+                        "derived_odds": 1.91,
+                        "odds_source": "model_implied",
+                        "edge": round(total_prob - 0.50, 4),
+                        "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                    },
                 ])
         except Exception as exc:
             print(f"[NFL] Candidates note: {exc}")
@@ -332,9 +364,38 @@ class StrategyService:
                 ],
                 feature_impact={},
             )
+            home_spread = f"{game['home_team']} -3.5" if home_probability >= 0.5 else f"{game['home_team']} +3.5"
+            spread_prob = _clamp_probability(home_probability * 0.94 if home_probability >= 0.5 else away_probability * 0.94)
+            total_prob = 0.54
             candidates.extend([
                 build_head_to_head_candidate("nba", game, game["home_team"], home_probability, home_baseline),
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
+                {
+                    "sport": "nba",
+                    "event_id": game["game_id"],
+                    "event_name": f"{game['home_team']} vs {game['away_team']}",
+                    "market_type": "spread",
+                    "selection": home_spread,
+                    "model_probability": round(spread_prob, 4),
+                    "market_odds": None,
+                    "derived_odds": 1.91,
+                    "odds_source": "model_implied",
+                    "edge": round(spread_prob - 0.50, 4),
+                    "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                },
+                {
+                    "sport": "nba",
+                    "event_id": game["game_id"],
+                    "event_name": f"{game['home_team']} vs {game['away_team']}",
+                    "market_type": "total_points",
+                    "selection": "Over 218.5 Total Points",
+                    "model_probability": round(total_prob, 4),
+                    "market_odds": None,
+                    "derived_odds": 1.91,
+                    "odds_source": "model_implied",
+                    "edge": round(total_prob - 0.50, 4),
+                    "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                },
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
             storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
@@ -508,7 +569,7 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     
     # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
     is_multi_only = rule_set.get("allow_multis") and (
-        "sgm_exclusive" in rule_set["profile_key"] or 
+        "sgm" in rule_set["profile_key"] or 
         "multi" in rule_set["profile_key"] or
         rule_set.get("allowed_markets") == ["multi", "sgm"]
     )
@@ -776,10 +837,12 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     leg_count = len(normalized_legs)
     combined_edge = round(combined_probability - implied_probability, 4)
     
+    sport_allocation = {sport: 1.0} if sport in {"racing", "afl", "nba", "nfl"} else {}
     return {
-        "sport": "sgm",
+        "sport": sport or "sgm",
+        "sport_allocation": sport_allocation,
         "event_id": f"sgm:{'|'.join(leg['event_id'] for leg in normalized_legs)}",
-        "event_name": " + ".join(leg["event_name"] for leg in normalized_legs),
+        "event_name": normalized_legs[0]["event_name"] if len({l["event_name"] for l in normalized_legs}) == 1 else " + ".join(leg["event_name"] for leg in normalized_legs),
         "market_type": "sgm",
         "selection": " + ".join(leg["selection"] for leg in normalized_legs),
         "model_probability": round(combined_probability, 4),
@@ -868,7 +931,10 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
 def _candidate_supports_multi_settlement(candidate: Dict[str, Any]) -> bool:
     sport = str(candidate.get("sport", "")).strip().lower()
     market_type = str(candidate.get("market_type", "")).strip().lower()
-    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba", "nfl"})
+    return (
+        (sport == "racing" and market_type == "win") or
+        (sport in {"afl", "nba", "nfl"} and market_type in {"head_to_head", "spread", "total_points", "player_prop"})
+    )
 
 
 def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:

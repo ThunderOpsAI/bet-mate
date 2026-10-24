@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { API_BASE, safeResponseJson } from "../../lib/api";
+import { fetchWithTimeout } from "../../lib/fetchWithTimeout";
 import { PaperBet } from "../../providers/PaperBetslipProvider";
 
 export interface SwapCandidate {
@@ -73,21 +74,40 @@ export default function WeakestLegBanner({
         max_swaps: 3,
       };
 
-      const res = await fetch(`${API_BASE}/recommendations/leg-swaps`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      let res: Response | null = null;
+      try {
+        res = await fetchWithTimeout(`/api/ml-proxy/api/recommendations/leg-swaps`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          timeoutMs: 25000,
+        });
+      } catch {
+        res = null;
+      }
 
-      if (res.ok) {
+      if (!res || !res.ok) {
+        try {
+          res = await fetchWithTimeout(`${API_BASE}/recommendations/leg-swaps`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+            timeoutMs: 25000,
+          });
+        } catch {
+          res = null;
+        }
+      }
+
+      if (res && res.ok) {
         const data = await safeResponseJson(res);
-        if (data?.swaps && Array.isArray(data.swaps)) {
+        if (data?.swaps && Array.isArray(data.swaps) && data.swaps.length > 0) {
           setSwaps(data.swaps);
         } else {
           setSwaps([]);
         }
       } else {
-        setError("Unable to retrieve swap candidates right now.");
+        setSwaps([]);
       }
     } catch (err: any) {
       setError(err?.message || "Failed to fetch swaps");
@@ -97,15 +117,15 @@ export default function WeakestLegBanner({
   };
 
   const handleExecuteSwap = (swap: SwapCandidate) => {
-    const cand = swap.recommended_leg || swap;
+    const cand = (swap as any).replacement_leg || swap.recommended_leg || swap;
     const replacement: Partial<PaperBet> = {
       selection: cand.selection || cand.runner_name || cand.selectionLabel || "Replacement Pick",
       event_name: cand.event_name || cand.matchup || cand.race_name || "Upcoming Event",
-      odds: Number(cand.odds || cand.best_odds || 1.9),
+      odds: Number(cand.odds || cand.best_odds || cand.odds_used || 1.9),
       sport: cand.sport || sport,
-      bet_type: cand.market_type || cand.bet_type || "win",
+      bet_type: cand.market_type || cand.bet_type || "head_to_head",
       event_id: String(cand.event_id || cand.gameId || cand.raceId || Date.now()),
-      notes: cand.rationale || `Swapped in for +${swap.ev_improvement || 0}% EV boost`,
+      notes: swap.rationale || `Swapped in for +${swap.ev_improvement || 0}% EV boost`,
     };
 
     onApplySwap(legId, replacement);
@@ -175,7 +195,7 @@ export default function WeakestLegBanner({
           ) : (
             <div className="space-y-2">
               {swaps.map((swap, idx) => {
-                const cand = swap.recommended_leg || swap;
+                const cand = (swap as any).replacement_leg || swap.recommended_leg || swap;
                 const candSel = cand.selection || cand.selectionLabel || cand.leg_description || "Value Leg";
                 const candOdds = Number(cand.odds || cand.best_odds || 1.9).toFixed(2);
                 const evLift = swap.ev_improvement ?? cand.edge_pct ?? 0;

@@ -39,7 +39,7 @@ const handleGetTodayFeed = async (req: any, res: any) => {
       const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
       const sportParam = sport ? `?sport=${sport}` : "";
       try {
-        const mlRes = await fetch(`${mlApi}/api/ev-feed/today${sportParam}`, { signal: AbortSignal.timeout(2000) });
+        const mlRes = await fetch(`${mlApi}/api/ev-feed/today${sportParam}`, { signal: AbortSignal.timeout(12000) });
         if (mlRes.ok) {
           const mlData = await mlRes.json();
           if (Array.isArray(mlData) && mlData.length > 0) {
