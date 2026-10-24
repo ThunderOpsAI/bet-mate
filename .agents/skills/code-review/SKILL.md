@@ -3,7 +3,7 @@ name: code-review
 description: Review a branch, PR, or work-in-progress diff for correctness, security, spec alignment, risk, and repo standards. Use when the user asks for a code review or asks to review changes since a ref.
 ---
 
-Review changes using the repository's root `REVIEW.md` as policy when present. Also follow `AGENTS.md`, `CLAUDE.md`, and the applicable task or spec. Apply guidance only to the layers and stack touched by the diff.
+Review changes using the repository's root `REVIEW.md` as policy when present, falling back to the global policy in `~/.gemini/config/REVIEW.md` (or `references/REVIEW.md`). Also follow `AGENTS.md`, `CLAUDE.md`, and the applicable task or spec. Apply guidance only to the layers and stack touched by the diff.
 
 The review covers two focused passes:
 
@@ -74,7 +74,7 @@ If the spec is missing, skip spec comparison and note this in the final report.
 
 ### 5. Aggregate
 
-Present findings in the format specified by root `REVIEW.md`, when present. Include verdict, an advisory risk tier based on changed paths and behavior, task/spec context, check commands and results (or "not run"), and severity counts. Use `REQUEST CHANGES` only when there is at least one blocker. Use `NEEDS DECISION` when the code looks sound but an owner decision is needed; otherwise use `APPROVE`.
+Present findings in the format specified by root `REVIEW.md`, when present (or the global `~/.gemini/config/REVIEW.md`). Include verdict, an advisory risk tier based on changed paths and behavior, task/spec context, check commands and results (or "not run"), and severity counts. Use `REQUEST CHANGES` only when there is at least one blocker. Use `NEEDS DECISION` when the code looks sound but an owner decision is needed; otherwise use `APPROVE`.
 
 Risk guidance: Low for docs and isolated additive changes; Medium for ordinary product behavior or shared logic; High for authentication, money/betting logic, sensitive data, migrations, secrets, deployment/release, CI, or broad architecture changes. Explain the tier. High risk merits human review; an agent verdict never substitutes for human approval.
 
