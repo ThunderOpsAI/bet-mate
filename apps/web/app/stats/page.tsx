@@ -14,7 +14,7 @@ import {
   Layers,
   Search,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import {
   PlayerPropCard,
   PropsFilterBar,
@@ -296,14 +296,14 @@ export default function StatsPropsPage() {
           />
         ) : (
           /* Props Grid with Framer Motion */
-          <motion.div
+          <m.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.3 }}
             className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5"
           >
             {filteredProps.map((prop) => (
-              <motion.div
+              <m.div
                 key={prop.id}
                 layout
                 initial={{ opacity: 0, y: 12 }}
@@ -314,9 +314,9 @@ export default function StatsPropsPage() {
                   prop={prop}
                   onCompare={handleOpenCompare}
                 />
-              </motion.div>
+              </m.div>
             ))}
-          </motion.div>
+          </m.div>
         )}
 
         {/* Player Comparison Modal */}

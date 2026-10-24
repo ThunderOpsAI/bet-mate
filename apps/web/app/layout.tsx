@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { QueryProvider } from "./providers/QueryProvider";
 import { AuthProvider } from "./providers/AuthProvider";
 import { PaperBetslipProvider } from "./providers/PaperBetslipProvider";
+import { MotionProvider } from "./providers/MotionProvider";
 import AppShell from "./components/AppShell";
 
 import { AnalyticsProvider } from "./components/analytics/AnalyticsProvider";
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <QueryProvider>
           <AuthProvider>
             <PaperBetslipProvider>
-              <AppShell>{children}</AppShell>
+              <MotionProvider>
+                <AppShell>{children}</AppShell>
+              </MotionProvider>
             </PaperBetslipProvider>
           </AuthProvider>
         </QueryProvider>

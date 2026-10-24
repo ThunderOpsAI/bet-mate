@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../services/prisma";
 
 const router = Router();
-const prisma = new PrismaClient();
+// uses shared prisma singleton
 
 // GET /api/situational/runners/:runnerId
 router.get("/runners/:runnerId", async (req, res) => {

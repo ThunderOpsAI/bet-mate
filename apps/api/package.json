@@ -11,12 +11,16 @@
     "test": "echo \"No tests configured for api\""
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@prisma/adapter-neon": "^7.10.1",
     "@prisma/client": "^6.5.0",
+    "@upstash/redis": "^1.39.0",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
+    "ws": "^8.22.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
@@ -25,6 +29,7 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.9",
     "@types/node": "^22.7.4",
+    "@types/ws": "^8.18.2",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

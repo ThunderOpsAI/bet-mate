@@ -104,19 +104,61 @@ def _run_logged_job(name: str, job: Callable[[], Dict[str, object]]) -> Dict[str
         raise
 
 
-@app.function(
+@app.cls(
     image=image,
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
     region="ap-southeast-2",
-    timeout=60 * 15,
+    timeout=60 * 5,
+    min_containers=1,
+    scaledown_window=300,
+    enable_memory_snapshot=True,
 )
-@modal.asgi_app()
-def web():
-    _prepare_runtime()
-    from app.main import app as fastapi_app
-    return fastapi_app
+class BetMatePredictionService:
+
+    @modal.enter(snap=True)
+    def load_artifacts_into_snapshot(self):
+        """
+        Executed ONCE before memory snapshot is frozen to disk.
+        All heavy library imports, pre-warmed scalers, and model weights are captured.
+        """
+        import xgboost as xgb
+        import scipy.stats
+        try:
+            import polars as pl
+        except ImportError:
+            pass
+        from app.ml.racing import RacingPredictor
+        from app.ml.afl import AFLPredictor
+        from app.ml.nba import NBAPredictor
+
+        LOGGER.info("[Snapshot] Warming ML predictors and freezing memory snapshot...")
+        try:
+            self.racing_predictor = RacingPredictor()
+            self.racing_predictor.load_or_train()
+        except Exception as e:
+            LOGGER.warning("[Snapshot] Prewarming model failed: %s", e)
+
+    @modal.enter(snap=False)
+    def initialize_runtime_connections(self):
+        """
+        Executed upon container restore/wakeup.
+        Network sockets and database connections MUST be initialized here,
+        as TCP connections cannot survive memory snapshot restore.
+        """
+        import app.database as database
+        try:
+            database.require_database_url()
+        except Exception as e:
+            LOGGER.warning("[Runtime] Database URL check: %s", e)
+        LOGGER.info("[Runtime] Restored from snapshot; database handle ready.")
+
+    @modal.asgi_app()
+    @modal.concurrent(max_inputs=20)
+    def web(self):
+        from app.main import app as fastapi_app
+        return fastapi_app
 
 
 @app.function(

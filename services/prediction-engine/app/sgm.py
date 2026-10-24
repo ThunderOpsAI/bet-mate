@@ -5,6 +5,9 @@ from math import prod
 from typing import Any, Mapping, Sequence
 import numpy as np
 from scipy.stats import norm, multivariate_normal
+from app.ml.fast_copula import FastCopulaPricer
+
+_DEFAULT_FAST_PRICER = FastCopulaPricer(n_samples=2048)
 
 DEFAULT_CORRELATION_FALLBACK = 0.10
 
@@ -102,15 +105,15 @@ def build_correlation_matrix(legs: Sequence[Mapping[str, object]], sport: str = 
 
 
 def calculate_copula_joint_probability(probabilities: Sequence[float], correlation_matrix: np.ndarray) -> float:
-    """Compute Gaussian Copula joint probability for correlated events."""
+    """Compute Gaussian Copula joint probability for correlated events using vectorized Quasi-Monte Carlo Sobol evaluation."""
     k = len(probabilities)
-    probs_clipped = np.clip(probabilities, 1e-5, 1.0 - 1e-5)
-    z = norm.ppf(probs_clipped)
-    mean = np.zeros(k)
+    if k == 0:
+        return 0.0
+    if k == 1:
+        return float(np.clip(probabilities[0], 0.0, 1.0))
 
     try:
-        joint_p = multivariate_normal.cdf(z, mean=mean, cov=correlation_matrix)
-        return float(np.clip(joint_p, 1e-6, 0.999999))
+        return _DEFAULT_FAST_PRICER.simulate_joint_probability(probabilities, correlation_matrix)
     except Exception:
         # Fallback to independent product
         return float(prod(probabilities))
@@ -160,27 +163,20 @@ def analyze_pairwise_warnings(legs: Sequence[Mapping[str, object]], sport: str =
 def simulate_copula_joint_probability(
     probabilities: Sequence[float],
     correlation_matrix: np.ndarray,
-    n_samples: int = 50000,
+    n_samples: int = 2048,
     seed: int | None = None,
 ) -> float:
-    """Compute Gaussian Copula joint probability via Monte Carlo simulation (Item 2)."""
+    """Compute Gaussian Copula joint probability via accelerated Quasi-Monte Carlo Sobol simulation (Item 2)."""
     k = len(probabilities)
     if k == 0:
         return 0.0
     if k == 1:
         return float(np.clip(probabilities[0], 0.0, 1.0))
 
-    probs_clipped = np.clip(probabilities, 1e-5, 1.0 - 1e-5)
-    z_thresholds = norm.ppf(probs_clipped)
-    mean = np.zeros(k)
-
-    rng = np.random.default_rng(seed)
     try:
-        samples = rng.multivariate_normal(mean, correlation_matrix, size=n_samples)
-        successes = np.all(samples <= z_thresholds, axis=1)
-        sim_p = float(np.mean(successes))
-        max_bound = float(min(probabilities))
-        return float(np.clip(sim_p, 1e-6, max_bound))
+        pricer = FastCopulaPricer(n_samples=n_samples) if n_samples != 2048 else _DEFAULT_FAST_PRICER
+        effective_seed = seed if seed is not None else 42
+        return pricer.simulate_joint_probability(probabilities, correlation_matrix, seed=effective_seed)
     except Exception:
         return float(prod(probabilities))
 

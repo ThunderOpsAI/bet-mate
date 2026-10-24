@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "../services/prisma";
 import { z } from "zod";
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma: any = prismaClient;
 
 const modelPerformanceSchema = z.object({
   sport: z.string().min(1),

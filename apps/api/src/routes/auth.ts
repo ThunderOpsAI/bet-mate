@@ -1,11 +1,11 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { PrismaClient } from "@prisma/client";
+import prisma from "../services/prisma";
 import { z } from "zod";
 
 const router = Router();
-const prisma = new PrismaClient();
+// uses shared prisma singleton
 const jwtSecret = process.env.JWT_SECRET ?? "change-me-in-production";
 
 const memoryUsers = new Map<

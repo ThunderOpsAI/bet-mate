@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
@@ -19,7 +19,7 @@ function matchesTrack(raceName: string, searchName: string): boolean {
 }
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma: any = prismaClient;
 
 router.use(requireAuth);
 

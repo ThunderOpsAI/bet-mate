@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { m } from "framer-motion";
 import { AlertTriangle, Info, CheckCircle2, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
 import type { SGMPriceResult, PairwiseWarning } from "./types";
 
@@ -38,7 +39,12 @@ export default function MultiSummaryPanel({
     : 0;
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl backdrop-blur-sm sticky top-6">
+    <m.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-xl backdrop-blur-sm sticky top-6"
+    >
       <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
         <div>
           <h2 className="text-lg font-bold text-white tracking-tight">Multi Summary Panel</h2>
@@ -204,6 +210,6 @@ export default function MultiSummaryPanel({
           </button>
         </div>
       )}
-    </div>
+    </m.div>
   );
 }
