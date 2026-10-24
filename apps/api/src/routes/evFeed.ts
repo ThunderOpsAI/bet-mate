@@ -13,6 +13,21 @@ const handleGetTodayFeed = async (req: any, res: any) => {
       where.sport = sport.toLowerCase();
     }
 
+    // Only query feeds from within the last 20 hours (today's active races)
+    const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000);
+    where.createdAt = { gte: twentyHoursAgo };
+
+    // Cap unrealistic illiquid outlier odds (e.g. $140, $200) and corrupted edge percentages
+    where.bestOdds = { lte: 51.0, gt: 1.01 };
+    where.edgePct = { lte: 200.0, gt: 0.0 };
+
+    // Purge stale records older than 48 hours to keep the feed clean
+    void prisma.dailyEVFeed
+      .deleteMany({
+        where: { createdAt: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
+      })
+      .catch(() => null);
+
     let legs = await prisma.dailyEVFeed.findMany({
       where,
       orderBy: { edgePct: "desc" },
@@ -28,19 +43,25 @@ const handleGetTodayFeed = async (req: any, res: any) => {
         if (mlRes.ok) {
           const mlData = await mlRes.json();
           if (Array.isArray(mlData) && mlData.length > 0) {
-            legs = mlData.map((d: any) => ({
-              id: String(d.id || `ev-${d.sport}-${d.leg_description}`),
-              sport: d.sport,
-              gameContext: d.game_context,
-              legDescription: d.leg_description,
-              trueProb: d.true_prob,
-              bestOdds: d.best_odds,
-              edgePct: d.edge_pct,
-              correlationGroup: d.correlation_group,
-              backPrice: d.back_price ?? d.best_odds,
-              layPrice: d.lay_price,
-              createdAt: d.created_at || new Date().toISOString(),
-            }));
+            legs = mlData
+              .filter((d: any) => {
+                const odds = Number(d.best_odds || d.back_price || 0);
+                const edge = Number(d.edge_pct || 0);
+                return odds > 1.01 && odds <= 51.0 && edge > 0 && edge <= 200.0;
+              })
+              .map((d: any) => ({
+                id: String(d.id || `ev-${d.sport}-${d.leg_description}`),
+                sport: d.sport,
+                gameContext: d.game_context,
+                legDescription: d.leg_description,
+                trueProb: d.true_prob,
+                bestOdds: d.best_odds,
+                edgePct: d.edge_pct,
+                correlationGroup: d.correlation_group,
+                backPrice: d.back_price ?? d.best_odds,
+                layPrice: d.lay_price,
+                createdAt: d.created_at || new Date().toISOString(),
+              }));
           }
         }
       } catch {

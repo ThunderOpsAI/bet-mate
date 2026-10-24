@@ -1,18 +1,10 @@
 import { NextResponse } from "next/server";
-
-const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
-const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
-
-// In-memory fallback user store for standalone web deployments without Express backend
-const localUsersMap = new Map<
-  string,
-  { id: string; email: string; username: string; passwordHash?: string; currentBankroll: number }
->();
+import { localUsersMap, getTargetBase, sendWebConfirmationEmail } from "../store";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, username, password, startingBankroll = 10000 } = body;
+    const { email, username, password, startingBankroll = 10000, marketingOptIn = false } = body;
 
     if (!email || !username) {
       return NextResponse.json(
@@ -21,9 +13,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetBase =
-      (process.env.API_PROXY_TARGET && process.env.API_PROXY_TARGET !== "/api" ? process.env.API_PROXY_TARGET : null) ||
-      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_API_TARGET : DEFAULT_LOCAL_API_TARGET);
+    const targetBase = getTargetBase();
 
     // Try forwarding to external API backend if available
     if (targetBase && targetBase !== "/api") {
@@ -31,7 +21,7 @@ export async function POST(req: Request) {
         const proxyRes = await fetch(`${targetBase.replace(/\/+$/, "")}/api/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, username, password, startingBankroll }),
+          body: JSON.stringify({ email, username, password, startingBankroll, marketingOptIn }),
         });
 
         if (proxyRes.ok) {
@@ -70,16 +60,27 @@ export async function POST(req: Request) {
       email: cleanEmail,
       username: cleanUsername,
       currentBankroll: Number(startingBankroll) || 10000,
+      emailConfirmed: false,
     };
 
     localUsersMap.set(userId, newUser);
 
-    const accessToken = `bm_jwt_${Date.now()}_${userId}`;
+    // Dispatch confirmation email
+    await sendWebConfirmationEmail(cleanEmail);
 
+    // Strictly require email confirmation - do NOT issue an accessToken
     return NextResponse.json(
       {
-        user: newUser,
-        accessToken,
+        success: true,
+        requireConfirmation: true,
+        email: cleanEmail,
+        message: "Account created! Please check your email inbox to confirm your account before logging in.",
+        user: {
+          id: userId,
+          email: cleanEmail,
+          username: cleanUsername,
+          emailConfirmed: false,
+        },
         mode: "local",
       },
       { status: 201 }

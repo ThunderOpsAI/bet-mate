@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-
-const DEFAULT_LOCAL_API_TARGET = "http://127.0.0.1:3001";
-const DEFAULT_PRODUCTION_API_TARGET = "https://bet-mate-api.vercel.app";
+import { localUsersMap, getTargetBase } from "../store";
 
 export async function POST(req: Request) {
   try {
@@ -15,9 +13,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const targetBase =
-      (process.env.API_PROXY_TARGET && process.env.API_PROXY_TARGET !== "/api" ? process.env.API_PROXY_TARGET : null) ||
-      (process.env.NODE_ENV === "production" ? DEFAULT_PRODUCTION_API_TARGET : DEFAULT_LOCAL_API_TARGET);
+    const targetBase = getTargetBase();
 
     // Try forwarding to external API backend if available
     if (targetBase && targetBase !== "/api") {
@@ -34,7 +30,11 @@ export async function POST(req: Request) {
         } else {
           const errData = await proxyRes.json().catch(() => null);
           return NextResponse.json(
-            { error: errData?.error || "Invalid credentials" },
+            {
+              error: errData?.error || "Invalid credentials",
+              requireConfirmation: errData?.requireConfirmation ?? false,
+              email: errData?.email,
+            },
             { status: proxyRes.status }
           );
         }
@@ -45,21 +45,39 @@ export async function POST(req: Request) {
 
     // Local standalone authentication fallback
     const input = String(emailOrUsername).toLowerCase().trim();
-    const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const username = input.includes("@") ? input.split("@")[0] : input;
+    const existingUser = [...localUsersMap.values()].find(
+      (u) => u.email === input || u.username.toLowerCase() === input
+    );
 
-    const user = {
-      id: userId,
-      email: input.includes("@") ? input : `${input}@betmate.user`,
-      username: username || "BetMateUser",
-      currentBankroll: 10000,
-    };
+    if (!existingUser) {
+      return NextResponse.json(
+        { error: "Invalid credentials" },
+        { status: 401 }
+      );
+    }
 
-    const accessToken = `bm_jwt_${Date.now()}_${userId}`;
+    if (!existingUser.emailConfirmed) {
+      return NextResponse.json(
+        {
+          error: "Please confirm your email address before logging in. Check your inbox or click below to resend confirmation email.",
+          requireConfirmation: true,
+          email: existingUser.email,
+        },
+        { status: 403 }
+      );
+    }
+
+    const accessToken = `bm_jwt_${Date.now()}_${existingUser.id}`;
 
     return NextResponse.json(
       {
-        user,
+        user: {
+          id: existingUser.id,
+          email: existingUser.email,
+          username: existingUser.username,
+          currentBankroll: existingUser.currentBankroll,
+          emailConfirmed: true,
+        },
         accessToken,
         mode: "local",
       },

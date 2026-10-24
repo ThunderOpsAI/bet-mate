@@ -88,7 +88,18 @@ function HomePageContent() {
         if (evRes.ok) {
           const evData = await safeResponseJson(evRes);
           const legs: any[] = Array.isArray(evData) ? evData : (evData?.feed || []);
-          evCandidates = legs.map((leg) => ({
+          const nowMs = Date.now();
+          const validLegs = legs.filter((leg) => {
+            const odds = Number(leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? 0);
+            if (odds > 51.0 || odds <= 1.05) return false;
+            const dateStr = leg.createdAt || leg.created_at;
+            if (dateStr) {
+              const createdMs = new Date(dateStr).getTime();
+              if (!isNaN(createdMs) && (nowMs - createdMs > 20 * 60 * 60 * 1000)) return false;
+            }
+            return true;
+          });
+          evCandidates = validLegs.map((leg) => ({
             id: leg.id,
             sport: leg.sport,
             selectionName: leg.legDescription || leg.leg_description,
@@ -185,7 +196,7 @@ function HomePageContent() {
           });
         }
         
-        const allCandidates = [...evCandidates, ...candidates];
+        const allCandidates = candidates.length > 0 ? [...candidates, ...evCandidates] : evCandidates;
         if (allCandidates.length > 0) {
           opps = rankOpportunities(allCandidates).slice(0, 5);
         }

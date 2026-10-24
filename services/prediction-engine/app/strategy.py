@@ -94,20 +94,21 @@ class StrategyService:
         for c in candidates:
             prob = float(c.get("model_probability") or 0.0)
             odds = float(c.get("market_odds") or c.get("odds_used") or c.get("derived_odds") or 0.0)
-            if prob > 0 and odds > 1:
+            if prob > 0.02 and 1.10 <= odds <= 51.0:
                 edge_pct = round(((prob * odds) - 1.0) * 100.0, 2)
-                ev_legs.append({
-                    "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
-                    "sport": c.get("sport", "nba"),
-                    "game_context": c.get("event_name", ""),
-                    "leg_description": f"{c.get('selection')} to Win",
-                    "true_prob": round(prob, 4),
-                    "best_odds": round(odds, 2),
-                    "edge_pct": edge_pct,
-                    "back_price": round(odds, 2),
-                    "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
-                    "correlation_group": c.get("event_id"),
-                })
+                if 0.0 < edge_pct <= 200.0:
+                    ev_legs.append({
+                        "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
+                        "sport": c.get("sport", "nba"),
+                        "game_context": c.get("event_name", ""),
+                        "leg_description": f"{c.get('selection')} to Win",
+                        "true_prob": round(prob, 4),
+                        "best_odds": round(odds, 2),
+                        "edge_pct": edge_pct,
+                        "back_price": round(odds, 2),
+                        "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
+                        "correlation_group": c.get("event_id"),
+                    })
         ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
         if ev_legs:
             try:
