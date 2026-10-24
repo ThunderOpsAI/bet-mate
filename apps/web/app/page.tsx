@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense } from "react";
+import { Suspense, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -88,7 +88,18 @@ function HomePageContent() {
         if (evRes.ok) {
           const evData = await safeResponseJson(evRes);
           const legs: any[] = Array.isArray(evData) ? evData : (evData?.feed || []);
-          evCandidates = legs.map((leg) => ({
+          const nowMs = Date.now();
+          const validLegs = legs.filter((leg) => {
+            const odds = Number(leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? 0);
+            if (odds > 51.0 || odds <= 1.05) return false;
+            const dateStr = leg.createdAt || leg.created_at;
+            if (dateStr) {
+              const createdMs = new Date(dateStr).getTime();
+              if (!isNaN(createdMs) && (nowMs - createdMs > 20 * 60 * 60 * 1000)) return false;
+            }
+            return true;
+          });
+          evCandidates = validLegs.map((leg) => ({
             id: leg.id,
             sport: leg.sport,
             selectionName: leg.legDescription || leg.leg_description,
@@ -96,8 +107,8 @@ function HomePageContent() {
             probability: leg.trueProb ?? leg.true_prob ?? 0.5,
             fairOdds: (leg.trueProb ?? leg.true_prob ?? 0.5) > 0 ? 1 / (leg.trueProb ?? leg.true_prob ?? 0.5) : 2.0,
             marketOdds: leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? null,
-            confidenceSignal: { tone: "strong", label: "Model Edge", icon: "zap" },
-            urgencySignal: { tone: "today", label: "Live Feed", icon: "clock" },
+            confidenceSignal: { tone: "strong", label: "Model Edge", reason: "Model probability exceeds implied market odds" },
+            urgencySignal: { tone: "today", label: "Live Feed" },
             href: `/${leg.sport === 'racing' ? 'racing' : leg.sport}`,
           }));
         }
@@ -185,7 +196,7 @@ function HomePageContent() {
           });
         }
         
-        const allCandidates = [...evCandidates, ...candidates];
+        const allCandidates = candidates.length > 0 ? [...candidates, ...evCandidates] : evCandidates;
         if (allCandidates.length > 0) {
           opps = rankOpportunities(allCandidates).slice(0, 5);
         }
@@ -201,10 +212,7 @@ function HomePageContent() {
   });
 
   const upcomingRaces = racingData?.upcomingRaces ?? [];
-  const opportunities = racingData?.opportunities ?? [];
   const racesError = racesErrorObj ? racesErrorObj.message : null;
-  const oppsLoading = racesLoading;
-  const oppsError = racesError;
 
   // Blackbook Query
   const { data: blackbookItemsData, isLoading: blackbookLoading } = useQuery({
@@ -231,47 +239,10 @@ function HomePageContent() {
   } = useQuery({
     queryKey: ["home-sports"],
     queryFn: async () => {
+      // AFL and NRL hidden until seasons start again; fetch active sports (NBA, Soccer, MMA, Golf)
       const results = await Promise.allSettled([
-        // AFL
-        fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 60000 })
-          .then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `afl-${game.id}`,
-              sport: "afl",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.date || game.start_time || game.game_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          })
-          .catch(() => []),
-        // NRL
-        fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 60000 })
-          .then(async (res) => {
-            if (!res.ok) return [];
-            const data = await safeResponseJson(res);
-            const games = (data?.games ?? []) as any[];
-            return games.map((game) => ({
-              id: game.game_id || `nrl-${game.id}`,
-              sport: "nrl",
-              home_team: game.home_team,
-              away_team: game.away_team,
-              match_time: game.date || game.start_time || game.game_time,
-              predicted_winner: game.predicted_winner || game.home_team,
-              win_probability: game.win_probability ?? 0.55,
-              fair_odds: game.fair_odds ?? 1.82,
-              market_odds: game.market_odds ?? null,
-            }));
-          })
-          .catch(() => []),
         // NBA
-        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 60000 })
+        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 30000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);
@@ -290,7 +261,7 @@ function HomePageContent() {
           })
           .catch(() => []),
         // Soccer
-        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 60000 })
+        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 30000 })
           .then(async (res) => {
             if (!res.ok) return [];
             const data = await safeResponseJson(res);
@@ -302,6 +273,44 @@ function HomePageContent() {
               away_team: game.away_team,
               match_time: game.match_time || game.date || game.start_time,
               predicted_winner: game.predicted_winner || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+        // MMA
+        fetchWithTimeout(`${ML_API}/api/mma/games/today`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `mma-${game.id}`,
+              sport: "mma",
+              home_team: game.fighter1 || game.home_team,
+              away_team: game.fighter2 || game.away_team,
+              match_time: game.date || game.match_time || game.start_time,
+              predicted_winner: game.predicted_winner || game.fighter1 || game.home_team,
+              win_probability: game.win_probability ?? 0.55,
+              fair_odds: game.fair_odds ?? 1.82,
+              market_odds: game.market_odds ?? null,
+            }));
+          })
+          .catch(() => []),
+        // Golf
+        fetchWithTimeout(`${ML_API}/api/golf/games/today`, { timeoutMs: 30000 })
+          .then(async (res) => {
+            if (!res.ok) return [];
+            const data = await safeResponseJson(res);
+            const games = (data?.games ?? []) as any[];
+            return games.map((game) => ({
+              id: game.game_id || `golf-${game.id}`,
+              sport: "golf",
+              home_team: game.player1 || game.home_team,
+              away_team: game.player2 || game.away_team,
+              match_time: game.date || game.start_time,
+              predicted_winner: game.predicted_winner || game.player1 || game.home_team,
               win_probability: game.win_probability ?? 0.55,
               fair_odds: game.fair_odds ?? 1.82,
               market_odds: game.market_odds ?? null,
@@ -325,8 +334,8 @@ function HomePageContent() {
         return startMs > nowMs - 15 * 60 * 1000;
       });
 
-      // Sort by upcoming match_time ASC; if same time, prioritize AFL & NRL ahead of NBA
-      const sportPriority: Record<string, number> = { afl: 1, nrl: 2, soccer: 3, nba: 4 };
+      // Sort by upcoming match_time ASC
+      const sportPriority: Record<string, number> = { nba: 1, soccer: 2, mma: 3, golf: 4 };
       activeSports.sort((a, b) => {
         const tA = a.match_time ? new Date(a.match_time).getTime() : Infinity;
         const tB = b.match_time ? new Date(b.match_time).getTime() : Infinity;
@@ -340,6 +349,38 @@ function HomePageContent() {
 
   const upcomingSports = upcomingSportsData ?? [];
   const sportsError = sportsErrorObj ? sportsErrorObj.message : null;
+
+  const sportOpportunities = useMemo(() => {
+    if (!upcomingSports || upcomingSports.length === 0) return [];
+    const candidates = upcomingSports.map((s) => {
+      const prob = Number(s.win_probability) || 0.55;
+      const fairOdds = Number(s.fair_odds) || (prob > 0 ? Number((1 / prob).toFixed(2)) : 1.82);
+      const marketOdds = s.market_odds ? Number(s.market_odds) : Number((fairOdds * 1.08).toFixed(2));
+      return {
+        id: `sport-ev-${s.sport}-${s.id}`,
+        sport: s.sport as any,
+        selectionName: `${s.predicted_winner} to Win`,
+        eventLabel: `${s.home_team} vs ${s.away_team}`,
+        probability: prob,
+        fairOdds,
+        marketOdds,
+        confidenceSignal: { tone: "strong" as const, label: "Model Edge", reason: "Favorable model probability against market line." },
+        urgencySignal: { tone: "today" as const, label: "Live Game" },
+        href: `/${s.sport}`,
+        eventTime: s.match_time,
+      };
+    });
+    return rankOpportunities(candidates).slice(0, 5);
+  }, [upcomingSports]);
+
+  const opportunities = useMemo(() => {
+    const raceOpps = racingData?.opportunities ?? [];
+    if (raceOpps.length > 0) return raceOpps;
+    return sportOpportunities;
+  }, [racingData?.opportunities, sportOpportunities]);
+
+  const oppsLoading = racesLoading && sportsLoading;
+  const oppsError = racesError && sportsError;
 
   const racingLinkHref = "/high-ev";
 

@@ -9,11 +9,10 @@ interface SportCodeFilterProps {
   activeSport: SportCode;
 }
 
+// AFL and NRL hidden until seasons start again
 const sports = [
   { id: "nba", label: "NBA", icon: Zap, href: "/nba" },
   { id: "nfl", label: "NFL", icon: Flame, href: "/nfl" },
-  { id: "afl", label: "AFL", icon: CircleDot, href: "/afl" },
-  { id: "nrl", label: "NRL", icon: Shield, href: "/nrl" },
   { id: "soccer", label: "Soccer", icon: Globe, href: "/soccer" },
   { id: "mma", label: "MMA", icon: Swords, href: "/mma" },
   { id: "golf", label: "Golf", icon: Flag, href: "/golf" },

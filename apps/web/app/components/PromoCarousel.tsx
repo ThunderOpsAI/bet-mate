@@ -14,7 +14,7 @@ const BANNERS = [
     id: 2,
     src: "/banners/banner_2.png",
     alt: "ML-Driven Final Picks – See Predictions",
-    href: "/afl",
+    href: "/sport",
   },
   {
     id: 3,

@@ -576,7 +576,7 @@ export default function HomePrimaryCard({
                   </button>
                 )}
               </h2>
-              <p className="text-[11px] text-slate-400 mt-0.5">Upcoming AFL, NBA, NRL & Soccer</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Upcoming NBA, Soccer, MMA & Golf</p>
             </div>
             <Link href="/sport" className="text-xs font-semibold text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
               <span>View Sports</span>

@@ -48,6 +48,7 @@ from app.ml import artifacts as artifact_store
 import app.data.scraper as racing_scraper
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.nfl_scraper as nfl_scraper
 import app.data.nrl_scraper as nrl_scraper
 import app.data.soccer_scraper as soccer_scraper
 import app.data.golf_scraper as golf_scraper
@@ -1350,27 +1351,6 @@ FALLBACK_AFL_GAMES = [
     },
 ]
 
-FALLBACK_NBA_GAMES = [
-    {
-        "game_id": "nba_fb_1",
-        "home_team": "Boston Celtics",
-        "away_team": "Los Angeles Lakers",
-        "features": {"home_rest_days": 2, "travel_distance_away": 3000, "home_win_pct": 0.72, "away_win_pct": 0.58, "net_rating_diff": 6.5},
-        "venue": "TD Garden",
-        "date": "2026-08-07T23:30:00Z",
-        "complete": 0,
-    },
-    {
-        "game_id": "nba_fb_2",
-        "home_team": "Golden State Warriors",
-        "away_team": "Denver Nuggets",
-        "features": {"home_rest_days": 1, "travel_distance_away": 1200, "home_win_pct": 0.65, "away_win_pct": 0.68, "net_rating_diff": 2.1},
-        "venue": "Chase Center",
-        "date": "2026-08-08T02:00:00Z",
-        "complete": 0,
-    },
-]
-
 FALLBACK_NRL_GAMES = [
     {
         "game_id": "nrl_fb_1",
@@ -1515,11 +1495,9 @@ def get_today_nba(date: Optional[str] = None):
             raise HTTPException(status_code=400, detail="Invalid date format")
     try:
         games = nba_scraper.fetch_today_nba(run_date=date)
-        if not games:
-            games = FALLBACK_NBA_GAMES
     except Exception as exc:
         LOGGER.error("Error fetching NBA games: %s", exc)
-        games = FALLBACK_NBA_GAMES
+        games = []
     return {"games": games}
 
 @app.post("/api/predict/nba")
@@ -1628,6 +1606,17 @@ class PropEdgeRequest(BaseModel):
     under_odds: Optional[float] = None
 
 
+# --- NFL ENDPOINTS ---
+@app.get("/api/nfl/games/today")
+@app.get("/api/nfl/games/upcoming")
+def get_upcoming_nfl(date: Optional[str] = None):
+    try:
+        games = nfl_scraper.fetch_upcoming_nfl(run_date=date)
+    except Exception as exc:
+        LOGGER.error("Error fetching NFL games: %s", exc)
+        games = []
+    return {"games": games}
+
 @app.post("/api/predict/nfl")
 def predict_nfl(game: TeamGame):
     try:
@@ -1674,6 +1663,22 @@ def predict_nfl(game: TeamGame):
     except Exception as e:
         LOGGER.error(f"Error predicting NFL: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class SRMPriceRequest(BaseModel):
+    venue: str
+    race_number: int
+    legs: List[Dict[str, Any]]
+    runners: List[Dict[str, Any]]
+
+
+@app.post("/api/racing/srm/price")
+def price_srm_endpoint(request: SRMPriceRequest):
+    from app.srm_odds import price_srm
+    try:
+        return price_srm(request.venue, request.race_number, request.legs, request.runners)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/sgm/price")
@@ -1800,8 +1805,23 @@ def recommend_weakest_leg(request: WeakestLegRequest):
 def recommend_swaps(request: LegSwapsRequest):
     try:
         candidates = request.candidate_pool
-        if candidates is None:
+        if not candidates:
+            # 1. Try requested sport in EV feed
             candidates = storage.get_daily_ev_feed(sport=request.sport, limit=50)
+            # 2. Fall back to any sport in EV feed
+            if not candidates:
+                candidates = storage.get_daily_ev_feed(limit=50)
+            # 3. If still empty, collect live candidates from strategy service
+            if not candidates:
+                try:
+                    from app.strategy import strategy_service
+                    import datetime
+                    today_str = datetime.date.today().isoformat()
+                    candidates = strategy_service.collect_candidates_for_date(today_str)
+                except Exception as ex:
+                    logger.warning(f"Failed to fetch live candidates for leg-swaps: {ex}")
+                    candidates = []
+
         return recommend_leg_swaps(
             legs=request.legs,
             candidate_pool=candidates,
@@ -1809,6 +1829,7 @@ def recommend_swaps(request: LegSwapsRequest):
             max_swaps=request.max_swaps,
         )
     except Exception as exc:
+        logger.error(f"Error computing leg swaps: {exc}")
         raise HTTPException(status_code=400, detail=str(exc))
 
 

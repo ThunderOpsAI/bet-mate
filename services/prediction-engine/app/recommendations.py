@@ -390,6 +390,41 @@ def recommend_leg_swaps(
                     "rank_metric": rank_metric,
                 })
 
+    if not valid_swaps and candidate_pool:
+        # Fall back to presenting top available candidate alternatives from the pool
+        fallback_cands = [
+            c for c in candidate_pool
+            if str(c.get("selection") or c.get("selectionLabel") or c.get("leg_description") or "").lower() not in existing_selections
+        ]
+        for cand in fallback_cands[:max_swaps]:
+            try:
+                trial_legs = list(legs)
+                trial_legs[weakest_idx] = cand
+                trial_sgm = calculate_sgm_odds(trial_legs, sport=sport)
+                ev_improvement = round(trial_sgm["combined_edge_pct"] - orig_sgm["combined_edge_pct"], 2)
+                score_improvement = trial_sgm["health_score"] - orig_sgm["health_score"]
+                cand_selection = str(cand.get("selection") or cand.get("selectionLabel") or cand.get("leg_description") or "Candidate")
+                orig_selection = str(legs[weakest_idx].get("selection") or f"Leg {weakest_idx+1}")
+                cand_odds = float(cand.get("odds") or cand.get("best_odds") or cand.get("back_price") or 1.90)
+                valid_swaps.append({
+                    "original_leg_index": weakest_idx,
+                    "original_leg": dict(legs[weakest_idx]),
+                    "replacement_leg": dict(cand),
+                    "ev_improvement": ev_improvement,
+                    "health_score_before": orig_sgm["health_score"],
+                    "health_score_after": trial_sgm["health_score"],
+                    "health_grade_before": orig_sgm["health_grade"],
+                    "health_grade_after": trial_sgm["health_grade"],
+                    "correlation_score_before": orig_sgm["correlation_score"],
+                    "correlation_score_after": trial_sgm["correlation_score"],
+                    "new_combined_odds": trial_sgm["combined_odds"],
+                    "new_combined_edge_pct": trial_sgm["combined_edge_pct"],
+                    "rationale": f"Alternative pick: Swap {orig_selection} for {cand_selection} (${cand_odds:.2f}).",
+                    "rank_metric": ev_improvement,
+                })
+            except Exception:
+                pass
+
     valid_swaps.sort(key=lambda s: s["rank_metric"], reverse=True)
     top_swaps = valid_swaps[:max_swaps]
 

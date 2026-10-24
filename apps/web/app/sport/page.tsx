@@ -31,11 +31,12 @@ import ErrorState from "../components/ErrorState";
 import RefreshControls from "../components/RefreshControls";
 import MultiWizardModal from "../components/multi-builder/MultiWizardModal";
 
-type SportKey = "all" | "afl" | "nrl" | "nba" | "soccer" | "mma" | "golf";
+// AFL and NRL hidden until seasons start again
+type SportKey = "all" | "nba" | "nfl" | "soccer" | "mma" | "golf";
 
 interface BaseGame {
   game_id: string;
-  sport: "afl" | "nrl" | "nba" | "soccer" | "mma" | "golf";
+  sport: "afl" | "nrl" | "nba" | "nfl" | "soccer" | "mma" | "golf";
   home_team: string;
   away_team: string;
   date?: string;
@@ -43,6 +44,8 @@ interface BaseGame {
   round?: number;
   features?: Record<string, any>;
   complete?: number;
+  status?: string;
+  is_preseason?: number;
   hscore?: number | null;
   ascore?: number | null;
   squiggle_tip?: string;
@@ -59,11 +62,11 @@ interface SportMeta {
   bgClass: string;
 }
 
+// AFL and NRL hidden until seasons start again
 const SPORTS_META: SportMeta[] = [
   { id: "all", name: "All Sports", icon: Trophy, colorClass: "text-emerald-400", borderClass: "border-emerald-500/40", bgClass: "bg-emerald-500/10" },
-  { id: "afl", name: "AFL", icon: CircleDot, href: "/afl", colorClass: "text-emerald-400", borderClass: "border-emerald-500/40", bgClass: "bg-emerald-500/10" },
-  { id: "nrl", name: "NRL", icon: Shield, href: "/nrl", colorClass: "text-amber-400", borderClass: "border-amber-500/40", bgClass: "bg-amber-500/10" },
   { id: "nba", name: "NBA", icon: Zap, href: "/nba", colorClass: "text-sky-400", borderClass: "border-sky-500/40", bgClass: "bg-sky-500/10" },
+  { id: "nfl", name: "NFL", icon: Shield, colorClass: "text-red-400", borderClass: "border-red-500/40", bgClass: "bg-red-500/10" },
   { id: "soccer", name: "Soccer", icon: Globe, href: "/soccer", colorClass: "text-violet-400", borderClass: "border-violet-500/40", bgClass: "bg-violet-500/10" },
   { id: "mma", name: "MMA", icon: Swords, href: "/mma", colorClass: "text-orange-400", borderClass: "border-orange-500/40", bgClass: "bg-orange-500/10" },
   { id: "golf", name: "Golf", icon: Flag, href: "/golf", colorClass: "text-teal-400", borderClass: "border-teal-500/40", bgClass: "bg-teal-500/10" },
@@ -87,17 +90,18 @@ export default function SportDashboardPage() {
       setRefreshing(true);
       setRefreshFailed(false);
 
-      // Fetch upcoming games from all sports concurrently with timeout
-      const [aflRes, nrlRes, nbaRes, soccerRes, mmaRes, golfRes] = await Promise.allSettled([
-        fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
-        fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
-        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
-        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
-        fetchWithTimeout(`${ML_API}/api/mma/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
-        fetchWithTimeout(`${ML_API}/api/golf/games/today`, { timeoutMs: 15000 }).then(r => r.ok ? safeResponseJson(r) : null),
+      // Fetch upcoming games from in-season sports concurrently with 35s timeout
+      // Note: AFL and NRL are hidden until their seasons start again
+      const [nbaRes, nflRes, soccerRes, mmaRes, golfRes] = await Promise.allSettled([
+        fetchWithTimeout(`${ML_API}/api/nba/games/today`, { timeoutMs: 35000 }).then(r => r.ok ? safeResponseJson(r) : null).catch(() => null),
+        fetchWithTimeout(`${ML_API}/api/nfl/games/upcoming`, { timeoutMs: 35000 }).then(r => r.ok ? safeResponseJson(r) : null).catch(() => null),
+        fetchWithTimeout(`${ML_API}/api/soccer/games/today`, { timeoutMs: 35000 }).then(r => r.ok ? safeResponseJson(r) : null).catch(() => null),
+        fetchWithTimeout(`${ML_API}/api/mma/games/today`, { timeoutMs: 35000 }).then(r => r.ok ? safeResponseJson(r) : null).catch(() => null),
+        fetchWithTimeout(`${ML_API}/api/golf/games/today`, { timeoutMs: 35000 }).then(r => r.ok ? safeResponseJson(r) : null).catch(() => null),
       ]);
 
       const allGames: BaseGame[] = [];
+      const nowMs = Date.now();
 
       // Helper to map and sanitize games
       const sanitizeGames = (rawList: any[], sport: BaseGame["sport"]) => {
@@ -115,16 +119,58 @@ export default function SportDashboardPage() {
           ) {
             continue;
           }
+
+          // Exclude fixtures with missing or invalid dates
+          const rawDate = g.date || g.match_time || g.game_time || g.start_time;
+          if (!rawDate) {
+            continue;
+          }
+          const parsedTime = Date.parse(rawDate);
+          if (isNaN(parsedTime)) {
+            continue;
+          }
+
+          // Exclude completed games using provider completion values & status variants
+          const statusStr = String(g.status || "").trim().toLowerCase();
+          const isComplete =
+            g.complete === 1 ||
+            g.complete === "1" ||
+            g.complete === true ||
+            String(g.complete).trim().toLowerCase() === "true" ||
+            ["final", "completed", "finished", "ft", "aet", "ended", "closed"].includes(statusStr);
+          if (isComplete) {
+            continue;
+          }
+
+          // Exclude past games unless provider data explicitly identifies them as live/in progress
+          const isLive =
+            statusStr.includes("live") ||
+            statusStr.includes("in progress") ||
+            statusStr.includes("in_progress") ||
+            statusStr.includes("quarter") ||
+            statusStr.includes("half") ||
+            statusStr.includes("period") ||
+            statusStr.includes("set") ||
+            g.is_live === true ||
+            g.is_live === 1 ||
+            g.is_live === "true";
+
+          if (parsedTime < nowMs && !isLive) {
+            continue;
+          }
+
           allGames.push({
             game_id: g.game_id || `${sport}-${g.id || `${home}-${away}`}`,
             sport,
             home_team: home,
             away_team: away,
-            date: g.date || g.match_time || g.game_time || g.start_time,
+            date: rawDate,
             venue: g.venue,
             round: g.round,
             features: g.features || {},
-            complete: g.complete,
+            complete: isComplete ? 1 : 0,
+            status: g.status,
+            is_preseason: g.is_preseason,
             hscore: g.hscore,
             ascore: g.ascore,
             squiggle_tip: g.squiggle_tip,
@@ -133,14 +179,11 @@ export default function SportDashboardPage() {
         }
       };
 
-      if (aflRes.status === "fulfilled" && aflRes.value) {
-        sanitizeGames(aflRes.value.games || aflRes.value, "afl");
-      }
-      if (nrlRes.status === "fulfilled" && nrlRes.value) {
-        sanitizeGames(nrlRes.value.games || nrlRes.value, "nrl");
-      }
       if (nbaRes.status === "fulfilled" && nbaRes.value) {
         sanitizeGames(nbaRes.value.games || nbaRes.value, "nba");
+      }
+      if (nflRes.status === "fulfilled" && nflRes.value) {
+        sanitizeGames(nflRes.value.games || nflRes.value, "nfl");
       }
       if (soccerRes.status === "fulfilled" && soccerRes.value) {
         sanitizeGames(soccerRes.value.games || soccerRes.value, "soccer");
@@ -181,6 +224,14 @@ export default function SportDashboardPage() {
         setLastUpdated(Date.now());
         setLoading(false);
         setRefreshing(false);
+        if (allGames.length > 0) {
+          try {
+            sessionStorage.setItem(
+              "betmate:sports_dashboard_cache",
+              JSON.stringify({ games: allGames, predictions: predsMap, timestamp: Date.now() })
+            );
+          } catch {}
+        }
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -193,6 +244,17 @@ export default function SportDashboardPage() {
 
   useEffect(() => {
     isMountedRef.current = true;
+    try {
+      const cached = sessionStorage.getItem("betmate:sports_dashboard_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed?.games?.length) {
+          setGames(parsed.games);
+          if (parsed.predictions) setPredictions(parsed.predictions);
+          setLoading(false);
+        }
+      }
+    } catch {}
     loadData();
     return () => {
       isMountedRef.current = false;
@@ -424,11 +486,25 @@ export default function SportDashboardPage() {
           <div className="p-8 rounded-2xl bg-slate-950/70 border border-slate-800 text-center flex flex-col items-center justify-center space-y-2">
             <Trophy size={28} className="text-slate-600 mb-1" />
             <p className="text-sm font-bold text-slate-200">
-              No Upcoming {activeSport === "all" ? "Sports" : activeSport.toUpperCase()} Games
+              {refreshFailed
+                ? "Unable to Load Live Sports Fixtures"
+                : `No Upcoming ${activeSport === "all" ? "Sports" : activeSport.toUpperCase()} Games`}
             </p>
             <p className="text-xs text-slate-400 max-w-sm">
-              Live fixtures have settled or are awaiting new schedule releases from official leagues.
+              {refreshFailed
+                ? "The sports data service may be experiencing latency or cold-starting. Click below to retry."
+                : "Live fixtures have settled or are awaiting new schedule releases from official leagues."}
             </p>
+            {refreshFailed && (
+              <button
+                type="button"
+                onClick={() => loadData()}
+                className="mt-3 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw size={13} className={refreshing ? "animate-spin" : ""} />
+                <span>Retry Feeds</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -445,7 +521,9 @@ export default function SportDashboardPage() {
                 id: game.game_id,
                 sport: game.sport,
                 title: `${game.home_team} vs ${game.away_team}`,
-                subTitle: game.round ? `Round ${game.round}` : game.venue,
+                subTitle: (game.is_preseason || (game.status && game.status.toLowerCase().includes("preseason")))
+                  ? (game.venue ? `Preseason • ${game.venue}` : "Preseason")
+                  : game.round ? `Round ${game.round}` : game.venue,
                 date: game.date,
                 venue: game.venue,
                 roundOrLeague: game.round ? `Round ${game.round}` : undefined,

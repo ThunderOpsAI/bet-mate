@@ -541,19 +541,21 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
         event_type_ids = ["7"]
     
     all_markets = []
-    from_record = 0
-    page_size = 1000
+    seen_market_ids = set()
+    page_size = 25
+    current_from = market_start_time["from"]
+    end_time = market_start_time["to"]
 
     while True:
+        print(f"[Betfair] _fetch_live_races requesting page from {current_from} to {end_time}")
         market_filter = {
             "filter": {
                 "eventTypeIds": event_type_ids,
                 "marketCountries": ["AU", "NZ", "HK"],
                 "marketTypeCodes": ["WIN"],
-                "marketStartTime": market_start_time,
+                "marketStartTime": {"from": current_from, "to": end_time},
             },
             "maxResults": page_size,
-            "from": str(from_record),
             "sort": "FIRST_TO_START",
             "marketProjection": [
                 "EVENT",
@@ -574,12 +576,24 @@ def _fetch_live_races(headers, target_date: date, event_type_ids: Optional[List[
             print(f"[Betfair] listMarketCatalogue error: {getattr(response, 'text', '')}")
         response.raise_for_status()
         batch = response.json()
+        print(f"[Betfair] _fetch_live_races received batch of {len(batch)} markets")
         if not batch:
             break
-        all_markets.extend(batch)
+            
+        new_items = []
+        for market in batch:
+            if market["marketId"] not in seen_market_ids:
+                seen_market_ids.add(market["marketId"])
+                new_items.append(market)
+                
+        all_markets.extend(new_items)
         if len(batch) < page_size:
             break
-        from_record += len(batch)
+            
+        last_start_time = batch[-1].get("marketStartTime")
+        if not last_start_time or last_start_time == current_from:
+            break
+        current_from = last_start_time
 
     if not all_markets:
         print(f"[Betfair] No markets returned for {target_date.isoformat()} within window {market_start_time}")
@@ -690,9 +704,11 @@ def _fetch_prices(headers, market_ids):
 
     api_url = betfair_market_book_url()
     result = {}
+    print(f"[Betfair] _fetch_prices fetching for {len(market_ids)} markets")
 
     try:
         for start in range(0, len(market_ids), 40):
+            print(f"[Betfair] _fetch_prices fetching batch {start} to {start+40}")
             payload = {
                 "marketIds": market_ids[start:start + 40],
                 "priceProjection": {"priceData": ["EX_BEST_OFFERS"]},
@@ -791,6 +807,10 @@ def _allowlist_allows_meeting(race: dict) -> bool:
 
 
 def _enrich_with_racing_australia(race: dict) -> dict:
+    # If Betfair runner metadata already supplied jockeys/trainers, skip external scraping
+    if any(bool(h.get("jockey_name")) for h in race.get("horses", [])):
+        return race
+
     allowlist_entry = _lookup_allowlist_entry(race.get("venue", ""))
     if not allowlist_entry:
         return race

@@ -116,9 +116,36 @@ export default function RunnerRow({
     setMicroModalTarget(null);
   };
 
+  const handleRowClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("button") || target.closest("a") || target.closest("input")) {
+      return;
+    }
+
+    const odds = hasMarketPrice ? horse!.betfair_back_price! : prediction && prediction.fair_odds > 0 ? prediction.fair_odds : 1.0;
+    const oddsSource = hasMarketPrice ? "market" as const : prediction && prediction.fair_odds > 0 ? "model_fair" as const : "missing" as const;
+
+    addBet({
+      sport: "racing",
+      event_id: race.race_id,
+      event_name: `${race.venue} R${race.race_number}`,
+      selection_id: horse?.horse_id || runnerName,
+      selection: runnerName,
+      runner_name: runnerName,
+      odds,
+      bet_type: "win",
+      bet_family: "single",
+      stake: 10,
+      odds_source: oddsSource,
+      event_start_time: race.start_time,
+      event_date: race.meeting_date,
+    });
+  };
+
   return (
     <div
-      className={`runner-row relative p-3 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+      onClick={handleRowClick}
+      className={`runner-row relative p-3 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800/60 transition-all flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer ${
         index < 3 && hasTopPrediction
           ? "runner-top border-purple-500/30 bg-purple-950/10"
           : ""

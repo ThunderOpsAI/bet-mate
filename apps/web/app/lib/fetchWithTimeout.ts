@@ -7,10 +7,20 @@ export async function fetchWithTimeout(
   const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
 
+  let callerAbortHandler: (() => void) | undefined;
+  if (init?.signal) {
+    if (init.signal.aborted) {
+      controller.abort();
+    } else {
+      callerAbortHandler = () => controller.abort();
+      init.signal.addEventListener("abort", callerAbortHandler, { once: true });
+    }
+  }
+
   // Ensure timer works in both Node.js (SSR) and browser environments
   const timer = setTimeout(() => {
     try {
-      controller.abort();
+      controller.abort(new Error(`Request timed out after ${timeoutMs}ms`));
     } catch {
       // Ignore abort errors
     }
@@ -29,5 +39,8 @@ export async function fetchWithTimeout(
     throw err;
   } finally {
     clearTimeout(timer);
+    if (init?.signal && callerAbortHandler) {
+      init.signal.removeEventListener("abort", callerAbortHandler);
+    }
   }
 }

@@ -63,11 +63,10 @@ interface MultiWizardModalProps {
   onApplyToBuilder?: (legs: EVLeg[]) => void;
 }
 
+// AFL and NRL hidden until seasons start again
 const AVAILABLE_SPORTS = [
   { id: "nba", label: "NBA Basketball", icon: "🏀" },
   { id: "nfl", label: "NFL Football", icon: "🏈" },
-  { id: "afl", label: "AFL Australian Rules", icon: "🏉" },
-  { id: "nrl", label: "NRL Rugby League", icon: "🏉" },
   { id: "soccer", label: "Soccer / Football", icon: "⚽" },
   { id: "racing", label: "Thoroughbred Racing", icon: "🐎" },
 ];
@@ -87,8 +86,7 @@ export default function MultiWizardModal({
   const [selectedSports, setSelectedSports] = useState<string[]>([
     "nba",
     "nfl",
-    "afl",
-    "nrl",
+    "soccer",
   ]);
 
   // Step 2: Target Odds & Stake

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+import concurrent.futures
 from itertools import combinations
 from typing import Any, Dict, List, Optional
 
@@ -63,34 +64,51 @@ class StrategyService:
         return cards
 
     def collect_candidates_for_date(self, run_date: str) -> List[Dict[str, Any]]:
+        print(f"[Strategy] Starting collect_candidates_for_date for {run_date}")
         candidates: List[Dict[str, Any]] = []
+        import time
+        t0 = time.time()
+        print("[Strategy] Fetching racing candidates...")
         candidates.extend(self._racing_candidates(run_date))
+        print(f"[Strategy] Fetching racing candidates done in {time.time() - t0:.2f}s")
+        t0 = time.time()
+        print("[Strategy] Fetching afl candidates...")
         candidates.extend(self._afl_candidates(run_date))
+        print(f"[Strategy] Fetching afl candidates done in {time.time() - t0:.2f}s")
+        t0 = time.time()
+        print("[Strategy] Fetching nba candidates...")
         candidates.extend(self._nba_candidates(run_date))
+        print(f"[Strategy] Fetching nba candidates done in {time.time() - t0:.2f}s")
+        t0 = time.time()
+        print("[Strategy] Fetching nfl candidates...")
         candidates.extend(self._nfl_candidates(run_date))
+        print(f"[Strategy] Fetching nfl candidates done in {time.time() - t0:.2f}s")
+
         if hasattr(self, "_racing_logs") and self._racing_logs:
             storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
+
 
         # Rank single legs by Edge % = (model_probability * odds_used) - 1.0 and upsert Top 10 EV Feed
         ev_legs = []
         for c in candidates:
             prob = float(c.get("model_probability") or 0.0)
             odds = float(c.get("market_odds") or c.get("odds_used") or c.get("derived_odds") or 0.0)
-            if prob > 0 and odds > 1:
+            if prob > 0.02 and 1.10 <= odds <= 51.0:
                 edge_pct = round(((prob * odds) - 1.0) * 100.0, 2)
-                ev_legs.append({
-                    "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
-                    "sport": c.get("sport", "nba"),
-                    "game_context": c.get("event_name", ""),
-                    "leg_description": f"{c.get('selection')} to Win",
-                    "true_prob": round(prob, 4),
-                    "best_odds": round(odds, 2),
-                    "edge_pct": edge_pct,
-                    "back_price": round(odds, 2),
-                    "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
-                    "correlation_group": c.get("event_id"),
-                })
+                if 0.0 < edge_pct <= 200.0:
+                    ev_legs.append({
+                        "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
+                        "sport": c.get("sport", "nba"),
+                        "game_context": c.get("event_name", ""),
+                        "leg_description": f"{c.get('selection')} to Win",
+                        "true_prob": round(prob, 4),
+                        "best_odds": round(odds, 2),
+                        "edge_pct": edge_pct,
+                        "back_price": round(odds, 2),
+                        "lay_price": round(odds * 1.05, 2) if c.get("sport") == "racing" else None,
+                        "correlation_group": c.get("event_id"),
+                    })
         ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
         if ev_legs:
             try:
@@ -129,9 +147,41 @@ class StrategyService:
                     "away_team": away,
                     "features": features,
                 }
+                spread_val = float(g.get("spread_line", -3.5)) or -3.5
+                spread_sel = f"{home} {spread_val:+.1f}"
+                spread_prob = _clamp_probability(home_p * 0.94)
+                total_line = float(g.get("total_line", 44.5)) or 44.5
+                total_prob = 0.53
+
                 candidates.extend([
                     build_head_to_head_candidate("nfl", game_obj, home, home_p, 0.5),
                     build_head_to_head_candidate("nfl", game_obj, away, away_p, 0.5),
+                    {
+                        "sport": "nfl",
+                        "event_id": game_obj["game_id"],
+                        "event_name": f"{home} vs {away}",
+                        "market_type": "spread",
+                        "selection": spread_sel,
+                        "model_probability": round(spread_prob, 4),
+                        "market_odds": None,
+                        "derived_odds": 1.91,
+                        "odds_source": "model_implied",
+                        "edge": round(spread_prob - 0.50, 4),
+                        "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                    },
+                    {
+                        "sport": "nfl",
+                        "event_id": game_obj["game_id"],
+                        "event_name": f"{home} vs {away}",
+                        "market_type": "total_points",
+                        "selection": f"Over {total_line:.1f} Total Points",
+                        "model_probability": round(total_prob, 4),
+                        "market_odds": None,
+                        "derived_odds": 1.91,
+                        "odds_source": "model_implied",
+                        "edge": round(total_prob - 0.50, 4),
+                        "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                    },
                 ])
         except Exception as exc:
             print(f"[NFL] Candidates note: {exc}")
@@ -141,6 +191,7 @@ class StrategyService:
     def _racing_candidates(self, run_date: str) -> List[Dict[str, Any]]:
         races = racing_scraper.fetch_today_races(run_date=run_date)
         candidates: List[Dict[str, Any]] = []
+        batch_logs: List[Dict[str, Any]] = []
         for race in races:
             horses = race.get("horses", [])
             if not horses:
@@ -190,11 +241,11 @@ class StrategyService:
                 })
 
             ranked.sort(key=lambda item: item["model_probability"], reverse=True)
-            storage.log_prediction_batch(
-                sport="racing",
-                event_id=race["race_id"],
-                event_name=f"{race['venue']} R{race['race_number']}",
-                predictions=[
+            batch_logs.append({
+                "sport": "racing",
+                "event_id": race["race_id"],
+                "event_name": f"{race['venue']} R{race['race_number']}",
+                "predictions": [
                     {
                         "selection": item["selection"],
                         "probability": round(item["model_probability"] * 100, 2),
@@ -221,13 +272,13 @@ class StrategyService:
                     }
                     for item in ranked
                 ],
-                feature_impact=feature_impact,
-            )
+                "feature_impact": feature_impact,
+            })
             candidates.extend(ranked)
             candidates.extend(build_place_candidates(race, ranked))
-        if hasattr(self, "_racing_logs") and self._racing_logs:
-            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
-            self._racing_logs = []
+
+        if batch_logs:
+            storage.log_prediction_batches_bulk(batch_logs)
         return candidates
 
     def _afl_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -313,9 +364,38 @@ class StrategyService:
                 ],
                 feature_impact={},
             )
+            home_spread = f"{game['home_team']} -3.5" if home_probability >= 0.5 else f"{game['home_team']} +3.5"
+            spread_prob = _clamp_probability(home_probability * 0.94 if home_probability >= 0.5 else away_probability * 0.94)
+            total_prob = 0.54
             candidates.extend([
                 build_head_to_head_candidate("nba", game, game["home_team"], home_probability, home_baseline),
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
+                {
+                    "sport": "nba",
+                    "event_id": game["game_id"],
+                    "event_name": f"{game['home_team']} vs {game['away_team']}",
+                    "market_type": "spread",
+                    "selection": home_spread,
+                    "model_probability": round(spread_prob, 4),
+                    "market_odds": None,
+                    "derived_odds": 1.91,
+                    "odds_source": "model_implied",
+                    "edge": round(spread_prob - 0.50, 4),
+                    "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                },
+                {
+                    "sport": "nba",
+                    "event_id": game["game_id"],
+                    "event_name": f"{game['home_team']} vs {game['away_team']}",
+                    "market_type": "total_points",
+                    "selection": "Over 218.5 Total Points",
+                    "model_probability": round(total_prob, 4),
+                    "market_odds": None,
+                    "derived_odds": 1.91,
+                    "odds_source": "model_implied",
+                    "edge": round(total_prob - 0.50, 4),
+                    "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                },
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
             storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
@@ -341,6 +421,8 @@ def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: st
 
 
 def card_requires_refresh(card: Dict[str, Any]) -> bool:
+    if card.get("candidate_count", 0) == 0 or len(card.get("selected_bets", [])) == 0:
+        return True
     for bet in card.get("selected_bets", []):
         event_id = str(bet.get("event_id", "")).strip()
         if any(pattern.match(event_id) for pattern in LEGACY_SYNTHETIC_EVENT_ID_PATTERNS):
@@ -487,7 +569,7 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     
     # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
     is_multi_only = rule_set.get("allow_multis") and (
-        "sgm_exclusive" in rule_set["profile_key"] or 
+        "sgm" in rule_set["profile_key"] or 
         "multi" in rule_set["profile_key"] or
         rule_set.get("allowed_markets") == ["multi", "sgm"]
     )
@@ -755,10 +837,12 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     leg_count = len(normalized_legs)
     combined_edge = round(combined_probability - implied_probability, 4)
     
+    sport_allocation = {sport: 1.0} if sport in {"racing", "afl", "nba", "nfl"} else {}
     return {
-        "sport": "sgm",
+        "sport": sport or "sgm",
+        "sport_allocation": sport_allocation,
         "event_id": f"sgm:{'|'.join(leg['event_id'] for leg in normalized_legs)}",
-        "event_name": " + ".join(leg["event_name"] for leg in normalized_legs),
+        "event_name": normalized_legs[0]["event_name"] if len({l["event_name"] for l in normalized_legs}) == 1 else " + ".join(leg["event_name"] for leg in normalized_legs),
         "market_type": "sgm",
         "selection": " + ".join(leg["selection"] for leg in normalized_legs),
         "model_probability": round(combined_probability, 4),
@@ -793,9 +877,9 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
         return []
 
     # Cap the number of items heavily to prevent combinatorial explosion that crashes the server
-    top_candidates = eligible[: max(15, min(len(eligible), int(rule_set["max_bets_per_day"]) * 3))]
-    # Hard cap at 20 candidates to keep combinations small (C(20,4)=4845)
-    top_candidates = top_candidates[:20]
+    top_candidates = eligible[: max(10, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
+    # Hard cap at 12 candidates to keep combinations fast (C(12,4)=495 vs C(20,4)=4845)
+    top_candidates = top_candidates[:12]
     multis = []
     
     for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):
@@ -847,7 +931,10 @@ def _candidate_sport_allocation(candidate: Dict[str, Any]) -> Dict[str, float]:
 def _candidate_supports_multi_settlement(candidate: Dict[str, Any]) -> bool:
     sport = str(candidate.get("sport", "")).strip().lower()
     market_type = str(candidate.get("market_type", "")).strip().lower()
-    return (sport == "racing" and market_type == "win") or (market_type == "head_to_head" and sport in {"afl", "nba", "nfl"})
+    return (
+        (sport == "racing" and market_type == "win") or
+        (sport in {"afl", "nba", "nfl"} and market_type in {"head_to_head", "spread", "total_points", "player_prop"})
+    )
 
 
 def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str, float], per_sport_used: Dict[str, float]) -> float:

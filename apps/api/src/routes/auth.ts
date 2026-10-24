@@ -56,7 +56,7 @@ router.post("/register", async (req, res) => {
       },
     });
 
-    void sendConfirmationEmail(user.email);
+    await sendConfirmationEmail(user.email);
 
     return res.status(201).json({
       success: true,
@@ -90,7 +90,7 @@ router.post("/register", async (req, res) => {
     };
     memoryUsers.set(id, u);
 
-    void sendConfirmationEmail(u.email);
+    await sendConfirmationEmail(u.email);
 
     return res.status(201).json({
       success: true,
@@ -179,7 +179,7 @@ router.post("/login", async (req, res) => {
 // Helper to send transactional confirmation emails via Resend
 async function sendConfirmationEmail(email: string): Promise<boolean> {
   const apiKey = process.env.RESEND_API_KEY;
-  const fromAddr = process.env.NOTIFY_EMAIL_FROM || "onboarding@resend.dev";
+  const fromAddr = process.env.NOTIFY_EMAIL_FROM || "BetMate <notifications@localedge.website>";
   const appBaseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
   const confirmUrl = `${appBaseUrl}/login?confirmEmail=${encodeURIComponent(email)}`;
 

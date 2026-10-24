@@ -485,17 +485,6 @@ function RacingPageContent() {
     trackStaleCache("/racing", lastUpdated);
   }, [lastUpdated]);
 
-  if (loading) {
-    return (
-      <div className="dashboard-loading">
-        <div className="loading-pulse">
-          <Trophy size={48} />
-          <p>Loading racing snapshot...</p>
-        </div>
-      </div>
-    );
-  }
-
   const venues = Array.from(new Set(races.map((race) => race.venue)));
   const filteredRaces =
     selectedVenue === "all"
@@ -608,6 +597,17 @@ function RacingPageContent() {
       };
     });
   }, [selectedVenueRaces, predictions]);
+
+  if (loading) {
+    return (
+      <div className="dashboard-loading">
+        <div className="loading-pulse">
+          <Trophy size={48} />
+          <p>Loading racing snapshot...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 px-4 sm:px-6 py-6 max-w-7xl mx-auto">

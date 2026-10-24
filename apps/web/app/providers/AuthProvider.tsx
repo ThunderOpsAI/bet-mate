@@ -46,6 +46,30 @@ const GUEST_USER: User = {
 
 const GUEST_TOKEN = "guest";
 
+function isJwtExpired(token: string): boolean {
+  if (!token || token === GUEST_TOKEN) return false;
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return false;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (typeof payload.exp === "number") {
+      return payload.exp * 1000 < Date.now() - 10000;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+
 function persistGuestSession() {
   localStorage.setItem("betmate_token", GUEST_TOKEN);
   localStorage.setItem("betmate_user", JSON.stringify(GUEST_USER));
@@ -61,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedToken = localStorage.getItem("betmate_token");
       const storedUser = localStorage.getItem("betmate_user");
 
-      if (storedToken && storedUser) {
+      if (storedToken && storedUser && storedToken !== GUEST_TOKEN && !isJwtExpired(storedToken)) {
         const parsedUser = JSON.parse(storedUser) as User;
         const normalizedUser: User = {
           ...parsedUser,
@@ -155,10 +179,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     if (!token || token === GUEST_TOKEN) return;
+    if (isJwtExpired(token)) {
+      logout();
+      return;
+    }
     try {
       const res = await fetch(`${API_BASE}/user/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (res.status === 401 || res.status === 403) {
+        logout();
+        return;
+      }
       if (res.ok) {
         const data = await safeResponseJson(res);
         if (data?.user) {
@@ -171,7 +203,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } catch { /* ignore */ }
-  }, [token]);
+  }, [token, logout]);
+
+  useEffect(() => {
+    if (token && token !== GUEST_TOKEN) {
+      refreshUser();
+    }
+  }, [token, refreshUser]);
 
   const updateBankroll = useCallback((delta: number) => {
     setUser((prev) => {

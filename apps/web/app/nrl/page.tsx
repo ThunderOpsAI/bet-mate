@@ -108,26 +108,9 @@ function isNrlPredictionEntry(
   return entry !== null;
 }
 
-async function fetchUpcomingNrlGames() {
-  try {
-    const response = await fetchWithTimeout(`${ML_API}/api/nrl/games/upcoming`, {
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      if (response.status === 404) {
-        console.warn("NRL upcoming endpoint returned 404, falling back to empty list.");
-        return [];
-      }
-      throw new Error(`NRL fixtures request failed with ${response.status}`);
-    }
-
-    const data = await safeResponseJson(response);
-    return (data?.games ?? []) as NRLGame[];
-  } catch (error) {
-    console.error("fetchUpcomingNrlGames failed:", error);
-    return [];
-  }
+async function fetchUpcomingNrlGames(): Promise<NRLGame[]> {
+  // NRL is in the off-season until the new premiership season begins
+  return [];
 }
 
 async function fetchNrlPredictions(games: NRLGame[]) {
@@ -486,7 +469,18 @@ export default function NRLPage() {
           </select>
         </div>
         <div className="game-cards-list">
-          {sortedGames.map((game) => {
+          {sortedGames.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-slate-950/70 border border-slate-800 text-center flex flex-col items-center justify-center space-y-2">
+              <Shield size={28} className="text-amber-400 mb-1" />
+              <p className="text-sm font-bold text-slate-200">
+                NRL Season Off-Season
+              </p>
+              <p className="text-xs text-slate-400 max-w-sm">
+                The NRL premiership season has concluded. Live fixture forecasting, model predictions, and player prop edges will resume when the new season begins.
+              </p>
+            </div>
+          ) : (
+            sortedGames.map((game) => {
                 const prediction = predictions[game.game_id];
                 const liveScore = liveScores[game.game_id];
                 const homeScore = liveScore?.hscore ?? game.hscore ?? null;
@@ -556,7 +550,7 @@ export default function NRLPage() {
                     onOpenDrawer={(m) => setDrawerMatchup(m)}
                   />
                 );
-              })}
+              }))}
             </div>
           </ErrorBoundary>
           <SportMatchupDrawer

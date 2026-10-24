@@ -40,6 +40,9 @@ export interface PaperBet {
   is_unavailable?: boolean;
   unavailable_reason?: string;
   bet_family?: "single" | "exotic" | "quaddie" | "sgm" | "srm";
+  /** SRM only: where the runner prices feeding the SRM model came from. */
+  srm_input_source?: "LADBROKES" | "MODEL";
+  srm_fallback_reason?: string | null;
   exotic_bet_type?:
     | "QUINELLA"
     | "EXACTA"

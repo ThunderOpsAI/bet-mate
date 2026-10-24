@@ -323,13 +323,20 @@ def _fetch_live_nba(target_date=None):
             "away_injuries_impact": 0,
         }
         
+        status_str = str(g.get("status", "")).strip()
+        season_type = str(g.get("season_type", "") or g.get("stage", "")).strip().lower()
+        date_str = str(g.get("date", ""))
+        is_preseason = int("preseason" in status_str.lower() or "preseason" in season_type or bool(g.get("is_preseason")))
+
         games.append({
             "game_id": str(g.get("id", f"bdl_{len(games)}")),
             "home_team": home_name,
             "away_team": away_name,
             "features": features,
-            "date": g.get("date", ""),
-            "status": g.get("status", ""),
+            "date": date_str,
+            "status": status_str,
+            "is_preseason": is_preseason,
+            "complete": 1 if status_str == "Final" else 0,
             "home_score": g.get("home_team_score", 0),
             "away_score": g.get("visitor_team_score", 0),
             "source": "balldontlie_live",

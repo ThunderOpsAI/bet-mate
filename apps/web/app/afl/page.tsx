@@ -117,17 +117,9 @@ function isAflPredictionEntry(
   return entry !== null;
 }
 
-async function fetchUpcomingAflGames() {
-  const response = await fetchWithTimeout(`${ML_API}/api/afl/games/upcoming`, {
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`AFL fixtures request failed with ${response.status}`);
-  }
-
-  const data = await safeResponseJson(response);
-  return (data?.games ?? []) as AFLGame[];
+async function fetchUpcomingAflGames(): Promise<AFLGame[]> {
+  // AFL is in the off-season until the new premiership season begins
+  return [];
 }
 
 async function fetchAflPredictions(games: AFLGame[]) {
@@ -490,7 +482,18 @@ export default function AFLPage() {
           </select>
         </div>
         <div className="game-cards-list">
-          {sortedGames.map((game) => {
+          {sortedGames.length === 0 ? (
+            <div className="p-8 rounded-2xl bg-slate-950/70 border border-slate-800 text-center flex flex-col items-center justify-center space-y-2">
+              <CircleDot size={28} className="text-amber-400 mb-1" />
+              <p className="text-sm font-bold text-slate-200">
+                AFL Season Off-Season
+              </p>
+              <p className="text-xs text-slate-400 max-w-sm">
+                The AFL premiership season has concluded. Live fixture forecasting, model predictions, and player prop edges will resume when the new season begins.
+              </p>
+            </div>
+          ) : (
+            sortedGames.map((game) => {
             const prediction = predictions[game.game_id];
             const liveScore = liveScores[game.game_id];
             const homeScore = toScore(liveScore?.hscore ?? game.hscore);
@@ -563,7 +566,7 @@ export default function AFLPage() {
                 onOpenDrawer={(m) => setDrawerMatchup(m)}
               />
             );
-          })}
+          }))}
         </div>
       </ErrorBoundary>
       <SportMatchupDrawer
