@@ -108,7 +108,7 @@ interface PaperBetslipContextType {
   ) => { status: "added" | "duplicate" | "limit_reached"; id?: string };
   removeBet: (id: string) => void;
   clearBetslip: () => void;
-  placeBets: () => Promise<{ success: number; failed: number }>;
+  placeBets: (options?: { mode?: "singles" | "multi" | "sgm" | "all"; multiStake?: number }) => Promise<{ success: number; failed: number }>;
   isBetslipOpen: boolean;
   setIsBetslipOpen: (open: boolean) => void;
   updateBet: (id: string, updates: Partial<PaperBet>) => void;
@@ -503,23 +503,11 @@ export function PaperBetslipProvider({
     [],
   );
 
-  const placeBets = useCallback(async () => {
+  const placeBets = useCallback(async (options?: { mode?: "singles" | "multi" | "sgm" | "all"; multiStake?: number }) => {
     if (bets.length === 0) return { success: 0, failed: 0 };
 
     try {
-      const mlPayload = bets
-        .filter((bet) => !bet.bet_family || bet.bet_family === "single")
-        .map((bet) => ({
-          sport: bet.sport,
-          event_id: bet.event_id,
-          event_name: bet.event_name,
-          selection: bet.selection,
-          stake: bet.stake,
-          odds: bet.odds,
-          bet_type: bet.bet_type,
-          notes: bet.notes,
-        }));
-
+      const isMultiMode = options?.mode === "multi" || (options?.multiStake !== undefined && options.multiStake > 0);
       const toEventType = (sport: string) => {
         const s = (sport || "").toLowerCase();
         if (s === "afl") return "afl_game";
@@ -531,14 +519,34 @@ export function PaperBetslipProvider({
         return "race";
       };
 
-      const singleBets = bets.filter(
-        (b) =>
-          !b.bet_family || b.bet_family === "single" || b.bet_family === "srm",
+      const multiCandidateLegs = bets.filter(
+        (b) => !b.bet_family || b.bet_family === "single" || b.bet_family === "srm" || b.bet_family === "sgm"
       );
-      const exoticBets = bets.filter(
-        (b) => b.bet_family === "exotic" || b.bet_family === "quaddie",
-      );
-      const sgmBets = bets.filter((b) => b.bet_family === "sgm");
+
+      const singleBets = isMultiMode
+        ? []
+        : bets.filter(
+            (b) => !b.bet_family || b.bet_family === "single" || b.bet_family === "srm"
+          );
+      const exoticBets = isMultiMode
+        ? []
+        : bets.filter(
+            (b) => b.bet_family === "exotic" || b.bet_family === "quaddie"
+          );
+      const sgmBets = isMultiMode
+        ? []
+        : bets.filter((b) => b.bet_family === "sgm");
+
+      const mlPayload = singleBets.map((bet) => ({
+        sport: bet.sport,
+        event_id: bet.event_id,
+        event_name: bet.event_name,
+        selection: bet.selection,
+        stake: bet.stake || 10,
+        odds: bet.odds || 1.9,
+        bet_type: bet.bet_type || "win",
+        notes: bet.notes,
+      }));
 
       const apiPayload = {
         bets: singleBets.map((b) => ({
@@ -548,7 +556,7 @@ export function PaperBetslipProvider({
           betType: b.bet_type || "win",
           selection: b.selection,
           odds: Number(b.odds) || 1.0,
-          stake: Number(b.stake) || 0,
+          stake: Number(b.stake) || 10,
           wasAIRecommended: true,
           notes: b.notes || "",
         })),
@@ -630,15 +638,83 @@ export function PaperBetslipProvider({
                   0,
                 ),
                 legs: sgmBets.map((bet) => ({
-                  marketType: bet.bet_type,
+                  marketType: bet.bet_type || "win",
                   selectionId: bet.selection_id,
                   selectionLabel: bet.selection,
-                  odds: Number(bet.odds),
+                  odds: Number(bet.odds) || 1.9,
                 })),
               }),
             }),
           );
         }
+
+        if (isMultiMode && multiCandidateLegs.length >= 2) {
+          const isSameEvent = multiCandidateLegs.every((l) => l.event_id === multiCandidateLegs[0].event_id);
+          const combinedMultiOdds = multiCandidateLegs.reduce(
+            (acc, b) => acc * (Number(b.odds) > 1 ? Number(b.odds) : 1.0),
+            1.0
+          );
+          const multiStakeAmount = options?.multiStake && options.multiStake > 0 ? options.multiStake : 10;
+          const multiType = isSameEvent ? "SGM" : "MULTI";
+          
+          expressRequests.push(
+            fetch(`${API_BASE}/bets/multi`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                multiType,
+                eventType: isSameEvent ? toEventType(multiCandidateLegs[0].sport) : "multi",
+                eventId: isSameEvent ? multiCandidateLegs[0].event_id : "multi",
+                eventName: isSameEvent
+                  ? multiCandidateLegs[0].event_name
+                  : `${multiCandidateLegs.map((l) => (l.sport || "").toUpperCase()).join(" / ")} Multi`,
+                stake: Number(multiStakeAmount),
+                adjustedOdds: Number(combinedMultiOdds.toFixed(2)),
+                legs: multiCandidateLegs.map((b) => ({
+                  sport: b.sport || "sport",
+                  gameContext: b.event_name,
+                  marketType: b.market_type || b.bet_type || "head_to_head",
+                  selectionId: b.selection_id || b.selection,
+                  selectionLabel: b.selection,
+                  odds: Number(b.odds) > 1 ? Number(b.odds) : 1.9,
+                  probability: b.model_prob ? (b.model_prob > 1 ? b.model_prob / 100 : b.model_prob) : (1 / (Number(b.odds) || 1.9)),
+                })),
+              }),
+            })
+          );
+        }
+      }
+
+      if (isMultiMode && multiCandidateLegs.length >= 2) {
+        const isSameEvent = multiCandidateLegs.every((l) => l.event_id === multiCandidateLegs[0].event_id);
+        const combinedMultiOdds = multiCandidateLegs.reduce(
+          (acc, b) => acc * (Number(b.odds) > 1 ? Number(b.odds) : 1.0),
+          1.0
+        );
+        const multiStakeAmount = options?.multiStake && options.multiStake > 0 ? options.multiStake : 10;
+        
+        expressRequests.push(
+          fetch(`${ML_API}/api/paper-bets`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token || "guest"}`,
+            },
+            body: JSON.stringify({
+              sport: isSameEvent ? multiCandidateLegs[0].sport : "multi",
+              event_id: isSameEvent ? multiCandidateLegs[0].event_id : `multi-${Date.now()}`,
+              event_name: isSameEvent ? multiCandidateLegs[0].event_name : `${multiCandidateLegs.length}-Leg Sports Multi`,
+              selection: multiCandidateLegs.map((l) => l.selection).join(" + "),
+              stake: Number(multiStakeAmount),
+              odds: Number(combinedMultiOdds.toFixed(2)),
+              bet_type: isSameEvent ? "sgm" : "multi",
+              notes: `${multiCandidateLegs.length}-Leg Multi placed from Betslip`,
+            }),
+          }).catch(() => null as any)
+        );
       }
 
       const expressPromise =
@@ -704,18 +780,42 @@ export function PaperBetslipProvider({
         }
 
         // Move placed bets into active (unsettled) bets list
-        const newlyPlaced: ActiveBetItem[] = bets.map((b) => ({
-          id: b.id || `active-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-          selection: b.selection,
-          event_name: b.event_name,
-          sport: b.sport,
-          bet_type: b.bet_type,
-          odds: b.odds || 1.85,
-          stake: b.stake || 10,
-          status: "active",
-          payout: (b.stake || 10) * (b.odds || 1.85),
-          placed_at: new Date().toISOString(),
-        }));
+        let newlyPlaced: ActiveBetItem[] = [];
+        if (isMultiMode && multiCandidateLegs.length >= 2) {
+          const isSameEvent = multiCandidateLegs.every((l) => l.event_id === multiCandidateLegs[0].event_id);
+          const combinedMultiOdds = multiCandidateLegs.reduce(
+            (acc, b) => acc * (Number(b.odds) > 1 ? Number(b.odds) : 1.0),
+            1.0
+          );
+          const multiStakeAmount = options?.multiStake && options.multiStake > 0 ? options.multiStake : 10;
+          newlyPlaced = [
+            {
+              id: `active-multi-${Date.now()}`,
+              selection: multiCandidateLegs.map((l) => l.selection).join(" + "),
+              event_name: isSameEvent ? multiCandidateLegs[0].event_name : `${multiCandidateLegs.length}-Leg Sports Multi`,
+              sport: isSameEvent ? multiCandidateLegs[0].sport : "multi",
+              bet_type: isSameEvent ? "sgm" : "multi",
+              odds: Number(combinedMultiOdds.toFixed(2)),
+              stake: multiStakeAmount,
+              status: "active",
+              payout: multiStakeAmount * combinedMultiOdds,
+              placed_at: new Date().toISOString(),
+            },
+          ];
+        } else {
+          newlyPlaced = bets.map((b) => ({
+            id: b.id || `active-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            selection: b.selection,
+            event_name: b.event_name,
+            sport: b.sport,
+            bet_type: b.bet_type,
+            odds: b.odds || 1.85,
+            stake: b.stake || 10,
+            status: "active",
+            payout: (b.stake || 10) * (b.odds || 1.85),
+            placed_at: new Date().toISOString(),
+          }));
+        }
 
         setActiveBets((prev) => {
           const next = [...newlyPlaced, ...prev];

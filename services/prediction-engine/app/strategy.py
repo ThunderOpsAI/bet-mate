@@ -872,7 +872,13 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
         return []
 
     max_multi_legs = max(2, int(rule_set.get("max_multi_legs", 1)))
-    eligible = [candidate for candidate in candidates if not candidate.get("legs") and _candidate_supports_multi_settlement(candidate)]
+    active_sports = {sport for sport, weight in rule_set.get("sport_weights", {}).items() if float(weight) > 0}
+    eligible = [
+        candidate for candidate in candidates 
+        if not candidate.get("legs") 
+        and _candidate_supports_multi_settlement(candidate)
+        and (not active_sports or str(candidate.get("sport", "")).strip().lower() in active_sports)
+    ]
     if len(eligible) < 2:
         return []
 

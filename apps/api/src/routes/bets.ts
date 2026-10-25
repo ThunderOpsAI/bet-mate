@@ -70,27 +70,27 @@ const createExoticBetSchema = z.object({
 const multiLegSchema = z.object({
   sport: z.string().optional(),
   gameContext: z.string().optional(),
-  marketType: z.string().min(1),
+  marketType: z.string().min(1).default("head_to_head"),
   selectionId: z.string().optional(),
   selectionLabel: z.string().min(1),
-  odds: z.number().gt(1),
-  probability: z.number().gt(0).lt(1).optional(),
+  odds: z.coerce.number().gt(1),
+  probability: z.coerce.number().positive().optional(),
   correlationGroup: z.string().optional(),
-  line: z.number().optional(),
+  line: z.coerce.number().optional(),
 });
 
 const createMultiBetSchema = z.object({
-  multiType: z.string().min(1).default("SGM"),
+  multiType: z.string().min(1).default("MULTI"),
   eventType: z.string().min(1).default("multi"),
   eventId: z.string().min(1).default("multi"),
   eventName: z.string().min(1).default("Multi Bet"),
-  stake: z.number().positive(),
+  stake: z.coerce.number().positive(),
   legs: z.array(multiLegSchema).min(2),
-  fairOdds: z.number().positive().optional(),
-  adjustedOdds: z.number().positive().optional(),
-  adjustedProbability: z.number().gt(0).lt(1).optional(),
-  correlationHaircut: z.number().optional(),
-  edgePct: z.number().optional(),
+  fairOdds: z.coerce.number().positive().optional(),
+  adjustedOdds: z.coerce.number().positive().optional(),
+  adjustedProbability: z.coerce.number().positive().optional(),
+  correlationHaircut: z.coerce.number().optional(),
+  edgePct: z.coerce.number().optional(),
 });
 
 function uniqueCount(values: string[]) {

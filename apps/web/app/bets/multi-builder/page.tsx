@@ -10,6 +10,7 @@ import MultiSummaryPanel from "../../components/multi-builder/MultiSummaryPanel"
 import MultiWizardModal from "../../components/multi-builder/MultiWizardModal";
 import type { EVLeg, SGMPriceResult, PairwiseWarning } from "../../components/multi-builder/types";
 import { useAuth } from "../../providers/AuthProvider";
+import { ML_API } from "../../lib/mlApi";
 
 export default function MultiBuilderPage() {
   const { token, updateBankroll } = useAuth();
@@ -192,26 +193,54 @@ export default function MultiBuilderPage() {
         })),
       };
 
-      const res = await fetch("/api/bets/multi", {
+      // Also track in Prediction Engine paper bet log
+      fetch(`${ML_API}/api/paper-bets`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${token || "guest"}`,
         },
-        body: JSON.stringify(payload),
-      });
+        body: JSON.stringify({
+          sport: isSameGame ? activeLegs[0].sport : "multi",
+          event_id: activeLegs[0].id || `multi-${Date.now()}`,
+          event_name: `${activeLegs.map((l) => l.sport.toUpperCase()).join(" / ")} Stat Multi`,
+          selection: activeLegs.map((l) => l.legDescription || l.leg_description || l.id).join(" + "),
+          stake: Number(stake),
+          odds: Number(((pricing?.adjusted_odds ?? pricing?.combined_odds) || 1).toFixed(2)),
+          bet_type: isSameGame ? "sgm" : "multi",
+          notes: "Placed from Stat Multi Builder",
+        }),
+      }).catch(() => null);
 
-      if (res.ok) {
+      if (token && token !== "guest") {
+        const res = await fetch("/api/bets/multi", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          updateBankroll(-stake);
+          setBetResult({
+            type: "success",
+            message: `Multi Bet placed successfully! $${stake.toFixed(2)} staked at ${((pricing?.adjusted_odds ?? pricing?.combined_odds) || 1).toFixed(2)} odds.`,
+          });
+        } else {
+          const errorData = await res.json().catch(() => ({}));
+          setBetResult({
+            type: "error",
+            message: errorData.error || "Failed to place multi bet. Please verify your bankroll.",
+          });
+        }
+      } else {
+        // Guest / paper mode
         updateBankroll(-stake);
         setBetResult({
           type: "success",
-          message: `Multi Bet placed successfully! $${stake.toFixed(2)} staked at ${((pricing?.adjusted_odds ?? pricing?.combined_odds) || 1).toFixed(2)} odds.`,
-        });
-      } else {
-        const errorData = await res.json().catch(() => ({}));
-        setBetResult({
-          type: "error",
-          message: errorData.error || "Failed to place multi bet. Please verify your bankroll.",
+          message: `Paper Multi logged successfully! $${stake.toFixed(2)} staked at ${((pricing?.adjusted_odds ?? pricing?.combined_odds) || 1).toFixed(2)} odds.`,
         });
       }
     } catch (err: any) {

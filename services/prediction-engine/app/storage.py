@@ -87,16 +87,54 @@ DEFAULT_STRATEGY_PROFILES = [
         "rule_set": {
             "profile_key": "sports_multi",
             "display_name": "Sports Multi",
-            "min_edge": 0.05,
+            "min_edge": 0.03,
             "min_confidence": "low",
             "max_bets_per_day": 5,
-            "max_stake_per_bet": 40.0,
+            "max_stake_per_bet": 50.0,
             "kelly_fraction": 0.2,
-            "allowed_markets": ["head_to_head"],
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
             "allow_multis": True,
             "max_multi_legs": 4,
-            "sport_weights": {"racing": 0.0, "afl": 0.5, "nba": 0.5},
-            "notes": "Focused strictly on sports multiples.",
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 0.5, "nfl": 0.5},
+            "notes": "Focused strictly on sports multiples (NBA and NFL).",
+        },
+    },
+    {
+        "profile_key": "nba_multi",
+        "display_name": "NBA Multi",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "nba_multi",
+            "display_name": "NBA Multi",
+            "min_edge": 0.03,
+            "min_confidence": "low",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 1.0, "nfl": 0.0},
+            "notes": "Cross-game NBA Multis combining best EV game lines and props.",
+        },
+    },
+    {
+        "profile_key": "nfl_multi",
+        "display_name": "NFL Multi",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "nfl_multi",
+            "display_name": "NFL Multi",
+            "min_edge": 0.03,
+            "min_confidence": "low",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 0.0, "nfl": 1.0},
+            "notes": "Cross-game NFL Multis across spreads, totals and moneylines.",
         },
     },
     {
@@ -1378,6 +1416,20 @@ def ensure_default_strategy_profiles() -> None:
         created_at = datetime.now(timezone.utc).isoformat()
         for profile in DEFAULT_STRATEGY_PROFILES:
             if profile["profile_key"] in existing:
+                if not profile.get("is_editable", False):
+                    conn.execute(
+                        """
+                        UPDATE strategy_profiles
+                        SET display_name = ?, rule_set_json = ?, updated_at = ?
+                        WHERE profile_key = ?
+                        """,
+                        (
+                            profile["display_name"],
+                            _dumps_json(profile["rule_set"]),
+                            created_at,
+                            profile["profile_key"],
+                        ),
+                    )
                 continue
             conn.execute(
                 """

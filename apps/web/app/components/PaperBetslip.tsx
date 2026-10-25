@@ -466,7 +466,15 @@ function PaperBetslipContent() {
     }
 
     setPlacing(true);
-    const res = await placeBets();
+    const isMultiTab = activeTab === "multi";
+    const resolvedMultiStake = multiStake > 0 ? multiStake : (defaultStake || 10);
+    const res = await placeBets(
+      isMultiTab
+        ? { mode: "multi", multiStake: resolvedMultiStake }
+        : activeTab === "sgm"
+        ? { mode: "sgm" }
+        : { mode: "singles" }
+    );
     setResult(res);
     setPlacing(false);
 
@@ -1490,7 +1498,7 @@ function PaperBetslipContent() {
                       ? "Fix Slip Warnings"
                       : reviewIssues.length > 0 && !acknowledgeOddsChanges
                         ? "Review Odds Changes"
-                        : "Log Paper Bets"}
+                        : activeTab === "multi" ? `Log Multi ($${(multiStake > 0 ? multiStake : (defaultStake || 10)).toFixed(2)})` : "Log Paper Bets"}
                 </button>
               </div>
             </div>
