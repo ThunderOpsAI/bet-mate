@@ -6,8 +6,8 @@ from typing import Callable, Dict, List
 
 import modal
 
-import app.data.scraper as racing_scraper
-from app.ml.racing import RacingPredictor
+# import app.data.scraper as racing_scraper
+# from app.ml.racing import RacingPredictor
 
 
 LOGGER = logging.getLogger("betmate.modal")
@@ -115,6 +115,7 @@ def _run_logged_job(name: str, job: Callable[[], Dict[str, object]]) -> Dict[str
     scaledown_window=300,
     enable_memory_snapshot=True,
 )
+@modal.concurrent(max_inputs=20)
 class BetMatePredictionService:
 
     @modal.enter(snap=True)
@@ -135,6 +136,7 @@ class BetMatePredictionService:
 
         LOGGER.info("[Snapshot] Warming ML predictors and freezing memory snapshot...")
         try:
+            from app.ml.racing import RacingPredictor
             self.racing_predictor = RacingPredictor()
             self.racing_predictor.load_or_train()
         except Exception as e:
@@ -155,10 +157,23 @@ class BetMatePredictionService:
         LOGGER.info("[Runtime] Restored from snapshot; database handle ready.")
 
     @modal.asgi_app()
-    @modal.concurrent(max_inputs=20)
-    def web(self):
+    def web_service(self):
         from app.main import app as fastapi_app
         return fastapi_app
+
+
+@app.function(
+    image=image,
+    secrets=secrets,
+    volumes={MODEL_VOLUME_PATH: volume},
+    env=_common_env(),
+    region="ap-southeast-2",
+    timeout=60 * 5,
+)
+@modal.asgi_app()
+def web():
+    from app.main import app as fastapi_app
+    return fastapi_app
 
 
 @app.function(
@@ -201,6 +216,8 @@ def race_data_refresh():
     def _job() -> Dict[str, object]:
         from app.time_utils import today_melbourne
         run_date = today_melbourne().isoformat()
+        from app.ml.racing import RacingPredictor
+        import app.data.scraper as racing_scraper
         predictor = RacingPredictor()
         predictor.load_or_train()
         races = racing_scraper.fetch_today_races(run_date=run_date)
@@ -375,7 +392,7 @@ def nfl_model_refresh():
 def prewarm_upcoming_races():
     def _job() -> Dict[str, object]:
         from app.alerts import calculate_minutes_until_jump
-        import app.data.scraper as racing_scraper
+
         races = racing_scraper.fetch_today_races()
         upcoming = [r for r in races if r.get("start_time") and 0 < (calculate_minutes_until_jump(r["start_time"]) or 0) <= 60]
         return {"fetched_races": len(races), "upcoming_races": len(upcoming)}
@@ -413,7 +430,7 @@ def evaluate_blackbook_rules():
         import json
         import app.storage as storage
         import app.database as database
-        import app.data.scraper as racing_scraper
+
         database.require_database_url()
         database.verify_database_connection()
         
@@ -430,7 +447,7 @@ def evaluate_blackbook_rules():
                 for r in rules:
                     rules_by_item.setdefault(r["blackbookItemId"], []).append(r)
                 
-                # Fetch today's race card
+    # prewarm Fetch today's race card
                 races = racing_scraper.fetch_today_races()
                 
                 for item in items:
@@ -448,7 +465,7 @@ def evaluate_blackbook_rules():
                     item_rules = rules_by_item.get(item_id, [])
                     
                     for race in races:
-                        # Check if running
+            # prewarm Check if running
                         is_running = False
                         matched_horse = None
                         venue = race.get("venue", "").lower()
@@ -470,7 +487,7 @@ def evaluate_blackbook_rules():
                         if not is_running:
                             continue
                             
-                        # Basic conditions evaluation
+            # prewarm Basic conditions evaluation
                         passed = True
                         if conditions.get("metro") and not race.get("is_metro", False):
                             passed = False
@@ -484,7 +501,7 @@ def evaluate_blackbook_rules():
                             if venue not in [t.lower() for t in conditions["tracks"]]:
                                 passed = False
 
-                        # Sprint 2 Combo Conditions
+            # prewarm Sprint 2 Combo Conditions
                         if passed and conditions.get("jockeyTrainerCombo"):
                             combo = conditions["jockeyTrainerCombo"]
                             c_jockey = combo.get("jockey", "").lower()
@@ -520,7 +537,7 @@ def evaluate_blackbook_rules():
                                 passed = False
 
                         if passed and conditions.get("horseFavourite"):
-                            # Check if horse is market favourite
+                # prewarm Check if horse is market favourite
                             min_odds = float('inf')
                             fav_name = None
                             for h in race.get("horses", []):
@@ -564,7 +581,7 @@ def evaluate_blackbook_rules():
                             evaluations += 1
                             matches += 1
                             LOGGER.info(f"Blackbook match: {target_name} is running today at {race.get('venue')} R{race.get('race_number')}")
-                            # For Sprint 1, just log to console
+                # prewarm For Sprint 1, just log to console
                 
         except Exception as e:
             LOGGER.error(f"Blackbook evaluation failed: {e}")

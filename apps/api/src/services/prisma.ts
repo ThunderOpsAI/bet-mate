@@ -12,7 +12,7 @@ function getPooledConnectionString(url: string | undefined): string | undefined 
   if (!url) return undefined;
   // If it's a neon database URL and missing -pooler, ensure pooler host is used
   if (url.includes(".neon.tech") && !url.includes("-pooler")) {
-    return url.replace(/@([^/:]+)\.neon\.tech/, "@$1-pooler.neon.tech");
+    return url.replace(/@([^/:]+)\.neon\.tech(?::\d+)?/, "@$1-pooler.neon.tech:6543");
   }
   return url;
 }

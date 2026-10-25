@@ -16,35 +16,31 @@ const handleGetTodayFeed = async (req: any, res: any) => {
       cacheKey,
       25, // 25s TTL
       async () => {
-        const where: any = {};
-        if (sport && typeof sport === "string") {
-          where.sport = sport.toLowerCase();
+        let legs: any[] = [];
+
+        // 1. Attempt database query with resilience
+        try {
+          const where: any = {};
+          if (sport && typeof sport === "string") {
+            where.sport = sport.toLowerCase();
+          }
+
+          where.bestOdds = { gt: 1.01 };
+          where.edgePct = { gt: 0.0 };
+
+          legs = await prisma.dailyEVFeed.findMany({
+            where,
+            orderBy: { edgePct: "desc" },
+            take: 10,
+          });
+        } catch (dbErr) {
+          console.warn("[evFeed] Database query failed or unavailable, falling back to ML Engine:", dbErr);
+          legs = [];
         }
 
-        // Only query feeds from within the last 20 hours (today's active races)
-        const twentyHoursAgo = new Date(Date.now() - 20 * 60 * 60 * 1000);
-        where.createdAt = { gte: twentyHoursAgo };
-
-        // Cap unrealistic illiquid outlier odds (e.g. $140, $200) and corrupted edge percentages
-        where.bestOdds = { lte: 51.0, gt: 1.01 };
-        where.edgePct = { lte: 200.0, gt: 0.0 };
-
-        // Purge stale records older than 48 hours to keep the feed clean
-        void prisma.dailyEVFeed
-          .deleteMany({
-            where: { createdAt: { lt: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
-          })
-          .catch(() => null);
-
-        let legs = await prisma.dailyEVFeed.findMany({
-          where,
-          orderBy: { edgePct: "desc" },
-          take: 10,
-        });
-
-        // If database returned no rows, attempt query to ML Engine if running
+        // 2. If database returned no rows, attempt query to ML Engine
         if (!legs || legs.length === 0) {
-          const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+          const mlApi = process.env.ML_API_URL || "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
           const sportParam = sport ? `?sport=${sport}` : "";
           try {
             const mlRes = await fetch(`${mlApi}/api/ev-feed/today${sportParam}`, { signal: AbortSignal.timeout(12000) });
@@ -55,7 +51,7 @@ const handleGetTodayFeed = async (req: any, res: any) => {
                   .filter((d: any) => {
                     const odds = Number(d.best_odds || d.back_price || 0);
                     const edge = Number(d.edge_pct || 0);
-                    return odds > 1.01 && odds <= 51.0 && edge > 0 && edge <= 200.0;
+                    return odds > 1.01 && edge > 0;
                   })
                   .map((d: any) => ({
                     id: String(d.id || `ev-${d.sport}-${d.leg_description}`),
@@ -72,8 +68,8 @@ const handleGetTodayFeed = async (req: any, res: any) => {
                   }));
               }
             }
-          } catch {
-            // ML Engine unreachable or timed out; strictly return empty array without mock data
+          } catch (mlErr) {
+            console.warn("[evFeed] ML Engine fetch failed:", mlErr);
           }
         }
 
@@ -113,9 +109,25 @@ const handleGetTodayFeed = async (req: any, res: any) => {
     });
   } catch (error: any) {
     console.error("Error fetching daily EV feed:", error);
-    return res.status(500).json({
-      success: false,
-      error: "Failed to fetch daily EV feed",
+    try {
+      const mlApi = process.env.ML_API_URL || "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
+      const mlRes = await fetch(`${mlApi}/api/ev-feed/today`, { signal: AbortSignal.timeout(8000) });
+      if (mlRes.ok) {
+        const mlData = await mlRes.json();
+        if (Array.isArray(mlData)) {
+          return res.json({
+            success: true,
+            count: mlData.length,
+            feed: mlData,
+          });
+        }
+      }
+    } catch {
+      // Fall through to empty array
+    }
+    return res.json({
+      success: true,
+      error: null,
       feed: [],
       count: 0,
     });

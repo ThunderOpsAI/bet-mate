@@ -734,9 +734,11 @@ def create_paper_bet(
         raise ValueError("stake must be between 1 and 10000")
 
     supported_bet_types = {
-        "racing": {"win", "place"},
+        "racing": {"win", "place", "each_way", "multi", "sgm", "srm"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
-        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "spread", "total_points", "over/under", "multi", "sgm"},
+        "nfl": {"win", "head_to_head", "spread", "total_points", "handicap", "over/under", "multi", "sgm"},
+        "multi": {"multi", "sgm", "win", "head_to_head"},
         "nrl": {"win", "head_to_head"},
         "soccer": {"win", "head_to_head"},
         "golf": {"win"},
@@ -1070,9 +1072,11 @@ def upsert_blackbook_auto_bet_config(
         raise ValueError("probability_threshold must be between 1.0 and 99.9")
 
     supported_bet_types = {
-        "racing": {"win", "place"},
+        "racing": {"win", "place", "each_way", "multi", "sgm", "srm"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
-        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "spread", "total_points", "over/under", "multi", "sgm"},
+        "nfl": {"win", "head_to_head", "spread", "total_points", "handicap", "over/under", "multi", "sgm"},
+        "multi": {"multi", "sgm", "win", "head_to_head"},
     }
     allowed_types = supported_bet_types.get(sport)
     if allowed_types is not None and bet_type not in allowed_types:

@@ -10,15 +10,7 @@ const prisma: any = prismaClient;
 router.use(requireAuth);
 
 const createBetSchema = z.object({
-  eventType: z.enum([
-    "race",
-    "nba_game",
-    "afl_game",
-    "nrl_game",
-    "soccer_game",
-    "golf_event",
-    "mma_fight",
-  ]),
+  eventType: z.string().min(1),
   eventId: z.string().min(1),
   eventName: z.string().min(1),
   eventTime: z.string().datetime().optional(),

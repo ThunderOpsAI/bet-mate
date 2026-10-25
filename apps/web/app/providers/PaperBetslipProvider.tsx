@@ -512,6 +512,8 @@ export function PaperBetslipProvider({
         const s = (sport || "").toLowerCase();
         if (s === "afl") return "afl_game";
         if (s === "nba") return "nba_game";
+        if (s === "nfl") return "nfl_game";
+        if (s === "multi") return "multi";
         if (s === "nrl") return "nrl_game";
         if (s === "soccer") return "soccer_game";
         if (s === "golf") return "golf_event";

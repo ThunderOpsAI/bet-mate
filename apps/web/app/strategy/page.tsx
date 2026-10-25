@@ -515,7 +515,7 @@ function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
             loggedLabel="Added"
             cancelLabel="Remove"
             bet={{
-              sport: isMulti ? "racing" : bet.sport,
+              sport: isMulti ? (card.profile_key === "sports_multi" ? "multi" : (bet.sport || "racing")) : bet.sport,
               event_id: isMulti ? (bet.event_id || "multi") : bet.event_id,
               event_name: isMulti ? "Multi" : bet.event_name,
               selection: isMulti ? (bet.selection || "Multi") : bet.selection,

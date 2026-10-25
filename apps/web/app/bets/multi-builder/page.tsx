@@ -31,7 +31,10 @@ export default function MultiBuilderPage() {
   const fetchEVFeed = useCallback(async () => {
     setIsLoadingFeed(true);
     try {
-      const res = await fetch("/api/ev-feed/today");
+      let res = await fetch("/api/ev-feed/today");
+      if (!res.ok) {
+        res = await fetch("/api/ml-proxy/api/ev-feed/today");
+      }
       if (res.ok) {
         const data = await res.json();
         const legs: EVLeg[] = Array.isArray(data)
