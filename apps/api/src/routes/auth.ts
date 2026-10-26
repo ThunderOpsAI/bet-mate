@@ -56,6 +56,25 @@ router.post("/register", async (req, res) => {
       },
     });
 
+    // Upsert initial bankroll row so user is immediately visible on leaderboards
+    await prisma.bankroll.upsert({
+      where: { userId: user.id },
+      update: {
+        username: user.username,
+        balance: user.currentBankroll,
+      },
+      create: {
+        userId: user.id,
+        username: user.username,
+        balance: user.currentBankroll,
+        startingBalance: user.startingBankroll,
+        weeklySpend: 0,
+        weeklyBetsPlaced: 0,
+        monthlySpend: 0,
+        totalBetsPlaced: 0,
+      },
+    }).catch((e: any) => console.warn("Failed to create initial bankroll row:", e));
+
     await sendConfirmationEmail(user.email);
 
     return res.status(201).json({

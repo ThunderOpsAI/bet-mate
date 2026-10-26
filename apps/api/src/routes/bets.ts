@@ -173,6 +173,41 @@ function priceMulti(legs: Array<z.infer<typeof multiLegSchema>>) {
   };
 }
 
+async function syncUserBankrollOnBetPlaced(
+  tx: any,
+  userId: string,
+  username: string,
+  startingBankroll: number,
+  currentBankroll: number,
+  stake: number,
+) {
+  try {
+    await tx.bankroll.upsert({
+      where: { userId },
+      update: {
+        balance: currentBankroll,
+        weeklySpend: { increment: stake },
+        weeklyBetsPlaced: { increment: 1 },
+        monthlySpend: { increment: stake },
+        totalBetsPlaced: { increment: 1 },
+        username,
+      },
+      create: {
+        userId,
+        username,
+        balance: currentBankroll,
+        startingBalance: startingBankroll,
+        weeklySpend: stake,
+        weeklyBetsPlaced: 1,
+        monthlySpend: stake,
+        totalBetsPlaced: 1,
+      },
+    });
+  } catch (err) {
+    console.warn("Failed to sync bankroll on bet placed:", err);
+  }
+}
+
 // POST /api/bets/exotics — log an exotic racing bet with server-side flexi maths
 router.post("/exotics", async (req: AuthRequest, res) => {
   const parsed = createExoticBetSchema.safeParse(req.body);
@@ -243,6 +278,14 @@ router.post("/exotics", async (req: AuthRequest, res) => {
           reason: `Exotic bet placed: ${data.betType} (${combinations} combos)`,
         },
       });
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - data.stake,
+        data.stake,
+      );
       return bet;
     });
     return res
@@ -326,6 +369,14 @@ const handleCreateMulti = async (req: AuthRequest, res: any) => {
           reason: `${data.multiType} placed: ${data.legs.length} legs @ ${pricing.adjustedOdds.toFixed(2)}`,
         },
       });
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - data.stake,
+        data.stake,
+      );
       return bet;
     });
     return res
@@ -439,6 +490,15 @@ router.post("/", async (req: AuthRequest, res) => {
           reason: `Bet placed: ${selection} @ ${odds}`,
         },
       });
+
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - stake,
+        stake,
+      );
 
       return bet;
     });

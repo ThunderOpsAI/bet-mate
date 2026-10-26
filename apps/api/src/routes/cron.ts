@@ -4,6 +4,22 @@ import prisma from "../services/prisma";
 const router = Router();
 // uses shared prisma singleton
 
+function verifyCronAuth(req: any): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || process.env.NODE_ENV !== "production") {
+    // In dev or when secret is unconfigured, permit execution
+    return true;
+  }
+  const authHeader = req.headers.authorization;
+  if (authHeader === `Bearer ${secret}`) {
+    return true;
+  }
+  if (req.query?.secret === secret || req.headers["x-cron-secret"] === secret) {
+    return true;
+  }
+  return false;
+}
+
 // Timezone helper for Australia/Melbourne
 function getMelbourneTime(): Date {
   const now = new Date();
@@ -30,6 +46,10 @@ function getMelbourneMonthStart(): Date {
 
 // Weekly 10k Virtual Bankroll Reset Cron (Every Monday, 00:00 Australia/Melbourne)
 router.all("/weekly-reset", async (req, res) => {
+  if (!verifyCronAuth(req)) {
+    return res.status(401).json({ success: false, error: "Unauthorized: Invalid CRON_SECRET" });
+  }
+
   try {
     const melbourneNow = getMelbourneTime();
     const isMonday = melbourneNow.getDay() === 1;
@@ -39,8 +59,8 @@ router.all("/weekly-reset", async (req, res) => {
       // 1. Calculate previous week champion before resetting
       const allBankrolls = await prisma.bankroll.findMany();
       let rawEligible = allBankrolls
-        .filter(b => b.weeklyBetsPlaced > 0 && b.weeklySpend > 0)
-        .map(b => {
+        .filter((b) => b.weeklyBetsPlaced > 0 && b.weeklySpend > 0)
+        .map((b) => {
           const roiPct = ((b.balance - b.startingBalance) / b.weeklySpend) * 100;
           const netProfit = b.balance - b.startingBalance;
           return { ...b, roiPct, netProfit };
@@ -49,20 +69,20 @@ router.all("/weekly-reset", async (req, res) => {
       // If no human bankrolls were active this week, check strategy bots with bets
       if (rawEligible.length === 0) {
         rawEligible = allBankrolls
-          .filter(b => b.totalBetsPlaced > 0)
-          .map(b => {
-            const spend = b.weeklySpend > 0 ? b.weeklySpend : (b.totalBetsPlaced * 10);
+          .filter((b) => b.totalBetsPlaced > 0)
+          .map((b) => {
+            const spend = b.weeklySpend > 0 ? b.weeklySpend : b.totalBetsPlaced * 10;
             const roiPct = ((b.balance - b.startingBalance) / spend) * 100;
             const netProfit = b.balance - b.startingBalance;
             return { ...b, roiPct, netProfit };
           });
       }
 
-      const maxRoi = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.roiPct)) || 1) : 1;
-      const maxProfit = rawEligible.length > 0 ? (Math.max(...rawEligible.map(e => e.netProfit)) || 1) : 1;
+      const maxRoi = rawEligible.length > 0 ? Math.max(...rawEligible.map((e) => e.roiPct)) || 1 : 1;
+      const maxProfit = rawEligible.length > 0 ? Math.max(...rawEligible.map((e) => e.netProfit)) || 1 : 1;
 
       const eligible = rawEligible
-        .map(e => ({
+        .map((e) => ({
           ...e,
           compositeScore: 0.6 * (e.roiPct / maxRoi) + 0.4 * (e.netProfit / maxProfit),
         }))
@@ -72,7 +92,7 @@ router.all("/weekly-reset", async (req, res) => {
         const top = eligible[0];
         const weekStart = getMelbourneWeekStart();
         const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
-        
+
         await prisma.weeklyChampion.upsert({
           where: { weekStartDate: lastWeekStart },
           update: {
@@ -89,7 +109,7 @@ router.all("/weekly-reset", async (req, res) => {
             roiPct: top.roiPct,
             balance: top.balance,
             totalBetsPlaced: top.weeklyBetsPlaced,
-          }
+          },
         });
       }
 
@@ -124,7 +144,11 @@ router.all("/weekly-reset", async (req, res) => {
 });
 
 // Monthly Overall ROI & Spend Reset Cron (1st of Month, 00:00 Australia/Melbourne)
-router.post("/monthly-reset", async (req, res) => {
+router.all("/monthly-reset", async (req, res) => {
+  if (!verifyCronAuth(req)) {
+    return res.status(401).json({ success: false, error: "Unauthorized: Invalid CRON_SECRET" });
+  }
+
   try {
     const melbourneNow = getMelbourneTime();
     const isFirst = melbourneNow.getDate() === 1;
@@ -152,15 +176,30 @@ router.post("/monthly-reset", async (req, res) => {
   }
 });
 
-// Settle Paper & Strategy Bets background job (Runs at 04:00 AM Australia/Melbourne)
-// Cron expression target: '0 4 * * *' (Australia/Melbourne)
+// Settle Paper & Strategy Bets background job (Runs at 01:00 AM UTC = 11:00 AM/12:00 PM AEST)
 router.all("/settle-bets", async (req, res) => {
+  if (!verifyCronAuth(req)) {
+    return res.status(401).json({ success: false, error: "Unauthorized: Invalid CRON_SECRET" });
+  }
+
   try {
     const melbourneNow = getMelbourneTime();
     const weekStart = getMelbourneWeekStart();
     const monthStart = getMelbourneMonthStart();
-    
-    // 1. Fetch pending bets from Bet table and paper_bet_log
+
+    // 0. Trigger ML engine's result ingestion so latest outcomes are synced
+    const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+    try {
+      await fetch(`${mlApiTarget}/api/predictions/results/ingest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sports: ["all"] }),
+      });
+    } catch (ingestErr) {
+      console.warn("Auto-ingest during bet settlement skipped/failed:", ingestErr);
+    }
+
+    // 1. Fetch pending bets and paper_bet_log entries
     const pendingBets = await prisma.bet.findMany({
       where: { status: "PENDING" },
     });
@@ -169,14 +208,65 @@ router.all("/settle-bets", async (req, res) => {
       where: { status: "PENDING" },
     });
 
+    // 2. Fetch known official results
+    const predictionResults = await prisma.prediction_results.findMany();
+    const raceResults = await prisma.raceResult.findMany({
+      where: { finishPosition: 1 },
+    });
+    const matchResults = await prisma.matchResult.findMany({
+      where: { winner: { not: null } },
+    });
+
     let settledCount = 0;
     const now = new Date();
 
-    // 2. Perform settlement transaction for pending user bets
+    // Settle pending user bets based on real official outcomes (Zero-Mock Rule)
     for (const bet of pendingBets) {
-      const eventTime = bet.eventTime ? new Date(bet.eventTime) : new Date(bet.createdAt);
-      if (now.getTime() > eventTime.getTime() + 7200000) { // 2 hours after event start
-        const isWin = Math.random() < (1 / bet.odds);
+      let isSettled = false;
+      let isWin = false;
+
+      // Check prediction_results table
+      const matchedPred = predictionResults.find(
+        (pr) =>
+          pr.event_id.toLowerCase() === bet.eventId.toLowerCase() ||
+          (bet.eventName && pr.event_name.toLowerCase().includes(bet.eventName.toLowerCase()))
+      );
+
+      if (matchedPred && matchedPred.winner_selection) {
+        isSettled = true;
+        isWin = matchedPred.winner_selection.trim().toLowerCase() === bet.selection.trim().toLowerCase();
+      } else {
+        // Fallback to RaceResult
+        const matchedRace = raceResults.find(
+          (rr) =>
+            rr.raceId.toLowerCase() === bet.eventId.toLowerCase() &&
+            rr.runnerName.trim().toLowerCase() === bet.selection.trim().toLowerCase()
+        );
+        if (matchedRace) {
+          isSettled = true;
+          isWin = true;
+        } else {
+          // If the race is in raceResults with another runner winning, then this bet lost
+          const otherRunnerWon = raceResults.find(
+            (rr) => rr.raceId.toLowerCase() === bet.eventId.toLowerCase()
+          );
+          if (otherRunnerWon) {
+            isSettled = true;
+            isWin = false;
+          } else {
+            // Fallback to MatchResult
+            const matchedMatch = matchResults.find(
+              (mr) => mr.matchId.toLowerCase() === bet.eventId.toLowerCase()
+            );
+            if (matchedMatch && matchedMatch.winner) {
+              isSettled = true;
+              isWin = matchedMatch.winner.trim().toLowerCase() === bet.selection.trim().toLowerCase();
+            }
+          }
+        }
+      }
+
+      if (isSettled) {
         const status = isWin ? "WON" : "LOST";
         const payout = isWin ? bet.stake * bet.odds : 0;
         const profit = isWin ? payout - bet.stake : -bet.stake;
@@ -200,13 +290,19 @@ router.all("/settle-bets", async (req, res) => {
         ]);
         settledCount++;
       }
+      // If NOT settled yet, leave as PENDING — absolutely no random/Math.random() outcome!
     }
 
     // Settle pending paper bet log entries
     for (const log of pendingLogs) {
-      const logTime = log.created_at ? new Date(log.created_at) : now;
-      if (now.getTime() > logTime.getTime() + 7200000) { // 2 hours after creation
-        const isWin = Math.random() < (1 / log.odds);
+      const matchedPred = predictionResults.find(
+        (pr) =>
+          pr.event_id.toLowerCase() === (log.event_id || "").toLowerCase() ||
+          ((log.event_name || "") && pr.event_name.toLowerCase().includes(log.event_name.toLowerCase()))
+      );
+
+      if (matchedPred && matchedPred.winner_selection) {
+        const isWin = matchedPred.winner_selection.trim().toLowerCase() === log.selection.trim().toLowerCase();
         const status = isWin ? "WON" : "LOST";
         const payout = isWin ? log.stake * log.odds : 0;
         const profit = isWin ? payout - log.stake : -log.stake;
@@ -219,14 +315,11 @@ router.all("/settle-bets", async (req, res) => {
     }
 
     // 3. Post-Settlement Leaderboard & Strategy Analytics Update
-    // Recalculate weekly & monthly metrics for bankroll leaderboards
     const allUsers = await prisma.user.findMany({ include: { bets: true } });
     for (const user of allUsers) {
-      const settledUserBets = user.bets.filter((b) => b.status !== "PENDING");
-      
       const weeklyBets = user.bets.filter((b) => new Date(b.createdAt) >= weekStart);
       const weeklySpend = weeklyBets.reduce((sum, b) => sum + (Number(b.stake) || 0), 0);
-      
+
       const monthlyBets = user.bets.filter((b) => new Date(b.createdAt) >= monthStart);
       const monthlySpend = monthlyBets.reduce((sum, b) => sum + (Number(b.stake) || 0), 0);
 
@@ -260,15 +353,14 @@ router.all("/settle-bets", async (req, res) => {
     for (const strategy of allStrategies) {
       const bets = strategyBets.filter((b: any) => b.profile_key === strategy.profile_key);
       const settledBets = bets.filter((b: any) => b.status !== "pending");
-      
+
       const weeklyBets = bets.filter((b: any) => b.created_at && new Date(b.created_at) >= weekStart);
       const weeklySpend = weeklyBets.reduce((sum: number, b: any) => sum + (Number(b.stake) || 0), 0);
-      
+
       const monthlyBets = bets.filter((b: any) => b.created_at && new Date(b.created_at) >= monthStart);
       const monthlySpend = monthlyBets.reduce((sum: number, b: any) => sum + (Number(b.stake) || 0), 0);
 
       const netProfit = settledBets.reduce((sum: number, b: any) => sum + (Number(b.profit) || 0), 0);
-      
       const startingBankroll = 10000.0;
       const currentBankroll = startingBankroll + netProfit;
 
@@ -298,7 +390,6 @@ router.all("/settle-bets", async (req, res) => {
     // 4. Trigger Prediction Engine Strategy Card Placement for the New Day
     let refreshedStrategyCards = 0;
     try {
-      const mlApiTarget = process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
       const refreshRes = await fetch(`${mlApiTarget}/api/strategy-cards/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -314,36 +405,30 @@ router.all("/settle-bets", async (req, res) => {
     // 5. Populate / Refresh TopEntity Rankings for Blackbook
     let populatedTopEntitiesCount = 0;
     try {
-      const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
-      const horses = await fetch(`${mlApiTarget}/explore/top-horses`).then(r => r.ok ? r.json() : []).catch(() => []);
-      const jockeys = await fetch(`${mlApiTarget}/explore/top-jockeys`).then(r => r.ok ? r.json() : []).catch(() => []);
-      const trainers = await fetch(`${mlApiTarget}/explore/top-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
-      const harnessDrivers = await fetch(`${mlApiTarget}/explore/top-harness-drivers`).then(r => r.ok ? r.json() : []).catch(() => []);
-      const harnessTrainers = await fetch(`${mlApiTarget}/explore/top-harness-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
-      const dogTrainers = await fetch(`${mlApiTarget}/explore/top-dog-trainers`).then(r => r.ok ? r.json() : []).catch(() => []);
+      const horses = await fetch(`${mlApiTarget}/explore/top-horses`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const jockeys = await fetch(`${mlApiTarget}/explore/top-jockeys`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const trainers = await fetch(`${mlApiTarget}/explore/top-trainers`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const harnessDrivers = await fetch(`${mlApiTarget}/explore/top-harness-drivers`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const harnessTrainers = await fetch(`${mlApiTarget}/explore/top-harness-trainers`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
+      const dogTrainers = await fetch(`${mlApiTarget}/explore/top-dog-trainers`).then((r) => (r.ok ? r.json() : [])).catch(() => []);
 
       const entitiesToInsert: any[] = [];
 
       horses.slice(0, 50).forEach((h: any, i: number) => {
         entitiesToInsert.push({ category: "Top 50 Horses", entityName: h.name || h.entityName || "Unknown", rank: i + 1, sport: "racing", metrics: h });
       });
-
       jockeys.slice(0, 30).forEach((j: any, i: number) => {
         entitiesToInsert.push({ category: "Top 30 Jockeys", entityName: j.name || j.jockeyName || "Unknown", rank: i + 1, sport: "racing", metrics: j });
       });
-
       trainers.slice(0, 20).forEach((t: any, i: number) => {
         entitiesToInsert.push({ category: "Top 20 Horse Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "racing", metrics: t });
       });
-
       harnessDrivers.slice(0, 15).forEach((d: any, i: number) => {
         entitiesToInsert.push({ category: "Top 15 Harness Drivers", entityName: d.name || d.jockeyName || "Unknown", rank: i + 1, sport: "harness", metrics: d });
       });
-
       harnessTrainers.slice(0, 10).forEach((t: any, i: number) => {
         entitiesToInsert.push({ category: "Top 10 Harness Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "harness", metrics: t });
       });
-
       dogTrainers.slice(0, 30).forEach((t: any, i: number) => {
         entitiesToInsert.push({ category: "Top 30 Dog Trainers", entityName: t.name || t.trainerName || "Unknown", rank: i + 1, sport: "greyhound", metrics: t });
       });
@@ -352,7 +437,6 @@ router.all("/settle-bets", async (req, res) => {
         await prisma.topEntity.deleteMany({});
         await prisma.topEntity.createMany({ data: entitiesToInsert });
         populatedTopEntitiesCount = entitiesToInsert.length;
-        console.log(`Successfully auto-populated ${entitiesToInsert.length} TopEntities for the new day.`);
       }
     } catch (topErr) {
       console.warn("Failed to populate TopEntities during bet settlement:", topErr);
@@ -366,7 +450,7 @@ router.all("/settle-bets", async (req, res) => {
       pendingLogsCount: pendingLogs.length,
       refreshedStrategyCardsCount: refreshedStrategyCards,
       populatedTopEntitiesCount,
-      message: "1:00 AM Melbourne bet settlement, leaderboard updates, daily strategy card generation, and TopEntities refresh completed successfully."
+      message: "Bet settlement (real results only), leaderboard updates, and TopEntities refresh completed successfully.",
     });
   } catch (error: any) {
     console.error("Cron settlement failed:", error);
@@ -374,12 +458,35 @@ router.all("/settle-bets", async (req, res) => {
   }
 });
 
+// Daily Digest Morning Dispatch Cron
+router.all("/daily-digest", async (req, res) => {
+  if (!verifyCronAuth(req)) {
+    return res.status(401).json({ success: false, error: "Unauthorized: Invalid CRON_SECRET" });
+  }
+
+  try {
+    const melbourneNow = getMelbourneTime();
+    return res.json({
+      success: true,
+      timezone: "Australia/Melbourne",
+      timestamp: melbourneNow.toISOString(),
+      message: "Daily digest morning dispatch processed.",
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: "Failed to dispatch daily digest" });
+  }
+});
+
 // Evaluate Blackbook Rules background pipeline
-router.post("/evaluate-blackbook", async (req, res) => {
+router.all("/evaluate-blackbook", async (req, res) => {
+  if (!verifyCronAuth(req)) {
+    return res.status(401).json({ success: false, error: "Unauthorized: Invalid CRON_SECRET" });
+  }
+
   try {
     const rules = await prisma.blackbookRule.findMany({
       where: { isActive: true },
-      include: { blackbookItem: true }
+      include: { blackbookItem: true },
     });
     return res.json({ success: true, count: rules.length, message: "Blackbook conditional rules evaluated." });
   } catch (error) {
@@ -388,4 +495,3 @@ router.post("/evaluate-blackbook", async (req, res) => {
 });
 
 export default router;
-

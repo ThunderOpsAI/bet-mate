@@ -269,10 +269,12 @@ export default function StrategyPage() {
                     <div key={card.profile_key} className="break-inside-avoid w-full inline-block racing-card-gradient rounded-xl p-4.5 shadow-lg flex flex-col mb-4">
                       <div className="flex items-center justify-between border-b border-slate-800/80 py-2 px-3 mb-3">
                         <div>
-                          <span className="text-base font-bold text-slate-100 tracking-tight">{card.display_name}</span>
-                          <span className="text-xs text-slate-400 ml-2.5 font-medium">{card.card_date}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-base font-bold text-slate-100 tracking-tight">{card.display_name}</span>
+                            <span className="badge badge-accent text-xs px-2 py-0.5">{card.selected_bets.length} bets</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-medium">Generated: {card.card_date}</span>
                         </div>
-                        <span className="badge badge-accent text-xs px-2.5 py-0.5">{card.selected_bets.length} bets</span>
                       </div>
                       <div className="flex flex-col">
                         <div className="flex gap-2 flex-wrap text-xs mb-3.5">
@@ -289,11 +291,20 @@ export default function StrategyPage() {
                           )}
                         </div>
 
-                        <div className="space-y-2.5">
-                          {card.selected_bets.map((bet) => (
-                            <RenderBetCard key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} bet={bet} card={card} />
-                          ))}
-                        </div>
+                        {card.selected_bets.length === 0 ? (
+                          <div className="bg-slate-900/50 border border-slate-800 rounded-lg p-3 text-xs text-slate-400 space-y-1">
+                            <div className="font-semibold text-slate-300">No bets qualified today</div>
+                            <div className="text-[11px] text-slate-500">
+                              No market opportunities met the minimum edge or confidence rules for {card.display_name}.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2.5">
+                            {card.selected_bets.map((bet) => (
+                              <RenderBetCard key={`${bet.event_id}-${bet.selection}-${bet.market_type}`} bet={bet} card={card} />
+                            ))}
+                          </div>
+                        )}
 
                         {card.skipped_opportunities.length > 0 && (
                           <div className="text-[11px] text-slate-400 bg-slate-900/40 p-2 rounded-lg border border-slate-800/40 mt-3">
@@ -379,6 +390,7 @@ export default function StrategyPage() {
                   strikeRate,
                   yieldRoi: card.performance ? Math.round(card.performance.roi * 1000) / 10 : 0,
                   totalProfit: card.performance?.net_profit ?? 0,
+                  settledBets: card.performance?.settled_bets ?? 0,
                   equityData: [], // Await actual historical data points
                 };
                 return <StrategyAnalyticsCard key={card.profile_key} strategy={strategyMetric} />;
@@ -427,11 +439,11 @@ function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
   const venueClean = bet.event_name ? bet.event_name.replace(/\b(?:R|Race\s*)\d+\b/gi, "").trim() : "";
   
   return (
-    <div className="bg-slate-900/70 border border-slate-800/70 hover:border-slate-700/60 rounded-xl p-3 shadow-sm flex items-center justify-between gap-4 transition-all shrink-0">
-       {/* Event and Selection on the left */}
+    <div className="bg-slate-900/90 border border-slate-800/80 hover:border-slate-700/80 rounded-xl p-3.5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all shrink-0">
+       {/* 1. RUNNER/SELECTION NAME & event context as the primary visual hero */}
        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 mb-2 flex-wrap">
-             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-900/30 px-1.5 py-0.5 rounded border border-emerald-500/30 shrink-0">
+          <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+             <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wider bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30 shrink-0">
                {displaySport}
              </span>
              {raceNumber && (
@@ -439,24 +451,25 @@ function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
                  {raceNumber}
                </span>
              )}
-             <span className="text-xs text-slate-300 font-medium truncate">
+             <span className="text-xs text-slate-300 font-semibold truncate">
                {isMulti ? (bet.legs?.[0]?.event_name || "Multi") : (venueClean || bet.event_name)}
              </span>
              {!isMulti && (
-               <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-800/80 px-1.5 py-0.2 rounded shrink-0">
+               <span className="text-[10px] uppercase font-bold text-slate-400 bg-slate-800/80 px-1.5 py-0.5 rounded shrink-0">
                  {bet.market_type}
                </span>
              )}
           </div>
-          <div className="flex flex-col gap-1.5">
+
+          <div className="flex flex-col gap-1">
              {isMulti && bet.legs && bet.legs.length > 0 ? (
                bet.legs.map((leg, i) => {
                  const legRaceMatch = leg.event_name?.match(/\b(?:R|Race\s*)(\d+)\b/i) || leg.event_id?.match(/[-_r](\d+)$/i);
                  const legRace = legRaceMatch ? `R${legRaceMatch[1]}` : null;
                  const legVenueClean = leg.event_name ? leg.event_name.replace(/\b(?:R|Race\s*)\d+\b/gi, "").trim() : "";
                  return (
-                   <div key={i} className="text-xs font-semibold text-slate-200 flex items-center gap-1.5 truncate">
-                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+                   <div key={i} className="text-sm font-black text-slate-100 flex items-center gap-2 truncate">
+                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0"></span>
                      {legRace && (
                        <span className="text-[10px] font-black font-mono text-amber-300 bg-amber-500/20 px-1.5 py-0.2 rounded shrink-0">
                          {legRace}
@@ -472,68 +485,60 @@ function RenderBetCard({ bet, card }: { bet: SystemBet; card: StrategyCard }) {
                  );
                })
              ) : (
-               <div className="text-sm font-semibold text-slate-200 flex items-center gap-2 truncate">
-                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
-                 <span className="truncate">{bet.selection}</span>
+               <div className="text-base sm:text-lg font-black text-slate-100 flex items-center gap-2 truncate">
+                 <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+                 <span className="truncate tracking-tight">{bet.selection}</span>
                </div>
              )}
           </div>
        </div>
 
-       {/* Price & Stake in the middle */}
-       <div className="flex items-center justify-center gap-5 px-5 shrink-0 border-l border-slate-800/60 min-w-[180px]">
-           {/* MI Column */}
-           <div className="flex flex-col items-center justify-center cursor-help" title="Model Implied Odds">
-               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">MI</span>
-               <span className="text-base font-bold text-slate-300">
-                 {bet.model_probability ? (1 / bet.model_probability).toFixed(2) : (bet.odds_source === "model" ? bet.odds_used.toFixed(2) : "-")}
-               </span>
-           </div>
-           
-           {/* Live Column */}
-           <div className="flex flex-col items-center justify-center cursor-help" title="Live Betfair Odds">
-               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Live</span>
-               <span className="text-lg font-bold text-slate-100">
-                 {bet.odds_source === "live_market" ? bet.odds_used.toFixed(2) : "-"}
-               </span>
+       {/* 2. Downsized supporting odds & stake figures with compact secondary action button */}
+       <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/60">
+           {/* Supporting odds & stake figures */}
+           <div className="flex items-center gap-3 text-right">
+               <div className="flex flex-col items-end">
+                   <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Odds</span>
+                   <span className="text-xs font-semibold text-slate-200">
+                     {bet.odds_source === "live_market" ? bet.odds_used.toFixed(2) : (bet.model_probability ? (1 / bet.model_probability).toFixed(2) : bet.odds_used.toFixed(2))}
+                   </span>
+               </div>
+               <div className="flex flex-col items-end">
+                   <span className="text-[9px] uppercase font-bold text-slate-400 tracking-wider">Stake</span>
+                   <span className="text-xs font-bold text-emerald-400">
+                     ${bet.stake.toFixed(2)}
+                   </span>
+               </div>
            </div>
 
-           {/* Stake Column */}
-           <div className="flex flex-col items-center justify-center">
-               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-0.5">Stake</span>
-               <span className="text-base font-bold text-emerald-400">
-                 ${bet.stake.toFixed(2)}
-               </span>
+           {/* Compact secondary action button */}
+           <div className="shrink-0">
+              <PaperBetAction
+                variant="phase1"
+                label="Add"
+                loggedLabel="Added"
+                cancelLabel="Remove"
+                bet={{
+                  sport: isMulti ? (card.profile_key === "sports_multi" ? "multi" : (bet.sport || "racing")) : bet.sport,
+                  event_id: isMulti ? (bet.event_id || "multi") : bet.event_id,
+                  event_name: isMulti ? "Multi" : bet.event_name,
+                  selection: isMulti ? (bet.selection || "Multi") : bet.selection,
+                  odds: bet.odds_used,
+                  bet_type: isMulti ? "multi" : bet.market_type,
+                  stake: bet.stake,
+                  notes: JSON.stringify({
+                    strategy_name: card.display_name,
+                    confidence: isMulti ? "Medium" : deriveStrategyConfidence(bet.edge),
+                    snapshot: {
+                      edge: `${Math.round(bet.edge * 1000) / 10}%`,
+                      odds_source: bet.odds_source,
+                      profile: card.profile_key,
+                    },
+                  }),
+                  odds_source: bet.odds_source === "live_market" ? "market" : "model_fair",
+                }}
+              />
            </div>
-       </div>
-
-       {/* Add Button on the right hand side */}
-       <div className="w-20 shrink-0">
-          <PaperBetAction
-            variant="phase1"
-            label="Add"
-            loggedLabel="Added"
-            cancelLabel="Remove"
-            bet={{
-              sport: isMulti ? (card.profile_key === "sports_multi" ? "multi" : (bet.sport || "racing")) : bet.sport,
-              event_id: isMulti ? (bet.event_id || "multi") : bet.event_id,
-              event_name: isMulti ? "Multi" : bet.event_name,
-              selection: isMulti ? (bet.selection || "Multi") : bet.selection,
-              odds: bet.odds_used,
-              bet_type: isMulti ? "multi" : bet.market_type,
-              stake: bet.stake,
-              notes: JSON.stringify({
-                strategy_name: card.display_name,
-                confidence: isMulti ? "Medium" : deriveStrategyConfidence(bet.edge),
-                snapshot: {
-                  edge: `${Math.round(bet.edge * 1000) / 10}%`,
-                  odds_source: bet.odds_source,
-                  profile: card.profile_key,
-                },
-              }),
-              odds_source: bet.odds_source === "live_market" ? "market" : "model_fair",
-            }}
-          />
        </div>
     </div>
   );

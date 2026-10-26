@@ -119,18 +119,21 @@ router.get("/", async (req, res) => {
       }
 
       // Default: highest_roi (Weekly Net ROI %)
+      // Fetch active participants with bets this week, then sort by computed roiPct
       const leaderboard = await prisma.bankroll.findMany({
-        where: { weeklyBetsPlaced: { gte: 1 } },
-        orderBy: { balance: "desc" },
-        take: 20,
+        where: { weeklyBetsPlaced: { gte: 1 }, weeklySpend: { gt: 0 } },
+        take: 50,
         select: { userId: true, username: true, balance: true, startingBalance: true, weeklyBetsPlaced: true, weeklySpend: true, monthlySpend: true, totalBetsPlaced: true },
       });
 
-      const formattedLeaderboard = leaderboard.map((item) => {
-        const netProfit = item.balance - item.startingBalance;
-        const roiPct = item.weeklySpend > 0 ? (netProfit / item.weeklySpend) * 100 : 0;
-        return { ...item, roiPct: Math.round(roiPct * 100) / 100 };
-      });
+      const formattedLeaderboard = leaderboard
+        .map((item) => {
+          const netProfit = item.balance - item.startingBalance;
+          const roiPct = item.weeklySpend > 0 ? (netProfit / item.weeklySpend) * 100 : 0;
+          return { ...item, roiPct: Math.round(roiPct * 100) / 100 };
+        })
+        .sort((a, b) => (b.roiPct ?? 0) - (a.roiPct ?? 0))
+        .slice(0, 20);
 
       return res.json({ success: true, timeframe, category: "highest_roi", leaderboard: formattedLeaderboard });
     }
@@ -165,18 +168,21 @@ router.get("/", async (req, res) => {
     }
 
     // Default: highest_roi (Monthly Net ROI %)
+    // Fetch participants with bets placed, then sort by computed roiPct
     const leaderboard = await prisma.bankroll.findMany({
-      where: { totalBetsPlaced: { gte: 3 } },
-      orderBy: { balance: "desc" },
-      take: 20,
+      where: { totalBetsPlaced: { gte: 1 }, monthlySpend: { gt: 0 } },
+      take: 50,
       select: { userId: true, username: true, balance: true, startingBalance: true, totalBetsPlaced: true, monthlySpend: true, weeklySpend: true, weeklyBetsPlaced: true },
     });
 
-    const formattedLeaderboard = leaderboard.map((item) => {
-      const netProfit = item.balance - item.startingBalance;
-      const roiPct = item.monthlySpend > 0 ? (netProfit / item.monthlySpend) * 100 : 0;
-      return { ...item, roiPct: Math.round(roiPct * 100) / 100 };
-    });
+    const formattedLeaderboard = leaderboard
+      .map((item) => {
+        const netProfit = item.balance - item.startingBalance;
+        const roiPct = item.monthlySpend > 0 ? (netProfit / item.monthlySpend) * 100 : 0;
+        return { ...item, roiPct: Math.round(roiPct * 100) / 100 };
+      })
+      .sort((a, b) => (b.roiPct ?? 0) - (a.roiPct ?? 0))
+      .slice(0, 20);
 
     return res.json({ success: true, timeframe, category: "highest_roi", leaderboard: formattedLeaderboard });
   } catch (error) {

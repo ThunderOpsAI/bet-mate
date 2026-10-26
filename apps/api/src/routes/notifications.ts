@@ -9,7 +9,7 @@ const prisma: any = prismaClient;
 
 router.use(requireAuth);
 
-// In-memory store for notification preferences & active notifications per user
+// In-memory cache for notification preferences & active notifications per user
 const userPreferencesStore = new Map<string, any>();
 const userInAppNotificationsStore = new Map<string, any[]>();
 
@@ -44,12 +44,34 @@ const defaultPreferences = {
   cardBellToggles: {},
 };
 
+// Helper to load persisted preferences from DB with in-memory fallback
+async function getUserNotificationPreferences(userId: string) {
+  if (userPreferencesStore.has(userId)) {
+    return userPreferencesStore.get(userId);
+  }
+
+  try {
+    const saved = await prisma.savedScreen.findFirst({
+      where: { userId, name: "notification_preferences" },
+    });
+    if (saved && saved.filters) {
+      const prefs = { ...defaultPreferences, ...(saved.filters as object) };
+      userPreferencesStore.set(userId, prefs);
+      return prefs;
+    }
+  } catch (err) {
+    console.warn("Failed to load preferences from DB:", err);
+  }
+
+  return defaultPreferences;
+}
+
 // GET /api/notifications/preferences — Get user's notification preferences
 router.get("/preferences", async (req: AuthRequest, res) => {
   const userId = req.userId!;
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    const stored = userPreferencesStore.get(userId) || {};
+    const stored = await getUserNotificationPreferences(userId);
 
     const preferences = {
       ...defaultPreferences,
@@ -73,7 +95,7 @@ router.post("/preferences", async (req: AuthRequest, res) => {
   }
 
   try {
-    const existing = userPreferencesStore.get(userId) || defaultPreferences;
+    const existing = await getUserNotificationPreferences(userId);
     const updated = {
       ...existing,
       ...parsed.data,
@@ -81,6 +103,29 @@ router.post("/preferences", async (req: AuthRequest, res) => {
     };
 
     userPreferencesStore.set(userId, updated);
+
+    // Persist to DB so preferences survive serverless cold starts
+    try {
+      const existingScreen = await prisma.savedScreen.findFirst({
+        where: { userId, name: "notification_preferences" },
+      });
+      if (existingScreen) {
+        await prisma.savedScreen.update({
+          where: { id: existingScreen.id },
+          data: { filters: updated },
+        });
+      } else {
+        await prisma.savedScreen.create({
+          data: {
+            userId,
+            name: "notification_preferences",
+            filters: updated,
+          },
+        });
+      }
+    } catch (dbErr) {
+      console.warn("Failed to persist notification preferences to DB:", dbErr);
+    }
 
     return res.json({
       success: true,
@@ -92,11 +137,11 @@ router.post("/preferences", async (req: AuthRequest, res) => {
   }
 });
 
-// GET /api/notifications/daily-digest — Get 24-Hour Daily Summary Digest for user
+// GET /api/notifications/daily-digest — Get 24-Hour Daily Summary Digest for user with today's meetings
 router.get("/daily-digest", async (req: AuthRequest, res) => {
   const userId = req.userId!;
   try {
-    // Fetch user's blackbook items
+    // 1. Fetch user's blackbook items
     const blackbookItems = await prisma.blackbookItem.findMany({
       where: { userId },
       include: { rules: true },
@@ -104,24 +149,79 @@ router.get("/daily-digest", async (req: AuthRequest, res) => {
 
     const todayStr = new Date().toISOString().split("T")[0];
 
-    // Contact prediction-engine or format response
-    const racingEntities = blackbookItems.map((item: any) => ({
-      blackbookItemId: item.id,
-      targetName: item.targetName,
-      entityType: item.entityType,
-      targetType: item.targetType,
-      notes: item.notes,
-    }));
+    // 2. Fetch live meetings and races from ML engine
+    const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+    let racesToday: any[] = [];
+    let meetings: any[] = [];
+
+    try {
+      const raceRes = await fetch(`${mlApiTarget}/api/races/today`, {
+        signal: AbortSignal.timeout(6000),
+      });
+      if (raceRes.ok) {
+        const raceData = await raceRes.json();
+        racesToday = Array.isArray(raceData) ? raceData : raceData?.races || [];
+
+        const byVenue = new Map<string, any>();
+        for (const r of racesToday) {
+          const v = r.venue || "Metro Meeting";
+          if (!byVenue.has(v)) {
+            byVenue.set(v, {
+              venue: v,
+              state: r.region || r.state || "",
+              raceCount: 0,
+              firstRaceTime: r.start_time,
+              lastRaceTime: r.start_time,
+            });
+          }
+          const m = byVenue.get(v);
+          m.raceCount += 1;
+          if (r.start_time && (!m.firstRaceTime || r.start_time < m.firstRaceTime)) m.firstRaceTime = r.start_time;
+          if (r.start_time && (!m.lastRaceTime || r.start_time > m.lastRaceTime)) m.lastRaceTime = r.start_time;
+        }
+        meetings = Array.from(byVenue.values());
+      }
+    } catch (raceErr) {
+      console.warn("Could not fetch today's races for daily digest:", raceErr);
+    }
+
+    // 3. Match saved Blackbook entities against today's fields
+    const blackbookNames = new Set(blackbookItems.map((item: any) => item.targetName.trim().toLowerCase()));
+    const matchingRunnersToday: any[] = [];
+
+    for (const r of racesToday) {
+      const horses = r.horses || [];
+      for (const h of horses) {
+        const horseName = (h.name || "").trim().toLowerCase();
+        if (blackbookNames.has(horseName)) {
+          matchingRunnersToday.push({
+            runnerName: h.name,
+            raceId: r.race_id,
+            venue: r.venue,
+            raceNumber: r.race_number,
+            startTime: r.start_time,
+          });
+        }
+      }
+    }
+
+    const hasMeetings = meetings.length > 0;
+    const headline = hasMeetings
+      ? matchingRunnersToday.length > 0
+        ? `You have ${matchingRunnersToday.length} BlackBook ${matchingRunnersToday.length === 1 ? "runner" : "runners"} scheduled across ${meetings.length} meetings today.`
+        : `Monitoring ${meetings.length} meetings (${racesToday.length} races) today. No BlackBook runners active.`
+      : "No meetings published yet for today's racing calendar.";
 
     const digest = {
       userId,
       date: todayStr,
+      hasMeetings,
+      meetingsCount: meetings.length,
+      meetings,
       totalSavedEntities: blackbookItems.length,
-      racingTodayCount: racingEntities.length,
-      headline: racingEntities.length > 0
-        ? `You have ${racingEntities.length} BlackBook ${racingEntities.length === 1 ? 'entity' : 'entities'} scheduled to race today.`
-        : "No saved BlackBook entities are scheduled to race today.",
-      racingEntities,
+      racingTodayCount: matchingRunnersToday.length,
+      activeRunners: matchingRunnersToday,
+      headline,
       generatedAt: new Date().toISOString(),
     };
 
@@ -136,14 +236,14 @@ router.post("/daily-digest/send", async (req: AuthRequest, res) => {
   const userId = req.userId!;
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    const prefs = userPreferencesStore.get(userId) || defaultPreferences;
+    const prefs = await getUserNotificationPreferences(userId);
 
     const notif = {
       id: `digest_${Date.now()}`,
       userId,
       type: "DAILY_DIGEST",
       title: "🏇 BetMate 24-Hour Daily Summary Digest",
-      message: "Morning digest sent! Saved BlackBook entities checked across today's race cards.",
+      message: "Morning digest sent! Meetings and saved BlackBook entities checked across today's race cards.",
       timestamp: new Date().toISOString(),
       isRead: false,
     };
@@ -153,7 +253,7 @@ router.post("/daily-digest/send", async (req: AuthRequest, res) => {
 
     return res.json({
       success: true,
-      message: `Daily summary digest sent to ${prefs.channelEmail ? user?.email || 'email' : 'configured channels'}.`,
+      message: `Daily summary digest sent to ${prefs.channelEmail ? user?.email || "email" : "configured channels"}.`,
       notification: notif,
     });
   } catch (error) {
@@ -165,7 +265,7 @@ router.post("/daily-digest/send", async (req: AuthRequest, res) => {
 router.get("/proximity-alerts", async (req: AuthRequest, res) => {
   const userId = req.userId!;
   try {
-    const prefs = userPreferencesStore.get(userId) || defaultPreferences;
+    const prefs = await getUserNotificationPreferences(userId);
     const intervals = prefs.proximityIntervals || [15, 5, 2];
 
     const blackbookItems = await prisma.blackbookItem.findMany({
@@ -182,7 +282,7 @@ router.get("/proximity-alerts", async (req: AuthRequest, res) => {
       minutesRemaining: intervals[index % intervals.length] - 0.5,
       startTime: new Date(Date.now() + intervals[index % intervals.length] * 60000).toISOString(),
       title: `🚨 Pre-Race Alert (${intervals[index % intervals.length]}m to jump)`,
-      message: `${item.targetName} is jumping in ~${intervals[index % intervals.length]} minutes at ${item.trackName || 'Flemington'}!`,
+      message: `${item.targetName} is jumping in ~${intervals[index % intervals.length]} minutes at ${item.trackName || "Flemington"}!`,
       timestamp: new Date().toISOString(),
     }));
 
@@ -202,7 +302,7 @@ router.get("/proximity-alerts", async (req: AuthRequest, res) => {
 router.post("/proximity-alerts/check", async (req: AuthRequest, res) => {
   const userId = req.userId!;
   try {
-    const prefs = userPreferencesStore.get(userId) || defaultPreferences;
+    const prefs = await getUserNotificationPreferences(userId);
 
     return res.json({
       success: true,

@@ -246,24 +246,24 @@ export default function PaperBetAction({
           .paper-bet-action-primary,
           .paper-bet-action-cancel {
             align-items: center;
-            border-radius: 12px;
+            border-radius: 8px;
             border: 1px solid transparent;
             cursor: pointer;
             display: inline-flex;
             font-family: inherit;
-            font-size: 0.8rem;
-            font-weight: 800;
-            gap: 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            gap: 0.35rem;
             justify-content: center;
-            min-height: 42px;
-            padding: 0.65rem 0.9rem;
+            min-height: 32px;
+            padding: 0.35rem 0.75rem;
             transition:
               background var(--transition-fast),
               border-color var(--transition-fast),
               box-shadow var(--transition-fast),
               color var(--transition-fast),
               transform var(--transition-fast);
-            width: 100%;
+            width: auto;
           }
 
           .paper-bet-action-primary {

@@ -597,7 +597,7 @@ def evaluate_blackbook_rules():
     image=image,
     region="ap-southeast-2",
     timeout=60,
-    schedule=modal.Cron("0 0,8 * * *", timezone="Australia/Melbourne"),
+    schedule=modal.Cron("0 0,6,8 * * *", timezone="Australia/Melbourne"),
 )
 def master_scheduler():
     from datetime import datetime

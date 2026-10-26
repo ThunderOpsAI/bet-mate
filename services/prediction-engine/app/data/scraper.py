@@ -92,9 +92,8 @@ def _login():
         elif auth_mode == "certificate":
             print(
                 f"[Betfair] Certificate auth requested but certificate material is missing "
-                f"({_betfair_certificate_status()})"
+                f"({_betfair_certificate_status()}). Falling back to interactive login."
             )
-            return None
 
     if not _betfair_credentials_present():
         print(f"[Betfair] Credentials missing for interactive login ({_betfair_credential_status()})")
@@ -428,7 +427,7 @@ def fetch_today_races(run_date: Optional[str] = None, race_type: Optional[str] =
 
 
 def _betfair_auth_mode() -> str:
-    raw = os.getenv("BETFAIR_AUTH_MODE", "auto").strip().lower()
+    raw = os.getenv("BETFAIR_AUTH_MODE", "auto").strip().strip('"').strip("'").lower()
     if raw in BETFAIR_AUTH_MODES:
         return raw
     if raw:
