@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.nfl_scraper as nfl_scraper
 import app.data.scraper as racing_scraper
 import app.storage as storage
 from app.time_utils import is_melbourne_premium_day
@@ -101,7 +102,7 @@ class StrategyService:
                         "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
                         "sport": c.get("sport", "nba"),
                         "game_context": c.get("event_name", ""),
-                        "leg_description": f"{c.get('selection')} to Win",
+                        "leg_description": f"{c.get('selection')} to Win" if c.get("market_type") in ("win", "head_to_head") and "win" not in str(c.get("selection")).lower() else str(c.get("selection")),
                         "true_prob": round(prob, 4),
                         "best_odds": round(odds, 2),
                         "edge_pct": edge_pct,
@@ -112,7 +113,22 @@ class StrategyService:
         ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
         if ev_legs:
             try:
-                storage.upsert_daily_ev_feed(ev_legs[:10])
+                # Top 10 overall + top 10 per sport
+                legs_to_save = []
+                seen_ids = set()
+                for leg in ev_legs[:10]:
+                    if leg["id"] not in seen_ids:
+                        legs_to_save.append(leg)
+                        seen_ids.add(leg["id"])
+                by_sport: Dict[str, List[Dict[str, Any]]] = {}
+                for leg in ev_legs:
+                    by_sport.setdefault(leg.get("sport", "other"), []).append(leg)
+                for sp, s_legs in by_sport.items():
+                    for leg in s_legs[:10]:
+                        if leg["id"] not in seen_ids:
+                            legs_to_save.append(leg)
+                            seen_ids.add(leg["id"])
+                storage.upsert_daily_ev_feed(legs_to_save)
             except Exception as e:
                 print(f"[Strategy] Failed to upsert daily_ev_feed: {e}")
 
@@ -123,20 +139,20 @@ class StrategyService:
             return []
         candidates: List[Dict[str, Any]] = []
         try:
-            import nfl_data_py as nfl
-            from datetime import datetime
-            dt = datetime.fromisoformat(run_date) if run_date else datetime.now()
-            schedules = nfl.import_schedules([dt.year])
-            today_str = dt.strftime("%Y-%m-%d")
-            games = schedules[schedules["gameday"] == today_str]
-            for _, g in games.iterrows():
+            games = nfl_scraper.fetch_upcoming_nfl(run_date=run_date)
+            pass
+            pass
+            pass
+            pass
+            pass
+            for g in games:
                 home = str(g["home_team"])
                 away = str(g["away_team"])
                 features = {
-                    "epa_diff": 0.0,
-                    "rest_diff": float(g.get("home_rest", 7) - g.get("away_rest", 7)),
-                    "is_dome": 1.0 if str(g.get("roof", "")).lower() in ["dome", "closed"] else 0.0,
-                    "spread_line": float(g.get("spread_line", 0.0)),
+                    "epa_diff": float((g.get("features") or {}).get("epa_diff", 0.0)),
+                    "rest_diff": float((g.get("features") or {}).get("rest_diff", 0.0)),
+                    "is_dome": float((g.get("features") or {}).get("is_dome", 0.0)),
+                    "spread_line": float((g.get("features") or {}).get("spread_line", -3.5)),
                 }
                 pred = self.nfl_predictor.predict(features)
                 home_p = pred["home_win_prob"]

@@ -35,10 +35,10 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 5,
             "max_stake_per_bet": 60.0,
             "kelly_fraction": 0.25,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 2,
-            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "sport_weights": {"racing": 0.40, "afl": 0.20, "nba": 0.20, "nfl": 0.20},
             "notes": "Balanced. Flagship profile.",
         },
     },
@@ -54,10 +54,10 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 8,
             "max_stake_per_bet": 80.0,
             "kelly_fraction": 0.35,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 3,
-            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "sport_weights": {"racing": 0.35, "afl": 0.20, "nba": 0.25, "nfl": 0.20},
             "notes": "High action. Editable by admin.",
         },
     },
@@ -244,10 +244,10 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 4,
             "max_stake_per_bet": 50.0,
             "kelly_fraction": 0.20,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": False,
             "max_multi_legs": 1,
-            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "sport_weights": {"racing": 0.40, "afl": 0.20, "nba": 0.20, "nfl": 0.20},
             "notes": "Disciplined. No multis.",
         },
     },
@@ -263,10 +263,10 @@ DEFAULT_STRATEGY_PROFILES = [
             "max_bets_per_day": 10,
             "max_stake_per_bet": 90.0,
             "kelly_fraction": 0.50,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 4,
-            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "sport_weights": {"racing": 0.35, "afl": 0.20, "nba": 0.25, "nfl": 0.20},
             "notes": "High action, wider net.",
         },
     },
@@ -1420,7 +1420,7 @@ def ensure_default_strategy_profiles() -> None:
         created_at = datetime.now(timezone.utc).isoformat()
         for profile in DEFAULT_STRATEGY_PROFILES:
             if profile["profile_key"] in existing:
-                if not profile.get("is_editable", False):
+                if True:
                     conn.execute(
                         """
                         UPDATE strategy_profiles

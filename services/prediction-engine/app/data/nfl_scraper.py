@@ -137,11 +137,21 @@ def _compute_team_recent_margins(schedules_df, target_gameday: str) -> dict[str,
 
 def _fetch_nfl_data_py_or_fallback(target_date):
     try:
-        import nfl_data_py as nfl
+        # Schedule provider fallback
         import pandas as pd
         year = target_date.year if target_date else datetime.now().year
-        schedules = nfl.import_schedules([year])
-        if not schedules.empty:
+        schedules = None
+        try:
+            import nflreadpy as nfl
+            raw = nfl.load_schedules([year])
+            schedules = raw.to_pandas() if hasattr(raw, "to_pandas") else raw
+        except Exception:
+            try:
+                import nfl_data_py as nfl_pkg
+                schedules = nfl_pkg.import_schedules([year])
+            except Exception:
+                schedules = None
+        if schedules is not None and not schedules.empty:
             target_str = target_date.isoformat() if target_date else today_melbourne().isoformat()
             upcoming = schedules[
                 (schedules["home_score"].isna()) &
