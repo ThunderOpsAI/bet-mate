@@ -1629,7 +1629,7 @@ def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str,
             """,
             (profile_key, run_date),
         ).fetchone()
-        if existing_run_row and replace:
+        if existing_run_row:
             conn.execute(
                 """
                 UPDATE paper_bet_log
