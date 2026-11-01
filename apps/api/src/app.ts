@@ -21,6 +21,8 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+import prisma from "./services/prisma";
+
 const app = express();
 
 app.use(cors({ origin: true, credentials: true }));
@@ -28,6 +30,15 @@ app.use(express.json());
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "api", timestamp: new Date().toISOString() });
+});
+
+app.get("/health/db", async (_req, res) => {
+  try {
+    const userCount = await prisma.user.count();
+    res.json({ ok: true, userCount });
+  } catch (err: any) {
+    res.status(500).json({ ok: false, error: err?.message });
+  }
 });
 
 app.use("/api/auth", authRoutes);

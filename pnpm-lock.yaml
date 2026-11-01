@@ -18,8 +18,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       '@prisma/adapter-neon':
-        specifier: ^7.10.1
-        version: 7.10.1
+        specifier: ^6.19.2
+        version: 6.19.2
       '@prisma/client':
         specifier: ^6.5.0
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -134,8 +134,8 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       '@prisma/adapter-neon':
-        specifier: ^7.10.1
-        version: 7.10.1
+        specifier: ^6.19.2
+        version: 6.19.2
       '@prisma/client':
         specifier: ^6.5.0
         version: 6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)
@@ -684,8 +684,8 @@ packages:
     resolution: {integrity: sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA==}
     engines: {node: '>=12.4.0'}
 
-  '@prisma/adapter-neon@7.10.1':
-    resolution: {integrity: sha512-qqOFao+72wNBA8q5pX/1/9sn+h7vj8/Qy6weMqPk7F2eALJqevYwvjkIi5RMgxAYcNJwkGES+pXbLMqPNPeH1Q==}
+  '@prisma/adapter-neon@6.19.2':
+    resolution: {integrity: sha512-LDDjem82zAPqMdFUyyHgdB5sUm/IHDqd3eNLOtiPaEqh+3hdWD8vARSwPzuzy6cvh/KHKiGhGXL8qHaduRqyaQ==}
 
   '@prisma/client@6.19.2':
     resolution: {integrity: sha512-gR2EMvfK/aTxsuooaDA32D8v+us/8AAet+C3J1cc04SW35FPdZYgLF+iN4NDLUgAaUGTKdAB0CYenu1TAgGdMg==}
@@ -705,11 +705,8 @@ packages:
   '@prisma/debug@6.19.2':
     resolution: {integrity: sha512-lFnEZsLdFLmEVCVNdskLDCL8Uup41GDfU0LUfquw+ercJC8ODTuL0WNKgOKmYxCJVvFwf0OuZBzW99DuWmoH2A==}
 
-  '@prisma/debug@7.10.1':
-    resolution: {integrity: sha512-eFCAkGZ13D/qPg48JBlG5IWi9cSBBOC7oG3abDPcAkYioDWlIjh0YJJLK2J7qo5S+xWWD8I6egAN/8KbCaiMCA==}
-
-  '@prisma/driver-adapter-utils@7.10.1':
-    resolution: {integrity: sha512-DJ4c6xvVnm3s9ZUyql9nCUicADSqyvH+CjXRCM9L6m5zJxCNmebCElG6X4irICq3rosBwlX+S19Dxq/4IrZk3A==}
+  '@prisma/driver-adapter-utils@6.19.2':
+    resolution: {integrity: sha512-tkHsL3jhx81eXg2oqtJH/1IEs8uEeUb1RpqHtwYqdNb176u9D0mnHRZM1/cKca/XhLpq49Nnd9XDxdMfWcKAYA==}
 
   '@prisma/engines-version@7.1.1-3.c2990dca591cba766e3b7ef5d9e8a84796e47ab7':
     resolution: {integrity: sha512-03bgb1VD5gvuumNf+7fVGBzfpJPjmqV423l/WxsWk2cNQ42JD0/SsFBPhN6z8iAvdHs07/7ei77SKu7aZfq8bA==}
@@ -1653,7 +1650,6 @@ packages:
   eslint@9.39.5:
     resolution: {integrity: sha512-DgZS62aPLXKlnxILS/AYCoRvHaZeXceIzlXPkkGGzJWSow1aEk0lbTlxUSlyjC8jcaKxAdOnTDz+o1JFSBsyjw==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    deprecated: This version is no longer supported. Please see https://eslint.org/version-support for other options.
     hasBin: true
     peerDependencies:
       jiti: '*'
@@ -3381,10 +3377,10 @@ snapshots:
 
   '@nolyfill/is-core-module@1.0.39': {}
 
-  '@prisma/adapter-neon@7.10.1':
+  '@prisma/adapter-neon@6.19.2':
     dependencies:
       '@neondatabase/serverless': 1.2.0
-      '@prisma/driver-adapter-utils': 7.10.1
+      '@prisma/driver-adapter-utils': 6.19.2
       postgres-array: 3.0.4
 
   '@prisma/client@6.19.2(prisma@6.19.2(typescript@5.9.3))(typescript@5.9.3)':
@@ -3403,11 +3399,9 @@ snapshots:
 
   '@prisma/debug@6.19.2': {}
 
-  '@prisma/debug@7.10.1': {}
-
-  '@prisma/driver-adapter-utils@7.10.1':
+  '@prisma/driver-adapter-utils@6.19.2':
     dependencies:
-      '@prisma/debug': 7.10.1
+      '@prisma/debug': 6.19.2
 
   '@prisma/engines-version@7.1.1-3.c2990dca591cba766e3b7ef5d9e8a84796e47ab7': {}
 

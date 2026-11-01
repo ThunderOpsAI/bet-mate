@@ -1,9 +1,9 @@
 ---
 name: code-review
-description: Review a branch, PR, or work-in-progress diff for correctness, security, spec alignment, risk, and repo standards. Use when the user asks for a code review or asks to review changes since a ref.
+description: Review a branch, PR, or work-in-progress diff for correctness, security, spec alignment, risk, and repo standards. Use when the user asks for a code review or runs /code-review or /review.
 ---
 
-Review changes using the repository's root `REVIEW.md` as policy when present, falling back to the global policy in `~/.gemini/config/REVIEW.md` (or `references/REVIEW.md`). Also follow `AGENTS.md`, `CLAUDE.md`, and the applicable task or spec. Apply guidance only to the layers and stack touched by the diff.
+Review changes using the repository's root `REVIEW.md` as policy when present, falling back to the global policy in `~/.gemini/config/REVIEW.md` (or `~/.claude/REVIEW.md` / `~/.cursor/REVIEW.md` / `~/.codex/REVIEW.md`). Also follow `AGENTS.md`, `CLAUDE.md`, and the applicable task or spec. Apply guidance only to the layers and stack touched by the diff.
 
 The review covers two focused passes:
 
@@ -72,19 +72,28 @@ Review both axes in this context. First check behavior, correctness, security, a
 
 If the spec is missing, skip spec comparison and note this in the final report.
 
-### 5. Aggregate
+### 5. Aggregate & Format
 
-Present findings in the format specified by root `REVIEW.md`, when present (or the global `~/.gemini/config/REVIEW.md`). Include verdict, an advisory risk tier based on changed paths and behavior, task/spec context, check commands and results (or "not run"), and severity counts. Use `REQUEST CHANGES` only when there is at least one blocker. Use `NEEDS DECISION` when the code looks sound but an owner decision is needed; otherwise use `APPROVE`.
+Present findings strictly in the format specified by `REVIEW.md`:
 
-Risk guidance: Low for docs and isolated additive changes; Medium for ordinary product behavior or shared logic; High for authentication, money/betting logic, sensitive data, migrations, secrets, deployment/release, CI, or broad architecture changes. Explain the tier. High risk merits human review; an agent verdict never substitutes for human approval.
+```
+## Review Summary
+Verdict: APPROVE | REQUEST CHANGES | NEEDS DECISION
+Context used: <spec/task/PR description found, or "none found">
+Layers reviewed: <e.g. API, data layer, scripts>
 
-On a follow-up, focus on the new diff, check whether prior findings were addressed, and don't repeat resolved or unchanged findings. After three review/fix rounds, request a simpler approach or human review. If the same issue recurs, recommend adding the rule to `REVIEW.md`, `AGENTS.md`, a focused skill, or a deterministic check. Use regressions and reverts to improve review guidance; report rates only when the repo tracks them.
+Blockers: <n>   Warnings: <n>   Notes: <n>
 
-## Why two axes
+### Blockers
+1. <file:line> — <issue> — <evidence> — <fix>
 
-A change can pass one axis and fail the other:
+### Warnings
+1. <file:line> — <issue> — <fix>
 
-- Code that follows every standard but implements the wrong thing → **Standards pass, Spec fail.**
-- Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
+### Questions for the owner
+- <design or scope decision the spec/task doesn't cover>
+```
 
-Keep correctness/security findings distinct from spec/standards findings when that makes the reasoning clearer, but aggregate them into one concise review report.
+- Use **REQUEST CHANGES** only when there is at least one `[BLOCKER]`.
+- Use **NEEDS DECISION** when the code looks fine but a scope or design question needs the owner's input before merging.
+- Use **APPROVE** otherwise, listing any warnings.

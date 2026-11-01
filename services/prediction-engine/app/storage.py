@@ -3191,11 +3191,14 @@ def upsert_daily_ev_feed(legs: Sequence[Mapping[str, Any]]) -> int:
 
 
 def get_daily_ev_feed(sport: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
-    """Retrieve top EV legs ordered by edge_pct DESC."""
-    query = "SELECT * FROM daily_ev_feed"
-    params: list[Any] = []
+    """Retrieve top EV legs ordered by edge_pct DESC within the last 24 hours."""
+    from datetime import datetime, timezone, timedelta
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+
+    query = "SELECT * FROM daily_ev_feed WHERE created_at >= ?"
+    params: list[Any] = [cutoff]
     if sport:
-        query += " WHERE LOWER(sport) = LOWER(?)"
+        query += " AND LOWER(sport) = LOWER(?)"
         params.append(sport)
 
     query += " ORDER BY edge_pct DESC LIMIT ?"

@@ -74,10 +74,16 @@ async function syncStrategyBankrolls() {
   }
 }
 
+let lastStrategySyncTime = 0;
+async function syncStrategyBankrollsIfNeeded() {
+  const now = Date.now();
+  if (now - lastStrategySyncTime < 5 * 60 * 1000) return; // 5 minute debounce
+  lastStrategySyncTime = now;
+  await syncStrategyBankrolls();
+}
+
 router.get("/", async (req, res) => {
   try {
-    await syncStrategyBankrolls();
-
     const timeframe = ((req.query.timeframe as string) || "weekly").toLowerCase() === "monthly" ? "monthly" : "weekly";
     const category = (req.query.category as string) || "highest_roi";
 
@@ -186,7 +192,17 @@ router.get("/", async (req, res) => {
 
     return res.json({ success: true, timeframe, category: "highest_roi", leaderboard: formattedLeaderboard });
   } catch (error) {
+    console.error("[Leaderboards] Failed to fetch leaderboards:", error);
     return res.status(500).json({ success: false, error: "Failed to fetch leaderboards" });
+  }
+});
+
+router.post("/sync", async (req, res) => {
+  try {
+    await syncStrategyBankrolls();
+    return res.json({ success: true, message: "Strategy bankrolls synchronized." });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 

@@ -94,7 +94,10 @@ function HomePageContent() {
           const nowMs = Date.now();
           const validLegs = legs.filter((leg) => {
             const odds = Number(leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? 0);
-            return odds > 1.01;
+            const createdRaw = leg.createdAt ?? leg.created_at;
+            const createdTime = createdRaw ? new Date(createdRaw).getTime() : nowMs;
+            const isRecent = !createdRaw || isNaN(createdTime) || (nowMs - createdTime < 24 * 60 * 60 * 1000);
+            return odds > 1.01 && isRecent;
           });
           evCandidates = validLegs.map((leg) => ({
             id: leg.id,

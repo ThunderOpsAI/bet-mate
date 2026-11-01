@@ -27,6 +27,7 @@ const handleGetTodayFeed = async (req: any, res: any) => {
 
           where.bestOdds = { gt: 1.01 };
           where.edgePct = { gt: 0.0 };
+          where.createdAt = { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) };
 
           legs = await prisma.dailyEVFeed.findMany({
             where,
@@ -51,7 +52,9 @@ const handleGetTodayFeed = async (req: any, res: any) => {
                   .filter((d: any) => {
                     const odds = Number(d.best_odds || d.back_price || 0);
                     const edge = Number(d.edge_pct || 0);
-                    return odds > 1.01 && edge > 0;
+                    const createdAt = d.created_at ? new Date(d.created_at).getTime() : Date.now();
+                    const isRecent = !d.created_at || isNaN(createdAt) || (Date.now() - createdAt < 24 * 60 * 60 * 1000);
+                    return odds > 1.01 && edge > 0 && isRecent;
                   })
                   .map((d: any) => ({
                     id: String(d.id || `ev-${d.sport}-${d.leg_description}`),

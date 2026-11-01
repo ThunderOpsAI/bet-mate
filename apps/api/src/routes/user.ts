@@ -11,7 +11,10 @@ router.use(requireAuth);
 
 // GET /api/user/profile
 router.get("/profile", async (req: AuthRequest, res) => {
-  const userId = req.userId!;
+  const userId = req.userId;
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   try {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) return res.status(404).json({ error: "User not found" });
@@ -33,7 +36,8 @@ router.get("/profile", async (req: AuthRequest, res) => {
         winRate: totalBets > 0 ? Math.round((wonBets / totalBets) * 100) : 0,
       },
     });
-  } catch {
+  } catch (err) {
+    console.error("[User] Failed to fetch profile:", err);
     return res.status(500).json({ error: "Failed to fetch profile" });
   }
 });

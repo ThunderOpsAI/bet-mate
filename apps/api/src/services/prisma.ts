@@ -4,15 +4,14 @@ import { PrismaClient } from "@prisma/client";
 import ws from "ws";
 
 // Node.js environments require an explicit WebSocket constructor
-if (typeof globalThis !== "undefined" && !globalThis.WebSocket) {
-  neonConfig.webSocketConstructor = ws;
-}
+neonConfig.webSocketConstructor = ws;
 
 function getPooledConnectionString(url: string | undefined): string | undefined {
   if (!url) return undefined;
   // If it's a neon database URL and missing -pooler, ensure pooler host is used
+  // Neon format: ep-subdomain-12345.region.aws.neon.tech -> ep-subdomain-12345-pooler.region.aws.neon.tech
   if (url.includes(".neon.tech") && !url.includes("-pooler")) {
-    return url.replace(/@([^/:]+)\.neon\.tech(?::\d+)?/, "@$1-pooler.neon.tech:6543");
+    return url.replace(/@([^/.]+)(\.[^/]+)/, "@$1-pooler$2");
   }
   return url;
 }
@@ -28,9 +27,7 @@ export function createPrismaClient(): PrismaClient {
 
   if (connectionString) {
     try {
-      const pool = globalForPrisma.neonPool ?? new Pool({ connectionString });
-      globalForPrisma.neonPool = pool;
-      const adapter = new PrismaNeon(pool as any);
+      const adapter = new PrismaNeon({ connectionString });
       return new PrismaClient({
         adapter,
         log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
