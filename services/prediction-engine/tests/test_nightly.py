@@ -435,4 +435,89 @@ def test_sunday_betfair_import(monkeypatch):
     assert bets_after[0]["payout"] == 25.0 * 4.5
 
 
+def test_handle_scratchings_voids_pending_bets(monkeypatch):
+    import app.storage as storage
+    # Create a pending paper bet for a horse that will be scratched
+    storage.create_paper_bet(
+        sport="racing",
+        event_id="race_scratch_test",
+        event_name="Flemington R2",
+        selection="Scratched Horse",
+        stake=20.0,
+        odds=5.0,
+        bet_type="win",
+        origin="user",
+        user_id="scratch_user",
+    )
+
+    mock_races = [{
+        "race_id": "race_scratch_test",
+        "venue": "Flemington",
+        "race_number": 2,
+        "horses": [
+            {"name": "Scratched Horse", "is_scratched": True},
+            {"name": "Running Horse", "is_scratched": False},
+        ]
+    }]
+
+    monkeypatch.setattr("app.data.scraper.fetch_today_races", lambda run_date=None: mock_races)
+    monkeypatch.setattr("app.data.nba_scraper.fetch_today_nba", lambda run_date=None: [])
+
+    res = nightly.handle_scratchings(run_date="2026-11-01")
+    assert res["voided_count"] == 1
+
+    bets = storage.get_paper_bets(user_id="scratch_user")
+    assert len(bets) == 1
+    assert bets[0]["status"] == "VOID"
+    assert bets[0]["payout"] == 20.0
+    assert bets[0]["profit"] == 0.0
+
+
+def test_settlement_calculates_clv():
+    import app.storage as storage
+    # Create logged prediction
+    storage.log_prediction_batch(
+        sport="racing",
+        event_id="race_clv_test",
+        event_name="Moonee Valley R1",
+        predictions=[
+            {"selection": "Value Pick", "probability": 40.0, "fair_odds": 2.5},
+        ]
+    )
+
+    # Placed bet at 4.00 odds
+    storage.create_paper_bet(
+        sport="racing",
+        event_id="race_clv_test",
+        event_name="Moonee Valley R1",
+        selection="Value Pick",
+        stake=50.0,
+        odds=4.00,
+        bet_type="win",
+        origin="user",
+        user_id="clv_user",
+    )
+
+    # Settle with closing odds (e.g. BSP) of 3.20
+    # clv_pct = round(((4.00 / 3.20) - 1.0) * 100.0, 2) = +25.0%
+    storage.settle_prediction_result(
+        sport="racing",
+        event_id="race_clv_test",
+        winner_selection="Value Pick",
+        event_name="Moonee Valley R1",
+        completed_at="2026-11-01T17:00:00Z",
+        result_payload={
+            "winner": "Value Pick",
+            "closing_odds": {"Value Pick": 3.20},
+        }
+    )
+
+    bets = storage.get_paper_bets(user_id="clv_user")
+    assert len(bets) == 1
+    assert bets[0]["status"] == "WON"
+    assert bets[0]["closing_odds"] == 3.20
+    assert bets[0]["clv_pct"] == 25.0
+
+
+
 

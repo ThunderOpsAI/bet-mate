@@ -34,21 +34,34 @@ FEATURE_DEFAULTS = {
 }
 
 
-def fetch_historical_nfl_training_data(start_year: int = 1999, end_year: int | None = None) -> pd.DataFrame:
+def fetch_historical_nfl_training_data(start_year: int = 2018, end_year: int | None = None) -> pd.DataFrame:
     """Fetch and engineer historical NFL training rows using nfl-data-py schedules."""
     try:
-        import nfl_data_py as nfl
+        pass
     except ImportError:
-        print("[NFL] nfl_data_py not installed")
+        pass
         return pd.DataFrame()
 
     current_year = datetime.now().year
     end_year = end_year or current_year
 
     try:
-        schedules = nfl.import_schedules(range(start_year, end_year + 1))
+        schedules = None
+        try:
+            import nflreadpy as nfl
+            raw = nfl.load_schedules(list(range(start_year, end_year + 1)))
+            schedules = raw.to_pandas() if hasattr(raw, "to_pandas") else raw
+        except Exception:
+            try:
+                import nfl_data_py as nfl
+                schedules = nfl.import_schedules(range(start_year, end_year + 1))
+            except Exception:
+                schedules = None
     except Exception as exc:
         print(f"[NFL] Failed to fetch nfl schedules: {exc}")
+        return pd.DataFrame()
+
+    if schedules is None or schedules.empty:
         return pd.DataFrame()
 
     # Filter to completed regular/postseason games with valid scores

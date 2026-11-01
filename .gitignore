@@ -55,3 +55,6 @@ services/prediction-engine/client-2048.key
 .env.*.local
 *.log
 venv/
+
+# Local Codex config
+.codex/

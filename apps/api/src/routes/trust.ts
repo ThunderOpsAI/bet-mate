@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "../services/prisma";
 import { z } from "zod";
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma: any = prismaClient;
 
 const modelPerformanceSchema = z.object({
   sport: z.string().min(1),
@@ -165,6 +165,93 @@ router.post("/track-record", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Error recording model performance:", error);
     return res.status(500).json({ error: "Failed to record model performance" });
+  }
+});
+
+// GET /api/trust/strategies - Per-profile track record and trust cards
+router.get("/strategies", async (_req: Request, res: Response) => {
+  try {
+    const profiles = await prisma.strategy_profiles.findMany({
+      orderBy: { id: "asc" },
+      include: {
+        system_bets: {
+          include: {
+            paper_bet_log: true,
+          },
+        },
+      },
+    });
+
+    const strategyStats = profiles.map((p: any) => {
+      const allBets: any[] = [];
+      for (const sb of p.system_bets || []) {
+        if (sb.paper_bet_log && sb.paper_bet_log.length > 0) {
+          allBets.push(...sb.paper_bet_log);
+        } else {
+          allBets.push(sb);
+        }
+      }
+
+      const settled = allBets.filter((b) => ["WON", "LOST", "won", "lost"].includes(b.status));
+      const won = settled.filter((b) => ["WON", "won"].includes(b.status));
+      const totalStaked = settled.reduce((acc, b) => acc + (Number(b.stake) || 0), 0);
+      const totalProfit = settled.reduce((acc, b) => acc + (Number(b.profit) || 0), 0);
+      const roi = totalStaked > 0 ? Number(((totalProfit / totalStaked) * 100).toFixed(2)) : 0;
+      const strikeRate = settled.length > 0 ? Number(((won.length / settled.length) * 100).toFixed(2)) : 0;
+
+      // CLV metrics
+      const withClv = settled.filter((b) => b.clv_pct !== null && b.clv_pct !== undefined);
+      const positiveClv = withClv.filter((b) => Number(b.clv_pct) > 0);
+      const clvBeatRate = withClv.length > 0 ? Number(((positiveClv.length / withClv.length) * 100).toFixed(1)) : 0;
+      const avgClv = withClv.length > 0 ? Number((withClv.reduce((acc, b) => acc + Number(b.clv_pct), 0) / withClv.length).toFixed(2)) : 0;
+
+      // Drawdown calculation
+      let peak = 0;
+      let running = 0;
+      let maxDrawdown = 0;
+      for (const b of settled) {
+        running += Number(b.profit) || 0;
+        if (running > peak) peak = running;
+        const dd = peak - running;
+        if (dd > maxDrawdown) maxDrawdown = dd;
+      }
+
+      let ruleSet: any = {};
+      try {
+        ruleSet = typeof p.rule_set_json === "string" ? JSON.parse(p.rule_set_json) : p.rule_set_json || {};
+      } catch {
+        ruleSet = {};
+      }
+      const isLiveRecord = settled.length >= 20;
+
+      return {
+        profileKey: p.profile_key,
+        displayName: p.display_name,
+        notes: ruleSet.notes || `${p.display_name} strategy profile.`,
+        rankingKey: ruleSet.ranking_key || "expected_value",
+        oddsBand: ruleSet.min_odds ? `$${Number(ruleSet.min_odds).toFixed(2)} - $${ruleSet.max_odds ? Number(ruleSet.max_odds).toFixed(2) : "51.00"}` : "Unrestricted",
+        sampleSize: settled.length,
+        winCount: won.length,
+        lossCount: settled.length - won.length,
+        strikeRate,
+        roi,
+        totalStaked: Number(totalStaked.toFixed(2)),
+        totalProfit: Number(totalProfit.toFixed(2)),
+        maxDrawdown: Number(maxDrawdown.toFixed(2)),
+        clvBeatRate,
+        avgClv,
+        clvSampleSize: withClv.length,
+        badge: isLiveRecord ? "LIVE RECORD" : "SIMULATED BACKTEST",
+      };
+    });
+
+    return res.json({
+      status: "ok",
+      strategies: strategyStats,
+    });
+  } catch (error: any) {
+    console.error("Error fetching strategy trust records:", error);
+    return res.status(500).json({ error: "Failed to fetch strategy trust records" });
   }
 });
 

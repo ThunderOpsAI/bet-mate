@@ -6,8 +6,8 @@ from typing import Callable, Dict, List
 
 import modal
 
-import app.data.scraper as racing_scraper
-from app.ml.racing import RacingPredictor
+# import app.data.scraper as racing_scraper
+# from app.ml.racing import RacingPredictor
 
 
 LOGGER = logging.getLogger("betmate.modal")
@@ -104,17 +104,74 @@ def _run_logged_job(name: str, job: Callable[[], Dict[str, object]]) -> Dict[str
         raise
 
 
+@app.cls(
+    image=image,
+    secrets=secrets,
+    volumes={MODEL_VOLUME_PATH: volume},
+    env=_common_env(),
+    region="us-east",
+    timeout=60 * 5,
+    min_containers=1,
+    scaledown_window=300,
+    enable_memory_snapshot=True,
+)
+@modal.concurrent(max_inputs=20)
+class BetMatePredictionService:
+
+    @modal.enter(snap=True)
+    def load_artifacts_into_snapshot(self):
+        """
+        Executed ONCE before memory snapshot is frozen to disk.
+        All heavy library imports, pre-warmed scalers, and model weights are captured.
+        """
+        import xgboost as xgb
+        import scipy.stats
+        try:
+            import polars as pl
+        except ImportError:
+            pass
+        from app.ml.racing import RacingPredictor
+        from app.ml.afl import AFLPredictor
+        from app.ml.nba import NBAPredictor
+
+        LOGGER.info("[Snapshot] Warming ML predictors and freezing memory snapshot...")
+        try:
+            from app.ml.racing import RacingPredictor
+            self.racing_predictor = RacingPredictor()
+            self.racing_predictor.load_or_train()
+        except Exception as e:
+            LOGGER.warning("[Snapshot] Prewarming model failed: %s", e)
+
+    @modal.enter(snap=False)
+    def initialize_runtime_connections(self):
+        """
+        Executed upon container restore/wakeup.
+        Network sockets and database connections MUST be initialized here,
+        as TCP connections cannot survive memory snapshot restore.
+        """
+        import app.database as database
+        try:
+            database.require_database_url()
+        except Exception as e:
+            LOGGER.warning("[Runtime] Database URL check: %s", e)
+        LOGGER.info("[Runtime] Restored from snapshot; database handle ready.")
+
+    @modal.asgi_app()
+    def web_service(self):
+        from app.main import app as fastapi_app
+        return fastapi_app
+
+
 @app.function(
     image=image,
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
-    timeout=60 * 15,
+    region="us-east",
+    timeout=60 * 5,
 )
 @modal.asgi_app()
 def web():
-    _prepare_runtime()
     from app.main import app as fastapi_app
     return fastapi_app
 
@@ -124,7 +181,7 @@ def web():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 20,
 )
 def nightly_strategy_refresh():
@@ -152,13 +209,15 @@ def nightly_strategy_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 10,
 )
 def race_data_refresh():
     def _job() -> Dict[str, object]:
         from app.time_utils import today_melbourne
         run_date = today_melbourne().isoformat()
+        from app.ml.racing import RacingPredictor
+        import app.data.scraper as racing_scraper
         predictor = RacingPredictor()
         predictor.load_or_train()
         races = racing_scraper.fetch_today_races(run_date=run_date)
@@ -249,7 +308,7 @@ def race_data_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 15,
 )
 def afl_model_refresh():
@@ -276,7 +335,7 @@ def afl_model_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 15,
 )
 def nba_model_refresh():
@@ -303,7 +362,7 @@ def nba_model_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 15,
 )
 def nfl_model_refresh():
@@ -327,13 +386,13 @@ def nfl_model_refresh():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 5,
 )
 def prewarm_upcoming_races():
     def _job() -> Dict[str, object]:
         from app.alerts import calculate_minutes_until_jump
-        import app.data.scraper as racing_scraper
+
         races = racing_scraper.fetch_today_races()
         upcoming = [r for r in races if r.get("start_time") and 0 < (calculate_minutes_until_jump(r["start_time"]) or 0) <= 60]
         return {"fetched_races": len(races), "upcoming_races": len(upcoming)}
@@ -346,7 +405,7 @@ def prewarm_upcoming_races():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 15,
 )
 def sunday_betfair_import():
@@ -363,7 +422,7 @@ def sunday_betfair_import():
     secrets=secrets,
     volumes={MODEL_VOLUME_PATH: volume},
     env=_common_env(),
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60 * 5,
 )
 def evaluate_blackbook_rules():
@@ -371,7 +430,7 @@ def evaluate_blackbook_rules():
         import json
         import app.storage as storage
         import app.database as database
-        import app.data.scraper as racing_scraper
+
         database.require_database_url()
         database.verify_database_connection()
         
@@ -388,7 +447,7 @@ def evaluate_blackbook_rules():
                 for r in rules:
                     rules_by_item.setdefault(r["blackbookItemId"], []).append(r)
                 
-                # Fetch today's race card
+    # prewarm Fetch today's race card
                 races = racing_scraper.fetch_today_races()
                 
                 for item in items:
@@ -406,7 +465,7 @@ def evaluate_blackbook_rules():
                     item_rules = rules_by_item.get(item_id, [])
                     
                     for race in races:
-                        # Check if running
+            # prewarm Check if running
                         is_running = False
                         matched_horse = None
                         venue = race.get("venue", "").lower()
@@ -428,7 +487,7 @@ def evaluate_blackbook_rules():
                         if not is_running:
                             continue
                             
-                        # Basic conditions evaluation
+            # prewarm Basic conditions evaluation
                         passed = True
                         if conditions.get("metro") and not race.get("is_metro", False):
                             passed = False
@@ -442,7 +501,7 @@ def evaluate_blackbook_rules():
                             if venue not in [t.lower() for t in conditions["tracks"]]:
                                 passed = False
 
-                        # Sprint 2 Combo Conditions
+            # prewarm Sprint 2 Combo Conditions
                         if passed and conditions.get("jockeyTrainerCombo"):
                             combo = conditions["jockeyTrainerCombo"]
                             c_jockey = combo.get("jockey", "").lower()
@@ -478,7 +537,7 @@ def evaluate_blackbook_rules():
                                 passed = False
 
                         if passed and conditions.get("horseFavourite"):
-                            # Check if horse is market favourite
+                # prewarm Check if horse is market favourite
                             min_odds = float('inf')
                             fav_name = None
                             for h in race.get("horses", []):
@@ -522,7 +581,7 @@ def evaluate_blackbook_rules():
                             evaluations += 1
                             matches += 1
                             LOGGER.info(f"Blackbook match: {target_name} is running today at {race.get('venue')} R{race.get('race_number')}")
-                            # For Sprint 1, just log to console
+                # prewarm For Sprint 1, just log to console
                 
         except Exception as e:
             LOGGER.error(f"Blackbook evaluation failed: {e}")
@@ -536,9 +595,9 @@ def evaluate_blackbook_rules():
 
 @app.function(
     image=image,
-    region="ap-southeast-2",
+    region="us-east",
     timeout=60,
-    schedule=modal.Cron("0 0,8 * * *", timezone="Australia/Melbourne"),
+    schedule=modal.Cron("0 0,6,8 * * *", timezone="Australia/Melbourne"),
 )
 def master_scheduler():
     from datetime import datetime

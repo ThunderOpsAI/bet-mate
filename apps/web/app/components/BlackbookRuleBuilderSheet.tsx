@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { X, Star, Link as LinkIcon, Save, Trash2 } from "lucide-react";
 import { TrackPicker } from "./TrackPicker";
 import { SearchResult } from "./BlackbookSearchModal";
@@ -182,13 +182,13 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, initialData
   return (
     <AnimatePresence>
       {isOpen && entity && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] flex justify-center items-end sm:items-center bg-black/40 backdrop-blur-sm p-0 sm:p-4"
         >
-          <motion.div
+          <m.div
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
@@ -477,8 +477,8 @@ export function BlackbookRuleBuilderSheet({ isOpen, onClose, entity, initialData
                 <Save size={18} /> {saving ? "Saving..." : "Save to BlackBook"}
               </button>
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

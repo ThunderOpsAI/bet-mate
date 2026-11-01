@@ -32,13 +32,14 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "Betmate Bob",
             "min_edge": 0.05,
             "min_confidence": "medium",
+            "ranking_key": "expected_value",
             "max_bets_per_day": 5,
             "max_stake_per_bet": 60.0,
             "kelly_fraction": 0.25,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 2,
-            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "sport_weights": {"racing": 0.40, "afl": 0.20, "nba": 0.20, "nfl": 0.20},
             "notes": "Balanced. Flagship profile.",
         },
     },
@@ -51,13 +52,14 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "James",
             "min_edge": 0.08,
             "min_confidence": "medium",
+            "ranking_key": "expected_value",
             "max_bets_per_day": 8,
             "max_stake_per_bet": 80.0,
             "kelly_fraction": 0.35,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 3,
-            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "sport_weights": {"racing": 0.35, "afl": 0.20, "nba": 0.25, "nfl": 0.20},
             "notes": "High action. Editable by admin.",
         },
     },
@@ -87,16 +89,54 @@ DEFAULT_STRATEGY_PROFILES = [
         "rule_set": {
             "profile_key": "sports_multi",
             "display_name": "Sports Multi",
-            "min_edge": 0.05,
+            "min_edge": 0.03,
             "min_confidence": "low",
             "max_bets_per_day": 5,
-            "max_stake_per_bet": 40.0,
+            "max_stake_per_bet": 50.0,
             "kelly_fraction": 0.2,
-            "allowed_markets": ["head_to_head"],
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
             "allow_multis": True,
             "max_multi_legs": 4,
-            "sport_weights": {"racing": 0.0, "afl": 0.5, "nba": 0.5},
-            "notes": "Focused strictly on sports multiples.",
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 0.5, "nfl": 0.5},
+            "notes": "Focused strictly on sports multiples (NBA and NFL).",
+        },
+    },
+    {
+        "profile_key": "nba_multi",
+        "display_name": "NBA Multi",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "nba_multi",
+            "display_name": "NBA Multi",
+            "min_edge": 0.03,
+            "min_confidence": "low",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 1.0, "nfl": 0.0},
+            "notes": "Cross-game NBA Multis combining best EV game lines and props.",
+        },
+    },
+    {
+        "profile_key": "nfl_multi",
+        "display_name": "NFL Multi",
+        "is_editable": False,
+        "rule_set": {
+            "profile_key": "nfl_multi",
+            "display_name": "NFL Multi",
+            "min_edge": 0.03,
+            "min_confidence": "low",
+            "max_bets_per_day": 5,
+            "max_stake_per_bet": 50.0,
+            "kelly_fraction": 0.25,
+            "allowed_markets": ["head_to_head", "spread", "total_points", "player_prop", "multi"],
+            "allow_multis": True,
+            "max_multi_legs": 4,
+            "sport_weights": {"racing": 0.0, "afl": 0.0, "nba": 0.0, "nfl": 1.0},
+            "notes": "Cross-game NFL Multis across spreads, totals and moneylines.",
         },
     },
     {
@@ -164,7 +204,10 @@ DEFAULT_STRATEGY_PROFILES = [
             "profile_key": "favourites_only",
             "display_name": "Favourites Only",
             "min_edge": 0.03,
-            "min_confidence": "high",
+            "min_confidence": "low",
+            "min_odds": 1.15,
+            "max_odds": 2.50,
+            "ranking_key": "probability",
             "max_bets_per_day": 5,
             "max_stake_per_bet": 100.0,
             "kelly_fraction": 0.3,
@@ -184,9 +227,12 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "Roughies Only",
             "min_edge": 0.15,
             "min_confidence": "low",
+            "min_odds": 6.00,
+            "max_odds": 51.00,
+            "ranking_key": "expected_value",
             "max_bets_per_day": 5,
             "max_stake_per_bet": 20.0,
-            "kelly_fraction": 0.1,
+            "kelly_fraction": 0.10,
             "allowed_markets": ["win", "head_to_head"],
             "allow_multis": False,
             "max_multi_legs": 1,
@@ -203,13 +249,14 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "Neutral",
             "min_edge": 0.06,
             "min_confidence": "medium",
+            "ranking_key": "expected_value",
             "max_bets_per_day": 4,
             "max_stake_per_bet": 50.0,
             "kelly_fraction": 0.20,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": False,
             "max_multi_legs": 1,
-            "sport_weights": {"racing": 0.45, "afl": 0.275, "nba": 0.275},
+            "sport_weights": {"racing": 0.40, "afl": 0.20, "nba": 0.20, "nfl": 0.20},
             "notes": "Disciplined. No multis.",
         },
     },
@@ -222,13 +269,16 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "Aggressive",
             "min_edge": 0.04,
             "min_confidence": "low",
+            "min_odds": 2.00,
+            "max_odds": 10.00,
+            "ranking_key": "kelly",
             "max_bets_per_day": 10,
-            "max_stake_per_bet": 90.0,
-            "kelly_fraction": 0.50,
-            "allowed_markets": ["win", "place", "head_to_head"],
+            "max_stake_per_bet": 250.0,
+            "kelly_fraction": 0.75,
+            "allowed_markets": ["win", "place", "head_to_head", "spread", "total_points"],
             "allow_multis": True,
             "max_multi_legs": 4,
-            "sport_weights": {"racing": 0.4, "afl": 0.3, "nba": 0.3},
+            "sport_weights": {"racing": 0.35, "afl": 0.20, "nba": 0.25, "nfl": 0.20},
             "notes": "High action, wider net.",
         },
     },
@@ -241,9 +291,12 @@ DEFAULT_STRATEGY_PROFILES = [
             "display_name": "Conservative",
             "min_edge": 0.10,
             "min_confidence": "high",
+            "min_odds": 1.20,
+            "max_odds": 3.50,
+            "ranking_key": "expected_value",
             "max_bets_per_day": 3,
-            "max_stake_per_bet": 35.0,
-            "kelly_fraction": 0.15,
+            "max_stake_per_bet": 40.0,
+            "kelly_fraction": 0.20,
             "allowed_markets": ["win", "head_to_head"],
             "allow_multis": False,
             "max_multi_legs": 1,
@@ -696,9 +749,11 @@ def create_paper_bet(
         raise ValueError("stake must be between 1 and 10000")
 
     supported_bet_types = {
-        "racing": {"win", "place"},
+        "racing": {"win", "place", "each_way", "multi", "sgm", "srm"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
-        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "spread", "total_points", "over/under", "multi", "sgm"},
+        "nfl": {"win", "head_to_head", "spread", "total_points", "handicap", "over/under", "multi", "sgm"},
+        "multi": {"multi", "sgm", "win", "head_to_head"},
         "nrl": {"win", "head_to_head"},
         "soccer": {"win", "head_to_head"},
         "golf": {"win"},
@@ -1032,9 +1087,11 @@ def upsert_blackbook_auto_bet_config(
         raise ValueError("probability_threshold must be between 1.0 and 99.9")
 
     supported_bet_types = {
-        "racing": {"win", "place"},
+        "racing": {"win", "place", "each_way", "multi", "sgm", "srm"},
         "afl": {"win", "head_to_head", "disposals", "goals", "handicap", "total points", "over/under", "margin"},
-        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "over/under"},
+        "nba": {"win", "head_to_head", "points", "assists", "rebounds", "handicap", "spread", "total_points", "over/under", "multi", "sgm"},
+        "nfl": {"win", "head_to_head", "spread", "total_points", "handicap", "over/under", "multi", "sgm"},
+        "multi": {"multi", "sgm", "win", "head_to_head"},
     }
     allowed_types = supported_bet_types.get(sport)
     if allowed_types is not None and bet_type not in allowed_types:
@@ -1191,6 +1248,37 @@ def delete_paper_bet(bet_id: int, user_id: Optional[str] = None) -> bool:
             cursor = conn.execute("DELETE FROM paper_bet_log WHERE id = ?", (bet_id,))
         conn.commit()
         return cursor.rowcount > 0
+
+
+def void_scratched_paper_bets(sport: str, event_id: str, scratched_selections: Sequence[str]) -> List[int]:
+    """Sets paper_bet_log.status = 'VOID' and payout = stake, profit = 0.0 for scratched runners/players without altering created_at."""
+    if not scratched_selections:
+        return []
+
+    voided_ids = []
+    updated_at = datetime.now(timezone.utc).isoformat()
+    with _connect() as conn:
+        for selection in scratched_selections:
+            rows = conn.execute(
+                """
+                SELECT id, stake
+                FROM paper_bet_log
+                WHERE sport = ? AND event_id = ? AND LOWER(selection) = LOWER(?) AND status = 'PENDING'
+                """,
+                (sport, event_id, selection),
+            ).fetchall()
+            for r in rows:
+                conn.execute(
+                    """
+                    UPDATE paper_bet_log
+                    SET status = 'VOID', payout = ?, profit = 0.0, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (float(r["stake"]), updated_at, r["id"]),
+                )
+                voided_ids.append(r["id"])
+        conn.commit()
+    return voided_ids
 
 
 def get_prediction_summary() -> List[Dict[str, Any]]:
@@ -1378,6 +1466,20 @@ def ensure_default_strategy_profiles() -> None:
         created_at = datetime.now(timezone.utc).isoformat()
         for profile in DEFAULT_STRATEGY_PROFILES:
             if profile["profile_key"] in existing:
+                if True:
+                    conn.execute(
+                        """
+                        UPDATE strategy_profiles
+                        SET display_name = ?, rule_set_json = ?, updated_at = ?
+                        WHERE profile_key = ?
+                        """,
+                        (
+                            profile["display_name"],
+                            _dumps_json(profile["rule_set"]),
+                            created_at,
+                            profile["profile_key"],
+                        ),
+                    )
                 continue
             conn.execute(
                 """
@@ -1573,7 +1675,7 @@ def save_strategy_card(card: Dict[str, Any], replace: bool = False) -> Dict[str,
             """,
             (profile_key, run_date),
         ).fetchone()
-        if existing_run_row and replace:
+        if existing_run_row:
             conn.execute(
                 """
                 UPDATE paper_bet_log
@@ -2062,6 +2164,9 @@ def _ensure_schema(conn) -> None:
         """
     )
     _ensure_column(conn, "paper_bet_log", "user_id", "TEXT DEFAULT 'legacy'")
+    _ensure_column(conn, "paper_bet_log", "closing_odds", "REAL")
+    _ensure_column(conn, "paper_bet_log", "clv_pct", "REAL")
+    _ensure_column(conn, "prediction_log", "closing_odds", "REAL")
     # dedupe is now called once from init_db(), not on every connection
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_sport ON prediction_log (sport)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_prediction_log_event ON prediction_log (sport, event_id)")
@@ -2279,6 +2384,8 @@ def _row_to_paper_bet(row) -> Dict[str, Any]:
         "payout": _optional_float(row["payout"]),
         "profit": _optional_float(row["profit"]),
         "notes": row["notes"],
+        "closing_odds": _optional_float(row["closing_odds"]) if _row_has_key(row, "closing_odds") else None,
+        "clv_pct": _optional_float(row["clv_pct"]) if _row_has_key(row, "clv_pct") else None,
         "origin": row["origin"] if _row_has_key(row, "origin") else "user",
         "system_bet_id": row["system_bet_id"] if _row_has_key(row, "system_bet_id") else None,
         "prediction": {
@@ -2704,14 +2811,43 @@ def _settle_paper_bets_for_event(
             float(bet["odds"]),
             outcome,
         )
+
+        closing_odds = None
+        if result_payload and isinstance(result_payload, dict):
+            closing_odds_map = result_payload.get("closing_odds") or result_payload.get("bsp_map") or {}
+            if isinstance(closing_odds_map, dict):
+                closing_odds = closing_odds_map.get(bet["selection"]) or closing_odds_map.get(bet["selection"].lower())
+            if not closing_odds:
+                closing_odds = result_payload.get("closing_odds") or result_payload.get("bsp")
+
+        if not closing_odds and prediction:
+            try:
+                closing_odds = prediction["closing_odds"]
+            except (KeyError, IndexError, TypeError):
+                pass
+
+        clv_pct = None
+        if closing_odds and float(closing_odds) > 0:
+            closing_odds = float(closing_odds)
+            clv_pct = round(((float(bet["odds"]) / closing_odds) - 1.0) * 100.0, 2)
+
         conn.execute(
             """
             UPDATE paper_bet_log
-            SET updated_at = ?, settled_at = ?, prediction_log_id = ?, status = ?, payout = ?, profit = ?
+            SET updated_at = ?, settled_at = ?, prediction_log_id = ?, status = ?, payout = ?, profit = ?, closing_odds = ?, clv_pct = ?
             WHERE id = ?
             """,
-            (settled_at, settled_at, prediction["id"], status, payout, profit, bet["id"]),
+            (settled_at, settled_at, prediction["id"], status, payout, profit, closing_odds, clv_pct, bet["id"]),
         )
+        if closing_odds and prediction:
+            conn.execute(
+                """
+                UPDATE prediction_log
+                SET closing_odds = ?
+                WHERE id = ?
+                """,
+                (closing_odds, prediction["id"]),
+            )
 
 
 def _settle_system_bets_for_event(

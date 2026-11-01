@@ -1,6 +1,6 @@
 generator client {
   provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema"]
+  previewFeatures = ["driverAdapters", "multiSchema"]
   binaryTargets   = ["native", "rhel-openssl-1.0.x", "rhel-openssl-3.0.x"]
 }
 
@@ -77,6 +77,8 @@ model paper_bet_log {
   selection         String
   bet_type          String
   odds              Float
+  closing_odds      Float?
+  clv_pct           Float?
   stake             Float
   status            String       @default("PENDING")
   payout            Float?
@@ -104,6 +106,7 @@ model prediction_log {
   selection           String
   probability         Float
   fair_odds           Float?
+  closing_odds        Float?
   payload_json        Json      @default("{}")
   feature_impact_json Json      @default("{}")
   actual_outcome      Float?

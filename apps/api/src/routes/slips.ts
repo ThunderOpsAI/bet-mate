@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "../services/prisma";
 import jwt from "jsonwebtoken";
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma: any = prismaClient;
 const jwtSecret = process.env.JWT_SECRET ?? "change-me-in-production";
 
 function getOptionalUserId(req: Request): string | null {

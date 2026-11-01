@@ -368,12 +368,13 @@ body {
 }
 
 .stat-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: #0f172a;
+  border: 1px solid rgba(148, 163, 184, 0.22);
   border-radius: var(--radius);
   padding: 1.25rem 1.5rem;
   position: relative;
   overflow: hidden;
+  box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.35);
 }
 
 .stat-card::after {
@@ -396,7 +397,7 @@ body {
 
 .stat-card .stat-label {
   font-size: 0.8rem;
-  color: var(--text-muted);
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
@@ -412,7 +413,7 @@ body {
 
 .stat-card .stat-sub {
   font-size: 0.8rem;
-  color: var(--text-dim);
+  color: #94a3b8;
   margin-top: 0.25rem;
 }
 
@@ -1416,23 +1417,25 @@ table {
 
 th {
   text-align: left;
-  padding: 0.65rem 0.85rem;
+  padding: 0.85rem 1rem;
   font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  font-weight: 700;
+  color: #94a3b8;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  border-bottom: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
 }
 
 td {
-  padding: 0.75rem 0.85rem;
+  padding: 0.95rem 1rem;
   font-size: 0.9rem;
-  border-bottom: 1px solid var(--border);
+  color: #e2e8f0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
 }
 
 tr:hover td {
-  background: var(--bg-glass);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 /* ---- Responsive ---- */
@@ -1492,28 +1495,37 @@ tr:hover td {
 
 /* ---- Chart container ---- */
 .chart-container {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
+  background: #1e293b;
+  border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: var(--radius);
-  padding: 1.25rem;
-  margin-bottom: 1.5rem;
+  padding: 1.5rem;
+  margin-bottom: 1.75rem;
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
 }
 
 .chart-container h4 {
-  font-size: 0.95rem;
-  font-weight: 600;
-  margin-bottom: 1rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+  margin-bottom: 1.25rem;
 }
 
 /* ---- Recharts overrides ---- */
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: var(--border) !important;
+  stroke: rgba(148, 163, 184, 0.18) !important;
+  stroke-dasharray: 4 4;
 }
 
 .recharts-text {
-  fill: var(--text-muted) !important;
+  fill: #cbd5e1 !important;
   font-size: 0.75rem !important;
+  font-weight: 500;
+}
+
+.recharts-legend-item-text {
+  color: #cbd5e1 !important;
 }
 
 /* =============================================

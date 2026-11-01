@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { API_BASE, safeResponseJson } from "../lib/api";
 import { NoData } from "../../components/common/EmptyStates";
+import StrategyTrustCard, { StrategyTrustMetricProps } from "../components/strategy/StrategyTrustCard";
 
 interface CalibrationBin {
   bin: string;
@@ -52,6 +53,7 @@ export default function TrackRecordPage() {
   const [summary, setSummary] = useState<TrackRecordSummary | null>(null);
   const [calibrationCurve, setCalibrationCurve] = useState<CalibrationBin[]>([]);
   const [records, setRecords] = useState<ModelTrackRecordItem[]>([]);
+  const [strategies, setStrategies] = useState<StrategyTrustMetricProps[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   const fetchTrackRecord = async () => {
@@ -61,7 +63,11 @@ export default function TrackRecordPage() {
       const params = new URLSearchParams();
       if (sportFilter !== "ALL") params.append("sport", sportFilter);
 
-      const res = await fetch(`${API_BASE}/trust/track-record?${params.toString()}`);
+      const [res, stratRes] = await Promise.all([
+        fetch(`${API_BASE}/trust/track-record?${params.toString()}`),
+        fetch(`${API_BASE}/trust/strategies`),
+      ]);
+
       if (!res.ok) {
         throw new Error("Failed to load model track record");
       }
@@ -75,6 +81,13 @@ export default function TrackRecordPage() {
         setSummary(null);
         setCalibrationCurve([]);
         setRecords([]);
+      }
+
+      if (stratRes.ok) {
+        const stratJson = await safeResponseJson(stratRes);
+        if (stratJson && stratJson.status === "ok") {
+          setStrategies(stratJson.strategies || []);
+        }
       }
     } catch (err: any) {
       setError(err?.message || "Failed to load track record");
@@ -211,6 +224,29 @@ export default function TrackRecordPage() {
               </span>
             </div>
           </div>
+
+          {/* Per-Strategy Trust Cards Grid */}
+          {strategies.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                    <span>Strategy Profile Track Records &amp; CLV Audits</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Verified ROI, strike rates, closing line value (CLV) beat rates, and maximum drawdowns partitioned by persona identity.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {strategies.map((strat) => (
+                  <StrategyTrustCard key={strat.profileKey} strategy={strat} />
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Probability Calibration Curve Section */}
           <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl space-y-6">

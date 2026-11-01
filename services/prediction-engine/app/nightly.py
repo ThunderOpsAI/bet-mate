@@ -21,6 +21,103 @@ from app.time_utils import MELBOURNE_TZ, now_melbourne, today_melbourne
 DEFAULT_SCHEDULER_TIME = "05:00"
 DEFAULT_WEEKLY_RETRAIN_DAY = "sun"
 
+DAILY_SCHEDULE_TIMES = {
+    "early_card": "07:45",
+    "midday_refresh": "11:00",
+    "settlement_wave_1": "17:00",
+    "settlement_wave_2": "23:00",
+}
+
+
+def handle_scratchings(run_date: Optional[str] = None) -> Dict[str, Any]:
+    """Scans Betfair/racing and NBA feeds for scratchings/injuries and voids affected pending paper bets without altering locked timestamps."""
+    effective_date = run_date or today_melbourne().isoformat()
+    voided_records = []
+
+    try:
+        races = racing_scraper.fetch_today_races(run_date=effective_date)
+        for race in races:
+            event_id = race.get("race_id")
+            scratched = [
+                h["name"]
+                for h in race.get("horses", [])
+                if h.get("is_scratched") or h.get("status") == "scratched"
+            ]
+            if event_id and scratched:
+                voided = storage.void_scratched_paper_bets("racing", event_id, scratched)
+                if voided:
+                    voided_records.append({
+                        "sport": "racing",
+                        "event_id": event_id,
+                        "scratched": scratched,
+                        "bet_ids": voided,
+                    })
+    except Exception as e:
+        print(f"[Nightly] Note on racing scratchings: {e}")
+
+    try:
+        games = nba_scraper.fetch_today_nba(run_date=effective_date)
+        for game in games:
+            event_id = game.get("game_id")
+            out_players = game.get("out_players") or game.get("injuries", {}).get("out", [])
+            if event_id and out_players:
+                voided = storage.void_scratched_paper_bets("nba", event_id, out_players)
+                if voided:
+                    voided_records.append({
+                        "sport": "nba",
+                        "event_id": event_id,
+                        "out": out_players,
+                        "bet_ids": voided,
+                    })
+    except Exception as e:
+        print(f"[Nightly] Note on NBA scratchings: {e}")
+
+    return {
+        "run_date": effective_date,
+        "voided_count": sum(len(r.get("bet_ids", [])) for r in voided_records),
+        "details": voided_records,
+    }
+
+
+def run_scheduled_flow(wave: str, run_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Executes specific operational flow based on time of day:
+    - early_card (07:45): Early Card generation across all sports & racing
+    - midday_refresh (11:00): Midday Liquidity, Scratching refresh & Card updates
+    - settlement_wave_1 (17:00): Settlement Wave 1
+    - settlement_wave_2 (23:00): Settlement Wave 2 + Daily Recap & CLV calculation
+    """
+    effective_date = run_date or today_melbourne().isoformat()
+    service = build_nightly_strategy_service(load_models=True)
+
+    if wave == "early_card":
+        cards = service.get_or_create_cards(effective_date)
+        return {"wave": "early_card", "run_date": effective_date, "cards_generated": len(cards)}
+    elif wave == "midday_refresh":
+        scratch_summary = handle_scratchings(effective_date)
+        cards = service.get_or_create_cards(effective_date)
+        return {
+            "wave": "midday_refresh",
+            "run_date": effective_date,
+            "scratchings": scratch_summary,
+            "cards_refreshed": len(cards),
+        }
+    elif wave in ("settlement_wave_1", "settlement_wave_2"):
+        ingestion = ingest_completed_results(sports=("afl", "nba", "racing", "nfl"), max_results=100)
+        scratch_summary = handle_scratchings(effective_date)
+        recap = None
+        if wave == "settlement_wave_2":
+            recap = storage.get_performance_daily_trend(days=1, reference_date=effective_date)
+        return {
+            "wave": wave,
+            "run_date": effective_date,
+            "ingestion": ingestion,
+            "scratchings": scratch_summary,
+            "recap": recap,
+        }
+    else:
+        raise ValueError(f"Unknown scheduled wave: {wave}. Must be one of: {list(DAILY_SCHEDULE_TIMES.keys())}")
+
 
 def _settle_ingested_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
     settled = []
@@ -460,7 +557,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--weekly-retrain-day", default=DEFAULT_WEEKLY_RETRAIN_DAY, help="Weekly retrain day name (mon..sun).")
     parser.add_argument("--backup-dir", help="Optional SQLite backup directory after cycle.")
     parser.add_argument("--sunday-import", action="store_true", help="Run the Sunday Betfair market and results import task.")
+    parser.add_argument("--wave", choices=list(DAILY_SCHEDULE_TIMES.keys()), help="Execute a scheduled wave (early_card, midday_refresh, settlement_wave_1, settlement_wave_2).")
     args = parser.parse_args(argv)
+
+    if args.wave:
+        summary = run_scheduled_flow(wave=args.wave, run_date=args.run_date)
+        print(json.dumps(summary, indent=2, sort_keys=True))
+        return 0
 
     if args.sunday_import:
         summary = sunday_betfair_import(run_date=args.run_date)

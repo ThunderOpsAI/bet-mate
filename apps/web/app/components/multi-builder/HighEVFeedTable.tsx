@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { m } from "framer-motion";
 import { Zap, AlertCircle, Plus, Check, RefreshCw } from "lucide-react";
 import type { EVLeg } from "./types";
 
@@ -38,7 +39,12 @@ export default function HighEVFeedTable({
   };
 
   return (
-    <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl backdrop-blur-sm">
+    <m.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-xl backdrop-blur-sm"
+    >
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2">
@@ -163,6 +169,6 @@ export default function HighEVFeedTable({
           </table>
         </div>
       )}
-    </div>
+    </m.div>
   );
 }

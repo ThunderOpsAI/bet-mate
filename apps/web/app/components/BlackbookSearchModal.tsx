@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { m, AnimatePresence } from "framer-motion";
 import { Search, X, AlertCircle } from "lucide-react";
 
 export type SearchResult = {
@@ -88,13 +88,13 @@ export function BlackbookSearchModal({ isOpen, onClose, onSelect }: Props) {
   return (
     <AnimatePresence>
       {isOpen && (
-        <motion.div
+        <m.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           className="fixed inset-0 z-[100] flex items-start justify-center p-4 sm:p-6 bg-black/40 backdrop-blur-sm"
         >
-          <motion.div
+          <m.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
@@ -164,8 +164,8 @@ export function BlackbookSearchModal({ isOpen, onClose, onSelect }: Props) {
                 </>
               )}
             </div>
-          </motion.div>
-        </motion.div>
+          </m.div>
+        </m.div>
       )}
     </AnimatePresence>
   );

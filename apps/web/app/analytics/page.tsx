@@ -567,12 +567,13 @@ export default function AnalyticsPage() {
               <h4>Bankroll Trend</h4>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={userTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Line type="monotone" dataKey="dailyProfit" name="Daily profit" stroke="var(--blue)" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="cumulativeProfit" name="Cumulative profit" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="date" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} tickFormatter={(val) => `$${val}`} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Line type="monotone" dataKey="dailyProfit" name="Daily Profit ($)" stroke="#38bdf8" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="cumulativeProfit" name="Cumulative Profit ($)" stroke="#10b981" strokeWidth={2.5} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -583,11 +584,11 @@ export default function AnalyticsPage() {
               <h4>User Results By Sport</h4>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={userSportSummary}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Bar dataKey="bets" name="Bets" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Bar dataKey="bets" name="Bets Placed" fill="#38bdf8" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -598,11 +599,11 @@ export default function AnalyticsPage() {
               <h4>Bankroll Source Mix</h4>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={userSourceSummary}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Bar dataKey="bets" name="Bets" fill="var(--blue)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Bar dataKey="bets" name="Bets Placed" fill="#6366f1" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -683,13 +684,13 @@ export default function AnalyticsPage() {
               <h4>Strategy Profiles</h4>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={strategyByProfile}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Legend />
-                  <Bar dataKey="allocated" name="Allocated stake" fill="var(--accent)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="roi" name="ROI %" fill="var(--green)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Bar dataKey="allocated" name="Allocated Stake ($)" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="roi" name="ROI (%)" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -838,11 +839,11 @@ export default function AnalyticsPage() {
             <h4>Training Rows By Model</h4>
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={rowChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                <Bar dataKey="rows" fill="var(--accent)" radius={[4, 4, 0, 0]} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                <Bar dataKey="rows" fill="#38bdf8" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -852,11 +853,11 @@ export default function AnalyticsPage() {
               <h4>Accuracy By Sport</h4>
               <ResponsiveContainer width="100%" height={240}>
                 <BarChart data={accuracyBySportData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Bar dataKey="hitRate" name="Top pick hit rate %" fill="var(--green)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="name" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Bar dataKey="hitRate" name="Top pick hit rate %" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -867,12 +868,13 @@ export default function AnalyticsPage() {
               <h4>Top Pick Hit Rate Trend</h4>
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={accuracyTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Line type="monotone" dataKey="hitRate" name="Hit rate %" stroke="var(--green)" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="paperRoi" name="Paper ROI %" stroke="var(--accent)" strokeWidth={2} dot={{ r: 3 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="date" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Line type="monotone" dataKey="hitRate" name="Hit rate %" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="paperRoi" name="Paper ROI %" stroke="#38bdf8" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -883,13 +885,13 @@ export default function AnalyticsPage() {
               <h4>Calibration Buckets</h4>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={calibrationChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="bucket" />
-                  <YAxis />
-                  <Tooltip contentStyle={{ background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 8 }} />
-                  <Legend />
-                  <Bar dataKey="predicted" name="Predicted %" fill="var(--blue)" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="observed" name="Observed %" fill="var(--green)" radius={[4, 4, 0, 0]} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.2)" />
+                  <XAxis dataKey="bucket" stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <YAxis stroke="#94a3b8" tick={{ fill: "#cbd5e1", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148, 163, 184, 0.3)", borderRadius: 8, color: "#f8fafc" }} />
+                  <Legend wrapperStyle={{ color: "#cbd5e1" }} />
+                  <Bar dataKey="predicted" name="Predicted %" fill="#38bdf8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="observed" name="Observed %" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

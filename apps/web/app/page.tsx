@@ -84,20 +84,17 @@ function HomePageContent() {
       let evCandidates: any[] = [];
 
       try {
-        const evRes = await fetchWithTimeout(`/api/ev-feed/today`, { timeoutMs: 15000 });
+        let evRes = await fetchWithTimeout(`/api/ev-feed/today`, { timeoutMs: 15000 });
+        if (!evRes.ok) {
+          evRes = await fetchWithTimeout(`${ML_API}/api/ev-feed/today`, { timeoutMs: 15000 });
+        }
         if (evRes.ok) {
           const evData = await safeResponseJson(evRes);
           const legs: any[] = Array.isArray(evData) ? evData : (evData?.feed || []);
           const nowMs = Date.now();
           const validLegs = legs.filter((leg) => {
             const odds = Number(leg.bestOdds ?? leg.best_odds ?? leg.backPrice ?? leg.back_price ?? 0);
-            if (odds > 51.0 || odds <= 1.05) return false;
-            const dateStr = leg.createdAt || leg.created_at;
-            if (dateStr) {
-              const createdMs = new Date(dateStr).getTime();
-              if (!isNaN(createdMs) && (nowMs - createdMs > 20 * 60 * 60 * 1000)) return false;
-            }
-            return true;
+            return odds > 1.01;
           });
           evCandidates = validLegs.map((leg) => ({
             id: leg.id,

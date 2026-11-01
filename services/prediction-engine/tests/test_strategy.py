@@ -292,3 +292,126 @@ def test_mock_backed_existing_card_is_rebuilt(monkeypatch):
 
     assert card["replace"] is True
     assert card["card_date"] == "2026-04-10"
+
+
+def test_confidence_bucket_purely_on_probability():
+    from app.strategy import confidence_bucket
+    assert confidence_bucket(0.55, edge=0.0) == "high"
+    assert confidence_bucket(0.35, edge=0.0) == "medium"
+    assert confidence_bucket(0.20, edge=0.20) == "low"  # Edge does not boost bucket
+
+
+def test_benter_blended_probability_edge_and_no_market():
+    from app.strategy import calculate_benter_blended_probability
+    # Missing or invalid market odds must yield strictly 0.0 edge
+    p_blend, edge = calculate_benter_blended_probability(0.60, None, sport="racing")
+    assert edge == 0.0
+    assert p_blend == 0.60
+
+    # With valid market odds (e.g. odds=2.50 -> p_market=0.40)
+    p_blend, edge = calculate_benter_blended_probability(0.60, 2.50, sport="racing")
+    assert p_blend > 0.40
+    assert edge > 0.0
+
+
+def test_overlap_policy_caps_selection_at_two_profiles():
+    from app.strategy import allocate_candidates
+    candidates = [
+        {
+            "sport": "racing",
+            "event_id": "r100",
+            "event_name": "Caulfield R1",
+            "market_type": "win",
+            "selection": "Super Star",
+            "model_probability": 0.50,
+            "market_odds": 3.0,
+            "derived_odds": None,
+            "odds_source": "live_market",
+            "edge": 0.15,
+            "confidence": "high",
+        },
+        {
+            "sport": "racing",
+            "event_id": "r101",
+            "event_name": "Caulfield R2",
+            "market_type": "win",
+            "selection": "Next Best",
+            "model_probability": 0.45,
+            "market_odds": 2.8,
+            "derived_odds": None,
+            "odds_source": "live_market",
+            "edge": 0.10,
+            "confidence": "medium",
+        },
+    ]
+
+    shared_usage = {}
+    rule_set = _rule_set(min_edge=0.05, max_bets_per_day=1)
+
+    # First profile allocates candidate
+    sel1 = allocate_candidates(candidates, rule_set, 1000.0, selection_usage=shared_usage, max_overlap=2)
+    assert len(sel1) == 1
+    assert sel1[0]["selection"] == "Super Star"
+
+    # Second profile allocates same candidate
+    sel2 = allocate_candidates(candidates, rule_set, 1000.0, selection_usage=shared_usage, max_overlap=2)
+    assert len(sel2) == 1
+    assert sel2[0]["selection"] == "Super Star"
+
+    # Third profile must be capped and fall back to Next Best
+    sel3 = allocate_candidates(candidates, rule_set, 1000.0, selection_usage=shared_usage, max_overlap=2)
+    assert len(sel3) == 1
+    assert sel3[0]["selection"] == "Next Best"
+
+
+def test_tiered_staking_and_no_zero_kelly_fallbacks():
+    from app.strategy import suggested_stake
+    # When Kelly <= 0, stake must be strictly 0.0 (no fallback)
+    neg_ev_cand = {
+        "model_probability": 0.20,
+        "market_odds": 2.0,
+        "edge": -0.10,
+    }
+    assert suggested_stake(neg_ev_cand, 1000.0, {"profile_key": "aggressive", "kelly_fraction": 0.75}) == 0.0
+
+    # Aggressive profile: 0.75x Kelly with $50 floor on high EV
+    pos_ev_cand = {
+        "model_probability": 0.60,
+        "market_odds": 2.20,
+        "edge": 0.12,
+    }
+    agg_stake = suggested_stake(pos_ev_cand, 1000.0, {"profile_key": "aggressive", "max_stake_per_bet": 250.0})
+    assert agg_stake >= 50.0
+    assert agg_stake <= 250.0
+
+    # Conservative profile: capped at $40
+    con_stake = suggested_stake(pos_ev_cand, 10000.0, {"profile_key": "conservative", "max_stake_per_bet": 40.0})
+    assert con_stake <= 40.0
+
+
+def test_empty_card_waterfall_and_resting_rationales():
+    from app.strategy import build_strategy_card
+    # Disciplined profile Bob with no +EV candidates rests cleanly
+    bob_profile = storage.get_strategy_profile("bob")
+    bob_card = build_strategy_card(bob_profile, [], "2026-11-01")
+    assert len(bob_card["selected_bets"]) == 0
+    assert "Betmate Bob passed today" in bob_card["resting_rationale"]
+
+    # Aggressive profile waterfalls to Action Play guaranteeing >= 1 bet
+    agg_profile = storage.get_strategy_profile("aggressive")
+    cand = [{
+        "sport": "nba",
+        "event_id": "game-1",
+        "event_name": "Celtics vs Heat",
+        "market_type": "head_to_head",
+        "selection": "Celtics",
+        "model_probability": 0.55,
+        "market_odds": 1.90,
+        "odds_source": "live_market",
+        "edge": 0.01,
+        "confidence": "high",
+    }]
+    agg_card = build_strategy_card(agg_profile, cand, "2026-11-01")
+    assert len(agg_card["selected_bets"]) >= 1
+    assert "Action Play" in agg_card["selected_bets"][0]["writeup"]
+

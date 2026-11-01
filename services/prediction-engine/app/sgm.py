@@ -5,6 +5,9 @@ from math import prod
 from typing import Any, Mapping, Sequence
 import numpy as np
 from scipy.stats import norm, multivariate_normal
+from app.ml.fast_copula import FastCopulaPricer
+
+_DEFAULT_FAST_PRICER = FastCopulaPricer(n_samples=2048)
 
 DEFAULT_CORRELATION_FALLBACK = 0.10
 
@@ -76,8 +79,22 @@ def get_pairwise_correlation(market_a: str, market_b: str, sport: str = "nba") -
     return DEFAULT_CORRELATION_FALLBACK
 
 
+def get_leg_direction_side(leg: Mapping[str, object]) -> float:
+    """Return +1.0 for positive/over/home sides and -1.0 for negative/under/away sides."""
+    explicit_side = leg.get("direction") or leg.get("side")
+    if explicit_side is not None:
+        if str(explicit_side).lower() in ("under", "away", "negative", "-1", "-"):
+            return -1.0
+        return 1.0
+
+    text = f"{leg.get('selection', '')} {leg.get('market_type', '')} {leg.get('leg_description', '')}".lower()
+    if "under" in text or "away" in text:
+        return -1.0
+    return 1.0
+
+
 def build_correlation_matrix(legs: Sequence[Mapping[str, object]], sport: str = "nba") -> np.ndarray:
-    """Construct a positive semi-definite correlation matrix for the active legs."""
+    """Construct a positive semi-definite correlation matrix for the active legs with signed direction-aware correlation."""
     k = len(legs)
     corr = np.eye(k)
     for i in range(k):
@@ -87,8 +104,11 @@ def build_correlation_matrix(legs: Sequence[Mapping[str, object]], sport: str = 
                 str(legs[j].get("market_type", "")),
                 sport=sport,
             )
-            corr[i, j] = rho
-            corr[j, i] = rho
+            side_i = get_leg_direction_side(legs[i])
+            side_j = get_leg_direction_side(legs[j])
+            signed_rho = float(rho * side_i * side_j)
+            corr[i, j] = signed_rho
+            corr[j, i] = signed_rho
 
     # Ensure matrix is positive semi-definite by eigenvalue thresholding
     eigenvalues, eigenvectors = np.linalg.eigh(corr)
@@ -102,15 +122,15 @@ def build_correlation_matrix(legs: Sequence[Mapping[str, object]], sport: str = 
 
 
 def calculate_copula_joint_probability(probabilities: Sequence[float], correlation_matrix: np.ndarray) -> float:
-    """Compute Gaussian Copula joint probability for correlated events."""
+    """Compute Gaussian Copula joint probability for correlated events using vectorized Quasi-Monte Carlo Sobol evaluation."""
     k = len(probabilities)
-    probs_clipped = np.clip(probabilities, 1e-5, 1.0 - 1e-5)
-    z = norm.ppf(probs_clipped)
-    mean = np.zeros(k)
+    if k == 0:
+        return 0.0
+    if k == 1:
+        return float(np.clip(probabilities[0], 0.0, 1.0))
 
     try:
-        joint_p = multivariate_normal.cdf(z, mean=mean, cov=correlation_matrix)
-        return float(np.clip(joint_p, 1e-6, 0.999999))
+        return _DEFAULT_FAST_PRICER.simulate_joint_probability(probabilities, correlation_matrix)
     except Exception:
         # Fallback to independent product
         return float(prod(probabilities))
@@ -160,27 +180,20 @@ def analyze_pairwise_warnings(legs: Sequence[Mapping[str, object]], sport: str =
 def simulate_copula_joint_probability(
     probabilities: Sequence[float],
     correlation_matrix: np.ndarray,
-    n_samples: int = 50000,
+    n_samples: int = 2048,
     seed: int | None = None,
 ) -> float:
-    """Compute Gaussian Copula joint probability via Monte Carlo simulation (Item 2)."""
+    """Compute Gaussian Copula joint probability via accelerated Quasi-Monte Carlo Sobol simulation (Item 2)."""
     k = len(probabilities)
     if k == 0:
         return 0.0
     if k == 1:
         return float(np.clip(probabilities[0], 0.0, 1.0))
 
-    probs_clipped = np.clip(probabilities, 1e-5, 1.0 - 1e-5)
-    z_thresholds = norm.ppf(probs_clipped)
-    mean = np.zeros(k)
-
-    rng = np.random.default_rng(seed)
     try:
-        samples = rng.multivariate_normal(mean, correlation_matrix, size=n_samples)
-        successes = np.all(samples <= z_thresholds, axis=1)
-        sim_p = float(np.mean(successes))
-        max_bound = float(min(probabilities))
-        return float(np.clip(sim_p, 1e-6, max_bound))
+        pricer = FastCopulaPricer(n_samples=n_samples) if n_samples != 2048 else _DEFAULT_FAST_PRICER
+        effective_seed = seed if seed is not None else 42
+        return pricer.simulate_joint_probability(probabilities, correlation_matrix, seed=effective_seed)
     except Exception:
         return float(prod(probabilities))
 
@@ -483,7 +496,9 @@ def calculate_sgm_odds(
     combined_odds = round(float(prod([float(leg.get("odds", 1.0)) for leg in legs])), 2)
     expected_value_10 = round((10.0 * combined_odds * copula_probability) - 10.0, 2)
     combined_edge_pct = round(((copula_probability * combined_odds) - 1.0) * 100.0, 2)
-    adjusted_odds = round(1.0 / adjusted_probability, 2) if adjusted_probability > 0 else 0.0
+    fair_copula_odds = round(1.0 / adjusted_probability, 2) if adjusted_probability > 0 else 0.0
+    bookie_haircut_odds = round(fair_copula_odds * 0.82, 2) if fair_copula_odds > 0 else 0.0
+    adjusted_odds = bookie_odds if bookie_odds else fair_copula_odds
 
     # Item 1: Leg-level scoring
     scored_legs = [score_multi_leg(leg, sport=sport) for leg in legs]
@@ -512,6 +527,7 @@ def calculate_sgm_odds(
         "fair_odds": round(1.0 / fair_probability, 2) if fair_probability > 0 else 0.0,
         "adjusted_probability": adjusted_probability,
         "adjusted_odds": adjusted_odds,
+        "market_haircut_odds": bookie_haircut_odds,
         "correlation_haircut": haircut,
         "combined_odds": combined_odds,
         "combined_edge_pct": combined_edge_pct,

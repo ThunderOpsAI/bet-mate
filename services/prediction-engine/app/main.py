@@ -1055,6 +1055,12 @@ def list_strategy_profiles():
     return {"profiles": storage.list_strategy_profiles()}
 
 
+@app.post("/api/strategy-profiles/sync")
+def sync_strategy_profiles():
+    storage.ensure_default_strategy_profiles()
+    return {"status": "success", "profiles": storage.list_strategy_profiles()}
+
+
 @app.get("/api/strategy-profiles/{profile_key}")
 def get_strategy_profile(profile_key: str):
     profile = storage.get_strategy_profile(profile_key)

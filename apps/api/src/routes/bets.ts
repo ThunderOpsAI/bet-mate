@@ -1,24 +1,16 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
+import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
 
 const router = Router();
-const prisma: any = new PrismaClient();
+const prisma: any = prismaClient;
 
 router.use(requireAuth);
 
 const createBetSchema = z.object({
-  eventType: z.enum([
-    "race",
-    "nba_game",
-    "afl_game",
-    "nrl_game",
-    "soccer_game",
-    "golf_event",
-    "mma_fight",
-  ]),
+  eventType: z.string().min(1),
   eventId: z.string().min(1),
   eventName: z.string().min(1),
   eventTime: z.string().datetime().optional(),
@@ -70,27 +62,27 @@ const createExoticBetSchema = z.object({
 const multiLegSchema = z.object({
   sport: z.string().optional(),
   gameContext: z.string().optional(),
-  marketType: z.string().min(1),
+  marketType: z.string().min(1).default("head_to_head"),
   selectionId: z.string().optional(),
   selectionLabel: z.string().min(1),
-  odds: z.number().gt(1),
-  probability: z.number().gt(0).lt(1).optional(),
+  odds: z.coerce.number().gt(1),
+  probability: z.coerce.number().positive().optional(),
   correlationGroup: z.string().optional(),
-  line: z.number().optional(),
+  line: z.coerce.number().optional(),
 });
 
 const createMultiBetSchema = z.object({
-  multiType: z.string().min(1).default("SGM"),
+  multiType: z.string().min(1).default("MULTI"),
   eventType: z.string().min(1).default("multi"),
   eventId: z.string().min(1).default("multi"),
   eventName: z.string().min(1).default("Multi Bet"),
-  stake: z.number().positive(),
+  stake: z.coerce.number().positive(),
   legs: z.array(multiLegSchema).min(2),
-  fairOdds: z.number().positive().optional(),
-  adjustedOdds: z.number().positive().optional(),
-  adjustedProbability: z.number().gt(0).lt(1).optional(),
-  correlationHaircut: z.number().optional(),
-  edgePct: z.number().optional(),
+  fairOdds: z.coerce.number().positive().optional(),
+  adjustedOdds: z.coerce.number().positive().optional(),
+  adjustedProbability: z.coerce.number().positive().optional(),
+  correlationHaircut: z.coerce.number().optional(),
+  edgePct: z.coerce.number().optional(),
 });
 
 function uniqueCount(values: string[]) {
@@ -181,6 +173,41 @@ function priceMulti(legs: Array<z.infer<typeof multiLegSchema>>) {
   };
 }
 
+async function syncUserBankrollOnBetPlaced(
+  tx: any,
+  userId: string,
+  username: string,
+  startingBankroll: number,
+  currentBankroll: number,
+  stake: number,
+) {
+  try {
+    await tx.bankroll.upsert({
+      where: { userId },
+      update: {
+        balance: currentBankroll,
+        weeklySpend: { increment: stake },
+        weeklyBetsPlaced: { increment: 1 },
+        monthlySpend: { increment: stake },
+        totalBetsPlaced: { increment: 1 },
+        username,
+      },
+      create: {
+        userId,
+        username,
+        balance: currentBankroll,
+        startingBalance: startingBankroll,
+        weeklySpend: stake,
+        weeklyBetsPlaced: 1,
+        monthlySpend: stake,
+        totalBetsPlaced: 1,
+      },
+    });
+  } catch (err) {
+    console.warn("Failed to sync bankroll on bet placed:", err);
+  }
+}
+
 // POST /api/bets/exotics — log an exotic racing bet with server-side flexi maths
 router.post("/exotics", async (req: AuthRequest, res) => {
   const parsed = createExoticBetSchema.safeParse(req.body);
@@ -251,6 +278,14 @@ router.post("/exotics", async (req: AuthRequest, res) => {
           reason: `Exotic bet placed: ${data.betType} (${combinations} combos)`,
         },
       });
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - data.stake,
+        data.stake,
+      );
       return bet;
     });
     return res
@@ -334,6 +369,14 @@ const handleCreateMulti = async (req: AuthRequest, res: any) => {
           reason: `${data.multiType} placed: ${data.legs.length} legs @ ${pricing.adjustedOdds.toFixed(2)}`,
         },
       });
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - data.stake,
+        data.stake,
+      );
       return bet;
     });
     return res
@@ -447,6 +490,15 @@ router.post("/", async (req: AuthRequest, res) => {
           reason: `Bet placed: ${selection} @ ${odds}`,
         },
       });
+
+      await syncUserBankrollOnBetPlaced(
+        tx,
+        userId,
+        user.username,
+        Number(user.startingBankroll),
+        Number(user.currentBankroll) - stake,
+        stake,
+      );
 
       return bet;
     });

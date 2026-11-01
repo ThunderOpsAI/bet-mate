@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { m } from "framer-motion";
 import { Flame, BadgeDollarSign, Award, Users, Clock, Plus, Info } from "lucide-react";
 import { useAuth } from "../providers/AuthProvider";
 
@@ -108,7 +108,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
 
     const renderPickCard = (pick: PickCard) => {
       return (
-      <motion.div key={pick.id} variants={itemVariants} className="bg-white/60 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-shadow relative">
+      <m.div key={pick.id} variants={itemVariants} className="bg-white/60 backdrop-blur-md border border-slate-200/60 shadow-sm rounded-2xl p-4 flex flex-col justify-between hover:shadow-md transition-shadow relative">
         <div className="absolute top-4 right-4">
           <button 
             onClick={() => onAddToBlackbook({ name: pick.horseName, type: "horse" })}
@@ -141,12 +141,12 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
             <span className="font-black text-slate-800">${pick.betfairOdds?.toFixed(2) || '-.--'}</span>
           </div>
         </div>
-      </motion.div>
+      </m.div>
     )};
 
   const renderLeaderRow = (leader: Leader, index: number, type: string) => {
     return (
-    <motion.div key={leader.id} variants={itemVariants} className="flex items-center justify-between p-3 border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors group rounded-xl">
+    <m.div key={leader.id} variants={itemVariants} className="flex items-center justify-between p-3 border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors group rounded-xl">
       <div className="flex items-center gap-4">
         <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 font-bold flex items-center justify-center text-sm border border-slate-200">
           #{index + 1}
@@ -167,7 +167,7 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
           <Plus size={16} /> <span className="hidden sm:inline">Add</span>
         </button>
       </div>
-    </motion.div>
+    </m.div>
   )};
 
   const renderSkeletonGrid = () => (
@@ -214,9 +214,9 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
         </div>
         
         {loadingHot ? renderSkeletonGrid() : hotPicks.length > 0 ? (
-          <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <m.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {hotPicks.map(renderPickCard)}
-          </motion.div>
+          </m.div>
         ) : (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center">
             <Flame className="mx-auto text-slate-300 mb-2" size={32} />
@@ -233,9 +233,9 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
         </div>
         
         {loadingValue ? renderSkeletonGrid() : valuePlays.length > 0 ? (
-          <motion.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <m.div variants={containerVariants} initial="hidden" animate="show" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {valuePlays.map(renderPickCard)}
-          </motion.div>
+          </m.div>
         ) : (
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center">
             <BadgeDollarSign className="mx-auto text-slate-300 mb-2" size={32} />
@@ -253,9 +253,9 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
           </div>
           
           {loadingJockeys ? renderSkeletonList() : topJockeys.length > 0 ? (
-            <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col">
+            <m.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col">
               {topJockeys.map((j, i) => renderLeaderRow(j, i, 'jockey'))}
-            </motion.div>
+            </m.div>
           ) : (
             <p className="text-slate-500 text-center py-6">No jockey data available.</p>
           )}
@@ -269,9 +269,9 @@ export function ExploreTab({ onAddToBlackbook }: ExploreTabProps) {
           </div>
           
           {loadingTrainers ? renderSkeletonList() : topTrainers.length > 0 ? (
-            <motion.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col">
+            <m.div variants={containerVariants} initial="hidden" animate="show" className="flex flex-col">
               {topTrainers.map((t, i) => renderLeaderRow(t, i, 'trainer'))}
-            </motion.div>
+            </m.div>
           ) : (
             <p className="text-slate-500 text-center py-6">No trainer data available.</p>
           )}

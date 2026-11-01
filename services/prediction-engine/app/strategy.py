@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.nfl_scraper as nfl_scraper
 import app.data.scraper as racing_scraper
 import app.storage as storage
 from app.time_utils import is_melbourne_premium_day
@@ -21,6 +22,98 @@ LEGACY_SYNTHETIC_EVENT_ID_PATTERNS = (
     re.compile(r"^nba_game_\d+$"),
 )
 
+PERSONA_RESTING_RATIONALES = {
+    "bob": "Betmate Bob passed today: Market edges below 5% threshold across today's board. Preserving bankroll for higher conviction setups.",
+    "conservative": "Conservative passed today: No opportunities met our strict 10% edge and low-variance criteria. Capital preserved.",
+    "favourites_only": "Favourites Only passed today: No qualifying short-odds selections with verified model edge on today's slate.",
+    "roughies_only": "Roughies Only passed today: No high-odds value plays found exceeding our 15% edge threshold.",
+    "neutral": "Neutral passed today: Standing aside as no straight bets cleared our disciplined risk-adjusted threshold.",
+    "sgm_exclusive": "SGM Exclusive passed today: No game environments offered sufficiently positive correlated pricing today.",
+    "racing_multi": "Racing Multi passed today: Insufficient multi-leg overlays identified across today's race cards.",
+    "sports_multi": "Sports Multi passed today: Standing aside as cross-game market lines offered inadequate edge.",
+}
+
+
+def _clamp_probability(value: Any) -> float:
+    try:
+        probability = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if probability > 1:
+        probability = probability / 100
+    return max(0.001, min(probability, 0.999))
+
+
+def calculate_benter_blended_probability(
+    model_prob: float,
+    market_odds: Optional[float],
+    sport: str = "sports",
+    market_type: str = "head_to_head",
+) -> tuple[float, float]:
+    """
+    Computes de-vigged market prob and Benter blended probability:
+    p_blend proportional to (p_model^alpha) * (p_market^beta)
+    Weights:
+    - Racing: alpha=0.35, beta=0.65
+    - Sports lines: alpha=0.40, beta=0.60
+    - Props: alpha=0.50, beta=0.50
+    Returns (blended_prob, edge). If market_odds is None or <= 1.0, edge MUST strictly be 0.0.
+    """
+    if not market_odds or float(market_odds) <= 1.0:
+        return _clamp_probability(model_prob), 0.0
+
+    p_market = 1.0 / float(market_odds)
+    p_model = _clamp_probability(model_prob)
+    p_market = _clamp_probability(p_market)
+
+    sport_lower = str(sport).lower()
+    if sport_lower == "racing":
+        alpha, beta = 0.35, 0.65
+    elif "prop" in str(market_type).lower():
+        alpha, beta = 0.50, 0.50
+    else:
+        alpha, beta = 0.40, 0.60
+
+    u = (p_model ** alpha) * (p_market ** beta)
+    v = ((1.0 - p_model) ** alpha) * ((1.0 - p_market) ** beta)
+    if u + v <= 0:
+        blended = p_model
+    else:
+        blended = u / (u + v)
+
+    edge = round(blended - p_market, 4)
+    return round(blended, 4), edge
+
+
+def generate_bet_writeup(candidate: Dict[str, Any], profile_key: str) -> str:
+    selection = candidate.get("selection", "Selection")
+    event_name = candidate.get("event_name", "the event")
+    prob_pct = round(float(candidate.get("model_probability", 0.0)) * 100, 1)
+    odds = effective_odds(candidate) or 2.0
+    edge_pct = round(float(candidate.get("edge", 0.0)) * 100, 1)
+
+    disciplined = profile_key in ("bob", "conservative", "favourites_only", "neutral")
+    if disciplined:
+        if candidate.get("legs"):
+            return (
+                f"Quantitative correlation model projects {prob_pct}% combined probability across {len(candidate['legs'])} legs in {event_name}. "
+                f"Offers verified +{edge_pct}% edge over market compound pricing."
+            )
+        return (
+            f"Model rates {selection} at {prob_pct}% win probability versus market implied {round(100/odds, 1)}% in {event_name}. "
+            f"Presents a disciplined +{edge_pct}% edge at ${odds:.2f}."
+        )
+    else:
+        if candidate.get("legs"):
+            return (
+                f"High-upside {len(candidate['legs'])}-leg multi locked in {event_name} at ${odds:.2f}. "
+                f"Model detects significant correlation edge ({edge_pct}%) for maximum leverage."
+            )
+        return (
+            f"Aggressive value play on {selection} at ${odds:.2f} in {event_name}. "
+            f"Model flags a +{edge_pct}% edge, capitalizing on high-variance market mispricing."
+        )
+
 
 @dataclass
 class StrategyService:
@@ -29,7 +122,7 @@ class StrategyService:
     nba_predictor: Any
     nfl_predictor: Any = None
 
-    def get_or_create_card(self, profile_key: str, run_date: str, candidates: Optional[List[Dict[str, Any]]] = None):
+    def get_or_create_card(self, profile_key: str, run_date: str, candidates: Optional[List[Dict[str, Any]]] = None, selection_usage: Optional[Dict[str, int]] = None):
         existing = storage.get_strategy_card(profile_key, run_date)
         if existing and not card_requires_refresh(existing):
             return existing
@@ -39,7 +132,7 @@ class StrategyService:
             raise ValueError("strategy profile not found")
 
         candidate_pool = candidates if candidates is not None else self.collect_candidates_for_date(run_date)
-        card = build_strategy_card(profile, candidate_pool, run_date)
+        card = build_strategy_card(profile, candidate_pool, run_date, selection_usage=selection_usage)
         return storage.save_strategy_card(card, replace=existing is not None)
 
     def get_or_create_cards(self, run_date: str):
@@ -54,14 +147,35 @@ class StrategyService:
             return [existing[profile["profile_key"]] for profile in profiles]
 
         candidates = self.collect_candidates_for_date(run_date)
+
+        # Priority order: bob -> conservative -> favourites_only -> roughies_only -> sgm_exclusive -> neutral -> aggressive -> james
+        priority_order = {
+            "bob": 0,
+            "conservative": 1,
+            "favourites_only": 2,
+            "roughies_only": 3,
+            "sgm_exclusive": 4,
+            "nba_sgm": 4,
+            "nfl_sgm": 4,
+            "racing_multi": 4,
+            "sports_multi": 4,
+            "neutral": 5,
+            "aggressive": 6,
+            "james": 7,
+        }
+        sorted_profiles = sorted(profiles, key=lambda p: priority_order.get(p["profile_key"], 99))
+        selection_usage: Dict[str, int] = {}
         cards = []
-        for profile in profiles:
+        for profile in sorted_profiles:
             profile_key = profile["profile_key"]
             if profile_key in existing and profile_key not in profiles_needing_refresh:
                 cards.append(existing[profile_key])
                 continue
-            cards.append(self.get_or_create_card(profile_key, run_date, candidates))
+            cards.append(self.get_or_create_card(profile_key, run_date, candidates, selection_usage=selection_usage))
         return cards
+
+    def build_daily_cards(self, run_date: str) -> List[Dict[str, Any]]:
+        return self.get_or_create_cards(run_date)
 
     def collect_candidates_for_date(self, run_date: str) -> List[Dict[str, Any]]:
         print(f"[Strategy] Starting collect_candidates_for_date for {run_date}")
@@ -101,7 +215,7 @@ class StrategyService:
                         "id": f"{c.get('sport')}_{c.get('event_id')}_{c.get('selection')}".replace(" ", "_").replace("@", "at"),
                         "sport": c.get("sport", "nba"),
                         "game_context": c.get("event_name", ""),
-                        "leg_description": f"{c.get('selection')} to Win",
+                        "leg_description": f"{c.get('selection')} to Win" if c.get("market_type") in ("win", "head_to_head") and "win" not in str(c.get("selection")).lower() else str(c.get("selection")),
                         "true_prob": round(prob, 4),
                         "best_odds": round(odds, 2),
                         "edge_pct": edge_pct,
@@ -112,7 +226,22 @@ class StrategyService:
         ev_legs.sort(key=lambda x: x["edge_pct"], reverse=True)
         if ev_legs:
             try:
-                storage.upsert_daily_ev_feed(ev_legs[:10])
+                # Top 10 overall + top 10 per sport
+                legs_to_save = []
+                seen_ids = set()
+                for leg in ev_legs[:10]:
+                    if leg["id"] not in seen_ids:
+                        legs_to_save.append(leg)
+                        seen_ids.add(leg["id"])
+                by_sport: Dict[str, List[Dict[str, Any]]] = {}
+                for leg in ev_legs:
+                    by_sport.setdefault(leg.get("sport", "other"), []).append(leg)
+                for sp, s_legs in by_sport.items():
+                    for leg in s_legs[:10]:
+                        if leg["id"] not in seen_ids:
+                            legs_to_save.append(leg)
+                            seen_ids.add(leg["id"])
+                storage.upsert_daily_ev_feed(legs_to_save)
             except Exception as e:
                 print(f"[Strategy] Failed to upsert daily_ev_feed: {e}")
 
@@ -123,20 +252,20 @@ class StrategyService:
             return []
         candidates: List[Dict[str, Any]] = []
         try:
-            import nfl_data_py as nfl
-            from datetime import datetime
-            dt = datetime.fromisoformat(run_date) if run_date else datetime.now()
-            schedules = nfl.import_schedules([dt.year])
-            today_str = dt.strftime("%Y-%m-%d")
-            games = schedules[schedules["gameday"] == today_str]
-            for _, g in games.iterrows():
+            games = nfl_scraper.fetch_upcoming_nfl(run_date=run_date)
+            pass
+            pass
+            pass
+            pass
+            pass
+            for g in games:
                 home = str(g["home_team"])
                 away = str(g["away_team"])
                 features = {
-                    "epa_diff": 0.0,
-                    "rest_diff": float(g.get("home_rest", 7) - g.get("away_rest", 7)),
-                    "is_dome": 1.0 if str(g.get("roof", "")).lower() in ["dome", "closed"] else 0.0,
-                    "spread_line": float(g.get("spread_line", 0.0)),
+                    "epa_diff": float((g.get("features") or {}).get("epa_diff", 0.0)),
+                    "rest_diff": float((g.get("features") or {}).get("rest_diff", 0.0)),
+                    "is_dome": float((g.get("features") or {}).get("is_dome", 0.0)),
+                    "spread_line": float((g.get("features") or {}).get("spread_line", -3.5)),
                 }
                 pred = self.nfl_predictor.predict(features)
                 home_p = pred["home_win_prob"]
@@ -219,19 +348,25 @@ class StrategyService:
                 fair_odds = round(1 / probability, 2) if probability > 0 else None
                 odds_source = "live_market" if live_odds and live_odds > 1 else "model_implied"
                 effective_odds = live_odds if live_odds and live_odds > 1 else fair_odds
-                edge = probability - (1 / effective_odds if effective_odds and effective_odds > 1 else probability)
+                if live_odds and live_odds > 1.0:
+                    blended_prob, edge = calculate_benter_blended_probability(
+                        probability, live_odds, sport="racing", market_type="win"
+                    )
+                else:
+                    blended_prob = probability
+                    edge = 0.0
                 ranked.append({
                     "sport": "racing",
                     "event_id": race["race_id"],
                     "event_name": f"{race['venue']} R{race['race_number']}",
                     "market_type": "win",
                     "selection": horse["name"],
-                    "model_probability": round(probability, 4),
+                    "model_probability": round(blended_prob, 4),
                     "market_odds": live_odds,
                     "derived_odds": fair_odds if odds_source != "live_market" else None,
                     "odds_source": odds_source,
                     "edge": round(edge, 4),
-                    "confidence": confidence_bucket(probability, edge),
+                    "confidence": confidence_bucket(blended_prob, edge),
                     "barrier": horse["barrier"],
                     "weight": horse["weight"],
                     "past_win_rate": horse["past_win_rate"],
@@ -367,6 +502,19 @@ class StrategyService:
             home_spread = f"{game['home_team']} -3.5" if home_probability >= 0.5 else f"{game['home_team']} +3.5"
             spread_prob = _clamp_probability(home_probability * 0.94 if home_probability >= 0.5 else away_probability * 0.94)
             total_prob = 0.54
+
+            spread_market_odds = game.get("spread_market_odds")
+            if spread_market_odds and float(spread_market_odds) > 1.0:
+                _, spread_edge = calculate_benter_blended_probability(spread_prob, float(spread_market_odds), sport="nba", market_type="spread")
+            else:
+                spread_edge = 0.0
+
+            total_market_odds = game.get("total_market_odds")
+            if total_market_odds and float(total_market_odds) > 1.0:
+                _, total_edge = calculate_benter_blended_probability(total_prob, float(total_market_odds), sport="nba", market_type="total_points")
+            else:
+                total_edge = 0.0
+
             candidates.extend([
                 build_head_to_head_candidate("nba", game, game["home_team"], home_probability, home_baseline),
                 build_head_to_head_candidate("nba", game, game["away_team"], away_probability, away_baseline),
@@ -377,11 +525,11 @@ class StrategyService:
                     "market_type": "spread",
                     "selection": home_spread,
                     "model_probability": round(spread_prob, 4),
-                    "market_odds": None,
+                    "market_odds": float(spread_market_odds) if spread_market_odds and float(spread_market_odds) > 1.0 else None,
                     "derived_odds": 1.91,
-                    "odds_source": "model_implied",
-                    "edge": round(spread_prob - 0.50, 4),
-                    "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                    "odds_source": "live_market" if spread_market_odds and float(spread_market_odds) > 1.0 else "model_implied",
+                    "edge": round(spread_edge, 4),
+                    "confidence": confidence_bucket(spread_prob, spread_edge),
                 },
                 {
                     "sport": "nba",
@@ -390,11 +538,11 @@ class StrategyService:
                     "market_type": "total_points",
                     "selection": "Over 218.5 Total Points",
                     "model_probability": round(total_prob, 4),
-                    "market_odds": None,
+                    "market_odds": float(total_market_odds) if total_market_odds and float(total_market_odds) > 1.0 else None,
                     "derived_odds": 1.91,
-                    "odds_source": "model_implied",
-                    "edge": round(total_prob - 0.50, 4),
-                    "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                    "odds_source": "live_market" if total_market_odds and float(total_market_odds) > 1.0 else "model_implied",
+                    "edge": round(total_edge, 4),
+                    "confidence": confidence_bucket(total_prob, total_edge),
                 },
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
@@ -404,19 +552,31 @@ class StrategyService:
 
 
 def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: str, probability: float, baseline_probability: float) -> Dict[str, Any]:
-    effective_odds = round(1 / baseline_probability, 2) if baseline_probability > 0 else None
+    market_odds = game.get("market_odds") or game.get("features", {}).get("market_odds")
+    if market_odds and float(market_odds) > 1.0:
+        odds_val = float(market_odds)
+        blended_prob, edge = calculate_benter_blended_probability(probability, odds_val, sport=sport, market_type="head_to_head")
+        odds_source = "live_market"
+        derived_odds = None
+    else:
+        odds_val = None
+        derived_odds = round(1 / baseline_probability, 2) if baseline_probability > 0 else 1.91
+        odds_source = "model_implied"
+        blended_prob = probability
+        edge = 0.0
+
     return {
         "sport": sport,
         "event_id": game["game_id"],
         "event_name": f"{game['home_team']} vs {game['away_team']}",
         "market_type": "head_to_head",
         "selection": selection,
-        "model_probability": round(probability, 4),
-        "market_odds": None,
-        "derived_odds": effective_odds,
-        "odds_source": "model_implied",
-        "edge": round(probability - baseline_probability, 4),
-        "confidence": confidence_bucket(probability, probability - baseline_probability),
+        "model_probability": round(blended_prob, 4),
+        "market_odds": odds_val,
+        "derived_odds": derived_odds,
+        "odds_source": odds_source,
+        "edge": round(edge, 4),
+        "confidence": confidence_bucket(blended_prob, edge),
     }
 
 
@@ -480,33 +640,63 @@ def build_quinella_candidates(race: Dict[str, Any], ranked: List[Dict[str, Any]]
     return candidates
 
 
-def build_strategy_card(profile: Dict[str, Any], candidates: List[Dict[str, Any]], run_date: str) -> Dict[str, Any]:
-    rule_set = profile["rule_set"]
-    # Enforce at least 3 bets per day in the rule set
-    if int(rule_set.get("max_bets_per_day", 0)) < 3:
-        rule_set["max_bets_per_day"] = 3
-        
+def build_strategy_card(profile: Dict[str, Any], candidates: List[Dict[str, Any]], run_date: str, selection_usage: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
+    rule_set = dict(profile["rule_set"])
     bankroll_available = storage.DEFAULT_PREMIUM_BANKROLL if is_melbourne_premium_day(run_date) else storage.DEFAULT_STANDARD_BANKROLL
+    profile_key = profile["profile_key"]
+
     qualified, skipped = qualify_candidates(candidates, rule_set)
-    selected = allocate_candidates(qualified, rule_set, bankroll_available)
-    
-    if len(selected) < 3:
-        relaxed_rule_set = dict(rule_set)
-        relaxed_rule_set["min_edge"] = 0.01
-        relaxed_rule_set["min_confidence"] = "low"
-        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set)
-        selected = allocate_candidates(qualified, relaxed_rule_set, bankroll_available)
-        
-    if len(selected) < 3:
-        relaxed_rule_set2 = dict(rule_set)
-        relaxed_rule_set2["min_edge"] = -0.05
-        relaxed_rule_set2["min_confidence"] = "low"
-        qualified, skipped = qualify_candidates(candidates, relaxed_rule_set2)
-        selected = allocate_candidates(qualified, relaxed_rule_set2, bankroll_available)
+    selected = allocate_candidates(qualified, rule_set, bankroll_available, selection_usage=selection_usage)
+
+    # Empty-card waterfall strictly for aggressive and james profiles
+    if len(selected) == 0 and profile_key in ("aggressive", "james"):
+        # Tier 2: 2% edge threshold
+        relaxed_2pct = dict(rule_set)
+        relaxed_2pct["min_edge"] = 0.02
+        q2, _ = qualify_candidates(candidates, relaxed_2pct)
+        selected = allocate_candidates(q2, relaxed_2pct, bankroll_available, selection_usage=selection_usage)
+
+        # Tier 3: Action Play (best-of-board) guaranteeing >= 1 bet per card
+        if len(selected) == 0 and candidates:
+            sorted_candidates = sorted(
+                candidates,
+                key=lambda c: (c.get("edge", 0.0), c.get("model_probability", 0.0)),
+                reverse=True,
+            )
+            action_candidate = sorted_candidates[0]
+            action_stake = min(25.0, float(rule_set.get("max_stake_per_bet", 50.0)))
+            sel_key = f"{action_candidate['sport']}:{action_candidate['event_id']}:{action_candidate['selection']}"
+            if selection_usage is not None:
+                selection_usage[sel_key] = selection_usage.get(sel_key, 0) + 1
+            selected = [{
+                "sport": action_candidate["sport"],
+                "event_id": action_candidate["event_id"],
+                "event_name": action_candidate["event_name"],
+                "market_type": action_candidate["market_type"],
+                "selection": action_candidate["selection"],
+                "model_probability": action_candidate["model_probability"],
+                "odds_used": effective_odds(action_candidate) or 2.0,
+                "odds_source": action_candidate["odds_source"],
+                "edge": action_candidate.get("edge", 0.0),
+                "stake": action_stake,
+                "status": "pending",
+                "payout": None,
+                "profit": None,
+                "settled_at": None,
+                "writeup": f"Action Play: High-conviction slate pick on {action_candidate['selection']} to ensure active board action.",
+            }]
 
     total_allocated = round(sum(bet["stake"] for bet in selected), 2)
     sport_mix = summarize_sport_mix(selected, total_allocated)
     expected_edge = round(sum(bet["edge"] * bet["stake"] for bet in selected) / total_allocated, 4) if total_allocated > 0 else 0.0
+
+    resting_rationale = None
+    if len(selected) == 0:
+        resting_rationale = PERSONA_RESTING_RATIONALES.get(
+            profile_key,
+            f"{profile['display_name']} passed today: No selections met the required edge and risk thresholds."
+        )
+
     return {
         "profile_key": profile["profile_key"],
         "display_name": profile["display_name"],
@@ -521,24 +711,33 @@ def build_strategy_card(profile: Dict[str, Any], candidates: List[Dict[str, Any]
         "sport_mix": sport_mix,
         "expected_edge": expected_edge,
         "performance": None,
+        "resting_rationale": resting_rationale,
     }
 
 
 def qualify_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any]):
     qualified = []
     skipped = []
-    min_confidence = CONFIDENCE_ORDER[rule_set["min_confidence"]]
-    allowed_markets = set(rule_set["allowed_markets"])
+    min_confidence = CONFIDENCE_ORDER.get(rule_set.get("min_confidence", "low"), 0)
+    allowed_markets = set(rule_set.get("allowed_markets", []))
+    min_odds = rule_set.get("min_odds")
+    max_odds = rule_set.get("max_odds")
+
     for candidate in candidates:
         reason = None
+        cand_odds = effective_odds(candidate)
         if candidate["market_type"] not in allowed_markets:
             reason = "market not allowed"
-        elif candidate["edge"] < float(rule_set["min_edge"]):
+        elif candidate["edge"] < float(rule_set.get("min_edge", 0.0)):
             reason = "edge below threshold"
-        elif CONFIDENCE_ORDER[candidate["confidence"]] < min_confidence:
+        elif CONFIDENCE_ORDER.get(candidate.get("confidence", "low"), 0) < min_confidence:
             reason = "confidence below threshold"
-        elif not effective_odds(candidate):
+        elif not cand_odds or cand_odds <= 1.0:
             reason = "missing effective odds"
+        elif min_odds is not None and cand_odds < float(min_odds):
+            reason = "odds below threshold"
+        elif max_odds is not None and cand_odds > float(max_odds):
+            reason = "odds above threshold"
 
         if reason:
             skipped.append({
@@ -554,11 +753,24 @@ def qualify_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any
         else:
             qualified.append(candidate)
 
-    qualified.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
+    ranking_key = rule_set.get("ranking_key", "expected_value")
+    if ranking_key == "probability":
+        qualified.sort(key=lambda c: (c.get("model_probability", 0.0), c.get("edge", 0.0)), reverse=True)
+    elif ranking_key == "kelly":
+        qualified.sort(key=lambda c: (suggested_stake(c, 1000.0, rule_set), c.get("edge", 0.0)), reverse=True)
+    else:
+        qualified.sort(key=lambda c: (c.get("edge", 0.0), c.get("model_probability", 0.0)), reverse=True)
+
     return qualified, skipped
 
 
-def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, Any], bankroll_available: float):
+def allocate_candidates(
+    candidates: List[Dict[str, Any]],
+    rule_set: Dict[str, Any],
+    bankroll_available: float,
+    selection_usage: Optional[Dict[str, int]] = None,
+    max_overlap: int = 2,
+):
     selected = []
     per_sport_cap = {
         sport: bankroll_available * float(rule_set["sport_weights"].get(sport, 0.0))
@@ -566,8 +778,8 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     }
     per_sport_used = {sport: 0.0 for sport in ("racing", "afl", "nba", "nfl")}
     selection_pool = []
-    
-    # Check if this profile is strictly multi-only (e.g. all allowed markets are multi or sgm, or it explicitly requests only multis)
+
+    # Check if this profile is strictly multi-only
     is_multi_only = rule_set.get("allow_multis") and (
         "sgm" in rule_set["profile_key"] or 
         "multi" in rule_set["profile_key"] or
@@ -576,9 +788,17 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
 
     if not is_multi_only:
         selection_pool.extend(candidates)
-        
+
     selection_pool.extend(build_multi_candidates(candidates, rule_set))
-    selection_pool.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
+
+    ranking_key = rule_set.get("ranking_key", "expected_value")
+    if ranking_key == "probability":
+        selection_pool.sort(key=lambda c: (c.get("model_probability", 0.0), c.get("edge", 0.0)), reverse=True)
+    elif ranking_key == "kelly":
+        selection_pool.sort(key=lambda c: (suggested_stake(c, bankroll_available, rule_set), c.get("edge", 0.0)), reverse=True)
+    else:
+        selection_pool.sort(key=lambda c: (c.get("edge", 0.0), c.get("model_probability", 0.0)), reverse=True)
+
     remaining_bankroll = bankroll_available
     selected_head_to_head_events = set()
     selected_multi_events = set()
@@ -587,6 +807,20 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
     for candidate in selection_pool:
         if len(selected) >= int(rule_set["max_bets_per_day"]):
             break
+
+        # Max overlap check: no single candidate in >2 profiles per day
+        sel_key = f"{candidate['sport']}:{candidate['event_id']}:{candidate['selection']}"
+        if candidate.get("legs"):
+            leg_overlap = any(
+                selection_usage is not None and selection_usage.get(f"{leg['sport']}:{leg['event_id']}:{leg['selection']}", 0) >= max_overlap
+                for leg in candidate["legs"]
+            )
+            if leg_overlap or (selection_usage is not None and selection_usage.get(sel_key, 0) >= max_overlap):
+                continue
+        else:
+            if selection_usage is not None and selection_usage.get(sel_key, 0) >= max_overlap:
+                continue
+
         candidate_event_ids = _candidate_event_ids(candidate)
         if candidate.get("legs") and candidate_event_ids & (selected_head_to_head_events | selected_multi_events | selected_single_events):
             continue
@@ -606,6 +840,7 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
         if stake < 1:
             continue
 
+        writeup = generate_bet_writeup(candidate, rule_set.get("profile_key", ""))
         selected.append({
             "sport": candidate["sport"],
             "event_id": candidate["event_id"],
@@ -621,6 +856,7 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
             "payout": None,
             "profit": None,
             "settled_at": None,
+            "writeup": writeup,
         })
         if candidate.get("legs"):
             selected[-1]["legs"] = candidate["legs"]
@@ -628,6 +864,7 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
             selected[-1]["odds_sources"] = candidate["odds_sources"]
         if candidate.get("sport_allocation"):
             selected[-1]["sport_allocation"] = candidate["sport_allocation"]
+
         _consume_sport_capacity(candidate, per_sport_used, stake)
         remaining_bankroll -= stake
         if candidate.get("legs"):
@@ -636,6 +873,13 @@ def allocate_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str, An
             selected_single_events.add(candidate["event_id"])
             if candidate["market_type"] == "head_to_head":
                 selected_head_to_head_events.add(candidate["event_id"])
+
+        if selection_usage is not None:
+            selection_usage[sel_key] = selection_usage.get(sel_key, 0) + 1
+            if candidate.get("legs"):
+                for leg in candidate["legs"]:
+                    lk = f"{leg['sport']}:{leg['event_id']}:{leg['selection']}"
+                    selection_usage[lk] = selection_usage.get(lk, 0) + 1
 
     return selected
 
@@ -662,9 +906,36 @@ def suggested_stake(candidate: Dict[str, Any], bankroll_available: float, rule_s
     q = 1 - probability
     kelly_fraction = ((b * probability) - q) / b if b > 0 else 0.0
     kelly_fraction = max(0.0, kelly_fraction)
-    if kelly_fraction <= 0 and candidate["edge"] > 0:
-        kelly_fraction = min(candidate["edge"], 0.02)
-    return bankroll_available * float(rule_set["kelly_fraction"]) * kelly_fraction
+    if kelly_fraction <= 0:
+        return 0.0
+
+    profile_key = rule_set.get("profile_key", "")
+    kelly_mult = float(rule_set.get("kelly_fraction", 0.25))
+    if profile_key == "aggressive":
+        kelly_mult = 0.75
+    elif profile_key == "conservative":
+        kelly_mult = 0.20
+    elif profile_key == "roughies_only":
+        kelly_mult = 0.10
+
+    stake = bankroll_available * kelly_mult * kelly_fraction
+
+    if profile_key == "aggressive":
+        max_stake = min(float(rule_set.get("max_stake_per_bet", 250.0)), 250.0)
+        if candidate.get("edge", 0.0) >= 0.04 and stake > 0:
+            stake = max(stake, 50.0)
+        stake = min(stake, max_stake)
+    elif profile_key == "conservative":
+        max_stake = min(float(rule_set.get("max_stake_per_bet", 40.0)), 40.0)
+        stake = min(stake, max_stake)
+    elif profile_key == "roughies_only":
+        max_stake = min(float(rule_set.get("max_stake_per_bet", 20.0)), 20.0)
+        stake = min(stake, max_stake)
+    else:
+        max_stake = float(rule_set.get("max_stake_per_bet", 100.0))
+        stake = min(stake, max_stake)
+
+    return round(stake, 2)
 
 
 def effective_odds(candidate: Dict[str, Any]) -> Optional[float]:
@@ -674,10 +945,10 @@ def effective_odds(candidate: Dict[str, Any]) -> Optional[float]:
     return round(float(odds), 2)
 
 
-def confidence_bucket(probability: float, edge: float) -> str:
-    if probability >= 0.5 or edge >= 0.1:
+def confidence_bucket(probability: float, edge: float = 0.0) -> str:
+    if probability >= 0.50:
         return "high"
-    if probability >= 0.3 or edge >= 0.04:
+    if probability >= 0.30:
         return "medium"
     return "low"
 
@@ -830,8 +1101,8 @@ def build_sgm_candidate(legs: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         return None
 
     combined_probability = model_pricing["adjusted_probability"]
-    odds = market_pricing["adjusted_odds"]
-    implied_probability = market_pricing["adjusted_probability"]
+    odds = market_pricing.get("market_haircut_odds") or market_pricing["adjusted_odds"]
+    implied_probability = round(1.0 / odds, 4) if odds > 0 else market_pricing["adjusted_probability"]
     
     odds_sources = [leg["odds_source"] for leg in normalized_legs]
     leg_count = len(normalized_legs)
@@ -872,35 +1143,55 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
         return []
 
     max_multi_legs = max(2, int(rule_set.get("max_multi_legs", 1)))
-    eligible = [candidate for candidate in candidates if not candidate.get("legs") and _candidate_supports_multi_settlement(candidate)]
+    active_sports = {sport for sport, weight in rule_set.get("sport_weights", {}).items() if float(weight) > 0}
+    eligible = [
+        candidate for candidate in candidates 
+        if not candidate.get("legs") 
+        and _candidate_supports_multi_settlement(candidate)
+        and (not active_sports or str(candidate.get("sport", "")).strip().lower() in active_sports)
+    ]
     if len(eligible) < 2:
         return []
 
-    # Cap the number of items heavily to prevent combinatorial explosion that crashes the server
-    top_candidates = eligible[: max(10, min(len(eligible), int(rule_set["max_bets_per_day"]) * 2))]
-    # Hard cap at 12 candidates to keep combinations fast (C(12,4)=495 vs C(20,4)=4845)
-    top_candidates = top_candidates[:12]
+    # Group eligible candidates by event_id for SGM vs cross-event multis
+    by_event: Dict[str, List[Dict[str, Any]]] = {}
+    for c in eligible:
+        eid = str(c.get("event_id", "")).strip()
+        by_event.setdefault(eid, []).append(c)
+
     multis = []
-    
-    for leg_count in range(2, min(max_multi_legs, len(top_candidates)) + 1):
-        for legs in combinations(top_candidates, leg_count):
+    # 1. SGM generation: Group candidates per event before combinatorial building
+    for event_id, event_candidates in by_event.items():
+        if len(event_candidates) >= 2:
+            event_candidates.sort(key=lambda x: (x.get("edge", 0), x.get("model_probability", 0)), reverse=True)
+            top_event_candidates = event_candidates[:6]
+            for leg_count in range(2, min(max_multi_legs, len(top_event_candidates)) + 1):
+                for legs in combinations(top_event_candidates, leg_count):
+                    try:
+                        sgm = build_sgm_candidate(list(legs))
+                        if sgm and sgm["edge"] > 0:
+                            multis.append(sgm)
+                    except Exception as e:
+                        logger.error(f"Failed to build SGM for event {event_id}: {e}")
+
+    # 2. Traditional Cross-Event Multi generation: Take top candidate per distinct event
+    cross_event_candidates = []
+    for event_id, event_candidates in by_event.items():
+        event_candidates.sort(key=lambda x: (x.get("edge", 0), x.get("model_probability", 0)), reverse=True)
+        cross_event_candidates.append(event_candidates[0])
+
+    cross_event_candidates.sort(key=lambda x: (x.get("edge", 0), x.get("model_probability", 0)), reverse=True)
+    top_cross = cross_event_candidates[:10]
+    for leg_count in range(2, min(max_multi_legs, len(top_cross)) + 1):
+        for legs in combinations(top_cross, leg_count):
             try:
                 event_ids = {leg["event_id"] for leg in legs}
-                
-                # Check for SGMs vs Traditional Multis
-                if len(event_ids) == 1:
-                    multi = build_sgm_candidate(list(legs))
-                elif len(event_ids) == leg_count:
+                if len(event_ids) == leg_count:
                     multi = build_multi_candidate(list(legs))
-                else:
-                    # Ignore mixed multis (SGM + external legs)
-                    continue
-                    
-                if multi and multi["edge"] > 0:
-                    multis.append(multi)
+                    if multi and multi["edge"] > 0:
+                        multis.append(multi)
             except Exception as e:
-                # Catch failures so we avoid silent errors skipping the rest of the generation.
-                logger.error(f"Failed to build multi/sgm for legs: {[leg.get('event_id') for leg in legs]}. Error: {e}")
+                logger.error(f"Failed to build cross-event multi: {e}")
 
     multis.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     return multis[: max(1, int(rule_set["max_bets_per_day"]))]

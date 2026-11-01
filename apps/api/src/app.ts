@@ -79,4 +79,8 @@ app.use("/api/alerts", alertsRoutes);
 import trustRoutes from "./routes/trust";
 app.use("/api/trust", trustRoutes);
 
+import streamRoutes from "./routes/stream";
+app.use("/api/stream", streamRoutes);
+app.use("/api/odds/stream", streamRoutes);
+
 export default app;
