@@ -21,6 +21,17 @@ vercel.env*
 .cache/
 .vscode/
 .idea/
+.agents/
+.codebuddy/
+.cursor/
+.cursorrules
+.gemini/
+.kiro/
+.qoder/
+.windsurfrules
+new-skills/
+scratch.*
+*.docx
 
 # OS
 .DS_Store

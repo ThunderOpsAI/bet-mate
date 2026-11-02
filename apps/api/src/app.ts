@@ -1,3 +1,9 @@
+/**
+ * Core Express API server application.
+ * Mounts domain route handlers for racing feeds, strategy engines, bankroll
+ * ledger, syndicates, and user session management.
+ */
+
 import path from "node:path";
 import cors from "cors";
 import dotenv from "dotenv";

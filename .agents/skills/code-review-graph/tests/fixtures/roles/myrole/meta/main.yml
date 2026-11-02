@@ -1,5 +1,0 @@
----
-dependencies:
-  - common
-  - role: nginx
-  - name: security.hardening

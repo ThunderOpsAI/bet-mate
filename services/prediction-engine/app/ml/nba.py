@@ -204,14 +204,30 @@ class NBAPredictor:
         print(f"Trained NBA XGBoost Engine successfully using {training_source} ({len(df)} rows).")
 
     def load_or_train(self):
-        if self._load_existing_artifacts() and self.training_source == HISTORICAL_TRAINING_SOURCE:
-            print(f"Loaded NBA XGBoost Engine trained on {self.training_rows} historical rows.")
+        if self._load_existing_artifacts():
+            print(f"Loaded NBA XGBoost Engine trained on {self.training_rows} rows.")
             return
 
         self.train()
         
     def predict(self, game_features):
         df = self._prepare_features(game_features)
+
+        if self.model is not None:
+            try:
+                X = self.scaler.transform(df) if self.scaler else df.values
+                model_probs = self.model.predict_proba(X)[0]
+                home_win_prob = round(float(np.clip(model_probs[1], 0.15, 0.85)), 4)
+                away_win_prob = round(float(1.0 - home_win_prob), 4)
+                return {
+                    "home_win_prob": home_win_prob,
+                    "away_win_prob": away_win_prob,
+                    "feature_impact": list(NBA_WEIGHTS.values()),
+                    "feature_names": list(NBA_WEIGHTS.keys()),
+                }
+            except Exception:
+                pass
+
         row = df.iloc[0]
         
         home_factor = NBA_HOME_FACTORS['toronto_international'] if (row['home_team_toronto'] > 0 and row['away_team_toronto'] == 0) or (row['away_team_toronto'] > 0 and row['home_team_toronto'] == 0) else NBA_HOME_FACTORS['standard']
@@ -229,14 +245,10 @@ class NBAPredictor:
         b2b_multiplier = NBA_MULTIPLIERS['back_to_back'] if row['home_b2b'] > 0 else 1.0
         final_score = base_score * b2b_multiplier
 
-        # Derive team strength differential if team names available
-        team_diff = 0.0
-        home_team = str(game_features.get("home_team", ""))
-        away_team = str(game_features.get("away_team", ""))
-        if home_team and away_team:
-            h_val = sum(ord(c) for c in home_team) % 30 - 15
-            a_val = sum(ord(c) for c in away_team) % 30 - 15
-            team_diff = (h_val - a_val) / 40.0
+        # Derive team strength differential from win percentages or ratings if available
+        home_win_pct = float(game_features.get("home_win_pct", 0.5))
+        away_win_pct = float(game_features.get("away_win_pct", 0.5))
+        team_diff = (home_win_pct - away_win_pct) * 2.0
         
         scaled_score = (final_score * 3.5) + (team_diff * 0.4) + 0.15
         prob = 1 / (1 + np.exp(-scaled_score))

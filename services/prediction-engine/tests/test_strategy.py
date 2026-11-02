@@ -415,3 +415,59 @@ def test_empty_card_waterfall_and_resting_rationales():
     assert len(agg_card["selected_bets"]) >= 1
     assert "Action Play" in agg_card["selected_bets"][0]["writeup"]
 
+
+def test_nba_multi_and_sgm_profiles_generate_daily_bets_when_games_present():
+    from app.strategy import build_strategy_card
+    nba_multi_profile = storage.get_strategy_profile("nba_multi")
+    sgm_profile = storage.get_strategy_profile("sgm_exclusive")
+
+    candidates = [
+        {
+            "sport": "nba",
+            "event_id": "game-101",
+            "event_name": "Lakers vs Warriors",
+            "market_type": "head_to_head",
+            "selection": "Lakers",
+            "model_probability": 0.58,
+            "market_odds": 1.95,
+            "odds_source": "live_market",
+            "edge": 0.067,
+            "confidence": "high",
+        },
+        {
+            "sport": "nba",
+            "event_id": "game-101",
+            "event_name": "Lakers vs Warriors",
+            "market_type": "total_points",
+            "selection": "Over 224.5 Total Points",
+            "model_probability": 0.55,
+            "market_odds": 1.91,
+            "odds_source": "live_market",
+            "edge": 0.026,
+            "confidence": "medium",
+        },
+        {
+            "sport": "nba",
+            "event_id": "game-102",
+            "event_name": "Celtics vs Knicks",
+            "market_type": "head_to_head",
+            "selection": "Celtics",
+            "model_probability": 0.62,
+            "market_odds": 1.85,
+            "odds_source": "live_market",
+            "edge": 0.079,
+            "confidence": "high",
+        },
+    ]
+
+    # NBA Multi profile generates a cross-event multi
+    nba_card = build_strategy_card(nba_multi_profile, candidates, "2026-11-01")
+    assert len(nba_card["selected_bets"]) >= 1
+    assert any(b.get("market_type") == "multi" for b in nba_card["selected_bets"])
+
+    # SGM Exclusive generates a same-game multi
+    sgm_card = build_strategy_card(sgm_profile, candidates, "2026-11-01")
+    assert len(sgm_card["selected_bets"]) >= 1
+    assert any(b.get("market_type") == "sgm" for b in sgm_card["selected_bets"])
+
+

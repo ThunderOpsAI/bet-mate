@@ -94,7 +94,7 @@ export default function StrategyPage() {
         try {
           const response = await fetchWithTimeout(`${ML_API}/api/strategy-cards`, {
             cache: "no-store",
-            timeoutMs: 60000,
+            timeoutMs: 90000,
           });
 
           if (response.status >= 500 && retries < maxRetries) {
