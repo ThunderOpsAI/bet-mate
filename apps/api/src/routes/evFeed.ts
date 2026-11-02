@@ -5,7 +5,14 @@ import { getOrSetCache } from "../services/cache";
 const router = Router();
 const prisma: any = prismaClient;
 
-// GET /api/ev-feed/today (and /api/ev-feed)
+/**
+ * Expected Value (EV) Feed Handler.
+ *
+ * Implements a low-latency edge pipeline:
+ * 1. Checks 25-second in-memory TTL cache with support for forced refresh (`x-refresh`).
+ * 2. Queries PostgreSQL DailyEVFeed table for recent positive EV opportunities (`edgePct > 0`).
+ * 3. Falls back to Modal serverless ML inference container if database records are empty or stale.
+ */
 const handleGetTodayFeed = async (req: any, res: any) => {
   try {
     const { sport } = req.query;

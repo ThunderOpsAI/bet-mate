@@ -1,3 +1,10 @@
+/**
+ * Prisma database client singleton with Neon serverless connection pooling.
+ *
+ * Automatically converts raw direct Neon connection strings to `-pooler` hostnames
+ * and binds WebSocket transports for Node runtime environments. Caches the client
+ * on globalThis to preserve connection pools across warm Vercel/serverless invocations.
+ */
 import { Pool, neonConfig } from "@neondatabase/serverless";
 import { PrismaNeon } from "@prisma/adapter-neon";
 import { PrismaClient } from "@prisma/client";

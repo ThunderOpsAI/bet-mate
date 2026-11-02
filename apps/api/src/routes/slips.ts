@@ -27,7 +27,13 @@ function generateShareCode(): string {
   return code;
 }
 
-// POST /api/slips - Save or Share a slip
+/**
+ * Betslip Persistence and Sharing Handler.
+ *
+ * Saves wager combinations (Single, Multi, SGM, SRM) with associated risk metrics,
+ * calculated fair odds, and recommended Kelly stakes. Generates human-readable
+ * share codes (e.g. BM-XXXXX) for cross-user slip import without requiring prior authentication.
+ */
 router.post("/", async (req: Request, res: Response) => {
   try {
     const userId = getOptionalUserId(req);
