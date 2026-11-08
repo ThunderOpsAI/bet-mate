@@ -1,12 +1,14 @@
 "use client";
 import { useMemo, useState } from "react";
-import { Activity, ChevronDown, Compass, BarChart3, Layers, Plus, Sparkles, ShieldAlert } from "lucide-react";
+import { Activity, ChevronDown, Compass, BarChart3, Layers, Plus, Sparkles, ShieldAlert, Trophy } from "lucide-react";
 import RunnerRow, { type RunnerPrediction } from "./RunnerRow";
 import PaperBetAction from "../PaperBetAction";
 import SectionalMetricsDrawer from "./SectionalMetricsDrawer";
 import SpeedMapVisualization from "./SpeedMapVisualization";
 import RacingRunnerDrawer from "./RacingRunnerDrawer";
 import QuaddiePlannerModal from "./QuaddiePlannerModal";
+import RaceDossierCard from "./RaceDossierCard";
+import MeetingBankrollModal from "./MeetingBankrollModal";
 import { ConfidenceBadge, UrgencyBadge } from "../PredictionSignalBadges";
 import { getEdgePercent } from "../../lib/opportunityScore";
 import { getConfidenceSignal, getUrgencySignal } from "../../lib/predictionSignals";
@@ -78,6 +80,7 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
   const [openSectionalRunnerIds, setOpenSectionalRunnerIds] = useState<Record<string, boolean>>({});
   const [drawerRunner, setDrawerRunner] = useState<{ horse: HorseData; prediction: RunnerPrediction | null } | null>(null);
   const [isQuaddieModalOpen, setIsQuaddieModalOpen] = useState(false);
+  const [isMeetingModalOpen, setIsMeetingModalOpen] = useState(false);
 
   const { addBet, addToast } = usePaperBetslip();
   const [srmSelections, setSrmSelections] = useState<Record<string, "win" | "top2" | "top3" | "top4">>({});
@@ -208,7 +211,20 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
           ) : null}
           {confidenceSignal ? <ConfidenceBadge signal={confidenceSignal} /> : null}
           {urgencySignal ? <UrgencyBadge signal={urgencySignal} /> : null}
+          <button
+            type="button"
+            onClick={() => setIsMeetingModalOpen(true)}
+            className="px-2.5 py-1 rounded-full text-[11px] font-extrabold bg-amber-400 text-slate-950 hover:bg-amber-300 shadow flex items-center gap-1 transition-all cursor-pointer ml-auto"
+          >
+            <Trophy size={13} />
+            <span>$1,000 Meeting Bankroll</span>
+          </button>
         </div>
+      </div>
+
+      {/* Standardized Race Dossier & $100 Allocation Brief */}
+      <div className="mb-6">
+        <RaceDossierCard race={race as any} predictions={prediction?.predictions} />
       </div>
 
       {/* Betting & Speed Map tabs */}
@@ -437,6 +453,17 @@ export default function SingleRaceCard({ race, prediction, siblingRaces, onSwitc
         horse={drawerRunner?.horse ?? null}
         prediction={drawerRunner?.prediction ?? null}
         race={race}
+      />
+
+      <MeetingBankrollModal
+        isOpen={isMeetingModalOpen}
+        onClose={() => setIsMeetingModalOpen(false)}
+        meetingName={race.venue}
+        races={siblingRaces.map((s) => ({
+          race_id: s.race_id,
+          race_number: s.race_number,
+          horses: race.horses.map((h) => ({ name: h.name, betfair_back_price: h.betfair_back_price })),
+        }))}
       />
     </div>
   );

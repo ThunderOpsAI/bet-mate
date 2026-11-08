@@ -78,6 +78,9 @@ app.use("/api/ev-feed", evFeedRoutes);
 import recommendationsRoutes from "./routes/recommendations";
 app.use("/api/recommendations", recommendationsRoutes);
 
+import multisRoutes from "./routes/multis";
+app.use("/api/multis", multisRoutes);
+
 import statsRoutes from "./routes/stats";
 app.use("/api/stats", statsRoutes);
 

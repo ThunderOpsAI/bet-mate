@@ -139,18 +139,26 @@ def _fetch_nfl_data_py_or_fallback(target_date):
     try:
         # Schedule provider fallback
         import pandas as pd
+        import sys
         year = target_date.year if target_date else datetime.now().year
         schedules = None
-        try:
-            import nflreadpy as nfl
-            raw = nfl.load_schedules([year])
-            schedules = raw.to_pandas() if hasattr(raw, "to_pandas") else raw
-        except Exception:
+        if "nfl_data_py" in sys.modules:
             try:
                 import nfl_data_py as nfl_pkg
                 schedules = nfl_pkg.import_schedules([year])
             except Exception:
                 schedules = None
+        if schedules is None:
+            try:
+                import nflreadpy as nfl
+                raw = nfl.load_schedules([year])
+                schedules = raw.to_pandas() if hasattr(raw, "to_pandas") else raw
+            except Exception:
+                try:
+                    import nfl_data_py as nfl_pkg
+                    schedules = nfl_pkg.import_schedules([year])
+                except Exception:
+                    schedules = None
         if schedules is not None and not schedules.empty:
             target_str = target_date.isoformat() if target_date else today_melbourne().isoformat()
             upcoming = schedules[
@@ -220,3 +228,77 @@ def _fetch_nfl_data_py_or_fallback(target_date):
 
     print("[NFL Scraper] No schedule data available from provider, returning empty list")
     return []
+
+
+def fetch_completed_nfl_results(max_results: int = 50) -> list[dict]:
+    """Fetch recent completed NFL results from nflreadpy schedules in settlement shape."""
+    max_results = max(1, min(int(max_results), 200))
+    year = datetime.now().year
+    season_year = year if datetime.now().month >= 8 else year - 1
+
+    try:
+        import nflreadpy as nfl
+        raw = nfl.load_schedules([season_year])
+        schedules = raw.to_pandas() if hasattr(raw, "to_pandas") else raw
+    except Exception as exc:
+        try:
+            import nfl_data_py as nfl_pkg
+            schedules = nfl_pkg.import_schedules([season_year])
+        except Exception:
+            schedules = None
+
+    if schedules is None or schedules.empty:
+        return []
+
+    completed = schedules.dropna(subset=["home_score", "away_score"]).copy()
+    if completed.empty:
+        return []
+
+    completed = completed.sort_values(by=["gameday", "gametime"], ascending=False).head(max_results)
+
+    results = []
+    seen_ids = set()
+    for _, row in completed.iterrows():
+        raw_game_id = str(row.get("game_id", ""))
+        game_id = f"nfl_{raw_game_id}"
+        if game_id in seen_ids:
+            continue
+        seen_ids.add(game_id)
+
+        home_team = str(row.get("home_team", ""))
+        away_team = str(row.get("away_team", ""))
+        if not home_team or not away_team:
+            continue
+
+        h_score = float(row.get("home_score", 0))
+        a_score = float(row.get("away_score", 0))
+
+        winner_selection = None
+        if h_score > a_score:
+            winner_selection = home_team
+            selection_results = {home_team: 1.0, away_team: 0.0}
+        elif a_score > h_score:
+            winner_selection = away_team
+            selection_results = {home_team: 0.0, away_team: 1.0}
+        else:
+            selection_results = {home_team: 0.5, away_team: 0.5}
+
+        gameday = str(row.get("gameday", ""))
+        results.append({
+            "sport": "nfl",
+            "event_id": game_id,
+            "event_name": f"{home_team} vs {away_team}",
+            "winner_selection": winner_selection,
+            "selection_results": selection_results,
+            "completed_at": gameday,
+            "result_payload": {
+                "source": "nflreadpy",
+                "game_id": raw_game_id,
+                "gameday": gameday,
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_score": h_score,
+                "away_score": a_score,
+            },
+        })
+    return results

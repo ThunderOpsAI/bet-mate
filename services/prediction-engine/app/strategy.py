@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -12,7 +13,12 @@ import app.data.nba_scraper as nba_scraper
 import app.data.nfl_scraper as nfl_scraper
 import app.data.scraper as racing_scraper
 import app.storage as storage
-from app.time_utils import is_melbourne_premium_day
+from app.time_utils import (
+    is_melbourne_premium_day,
+    now_melbourne,
+    today_melbourne,
+    to_melbourne_datetime,
+)
 
 
 CONFIDENCE_ORDER = {"low": 0, "medium": 1, "high": 2}
@@ -282,6 +288,8 @@ class StrategyService:
                 total_line = float(g.get("total_line", 44.5)) or 44.5
                 total_prob = 0.53
 
+                start_time = g.get("date")
+                game_obj["date"] = start_time
                 candidates.extend([
                     build_head_to_head_candidate("nfl", game_obj, home, home_p, 0.5),
                     build_head_to_head_candidate("nfl", game_obj, away, away_p, 0.5),
@@ -297,6 +305,7 @@ class StrategyService:
                         "odds_source": "model_implied",
                         "edge": round(spread_prob - 0.50, 4),
                         "confidence": confidence_bucket(spread_prob, spread_prob - 0.50),
+                        "start_time": start_time,
                     },
                     {
                         "sport": "nfl",
@@ -310,6 +319,7 @@ class StrategyService:
                         "odds_source": "model_implied",
                         "edge": round(total_prob - 0.50, 4),
                         "confidence": confidence_bucket(total_prob, total_prob - 0.50),
+                        "start_time": start_time,
                     },
                 ])
         except Exception as exc:
@@ -367,6 +377,7 @@ class StrategyService:
                     "odds_source": odds_source,
                     "edge": round(edge, 4),
                     "confidence": confidence_bucket(blended_prob, edge),
+                    "start_time": race.get("start_time"),
                     "barrier": horse["barrier"],
                     "weight": horse["weight"],
                     "past_win_rate": horse["past_win_rate"],
@@ -457,9 +468,6 @@ class StrategyService:
                 build_head_to_head_candidate("afl", game, game["home_team"], home_probability, baseline_home),
                 build_head_to_head_candidate("afl", game, game["away_team"], away_probability, baseline_away),
             ])
-        if hasattr(self, "_racing_logs") and self._racing_logs:
-            storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
-            self._racing_logs = []
         return candidates
 
     def _nba_candidates(self, run_date: str) -> List[Dict[str, Any]]:
@@ -550,6 +558,7 @@ class StrategyService:
                     "odds_source": "live_market" if spread_market_odds and float(spread_market_odds) > 1.0 else "model_implied",
                     "edge": round(spread_edge, 4),
                     "confidence": confidence_bucket(spread_prob, spread_edge),
+                    "start_time": game.get("date"),
                 },
                 {
                     "sport": "nba",
@@ -563,12 +572,39 @@ class StrategyService:
                     "odds_source": "live_market" if total_market_odds and float(total_market_odds) > 1.0 else "model_implied",
                     "edge": round(total_edge, 4),
                     "confidence": confidence_bucket(total_prob, total_edge),
+                    "start_time": game.get("date"),
                 },
             ])
         if hasattr(self, "_racing_logs") and self._racing_logs:
             storage.log_prediction_batch("racing", "BATCH", "BATCH", self._racing_logs, None)
             self._racing_logs = []
         return candidates
+
+    def recommend_custom_multi(
+        self,
+        run_date: Optional[str] = None,
+        win_legs: int = 1,
+        place_legs: int = 2,
+        sport_mode: str = "combined",
+        min_odds: float = 2.0,
+        max_odds: float = 50.0,
+        after_time: Optional[str] = None,
+        current_legs: Optional[List[Dict[str, Any]]] = None,
+        candidates: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        if candidates is None:
+            target_date = run_date or today_melbourne().isoformat()
+            candidates = self.collect_candidates(target_date)
+        return recommend_custom_multi(
+            candidates=candidates,
+            win_legs=win_legs,
+            place_legs=place_legs,
+            sport_mode=sport_mode,
+            min_odds=min_odds,
+            max_odds=max_odds,
+            after_time=after_time,
+            current_legs=current_legs,
+        )
 
 
 def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: str, probability: float, baseline_probability: float) -> Dict[str, Any]:
@@ -597,6 +633,7 @@ def build_head_to_head_candidate(sport: str, game: Dict[str, Any], selection: st
         "odds_source": odds_source,
         "edge": round(edge, 4),
         "confidence": confidence_bucket(blended_prob, edge),
+        "start_time": game.get("start_time") or game.get("date"),
     }
 
 
@@ -611,26 +648,97 @@ def card_requires_refresh(card: Dict[str, Any]) -> bool:
 
 
 def build_place_candidates(race: Dict[str, Any], ranked: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    probabilities = {candidate["selection"]: candidate["model_probability"] for candidate in ranked}
+    if not ranked:
+        return []
+
+    # Apply Henery power discount (theta = 0.85) to win probabilities before Harville place probability calculation
+    theta = 0.85
+    powers = {
+        candidate["selection"]: (float(candidate.get("model_probability", 0.0)) ** theta)
+        for candidate in ranked
+        if float(candidate.get("model_probability", 0.0)) > 0
+    }
+    total_power = sum(powers.values())
+    if total_power > 0:
+        calibrated_probs = {k: v / total_power for k, v in powers.items()}
+    else:
+        calibrated_probs = {c["selection"]: float(c.get("model_probability", 0.0)) for c in ranked}
+
+    runners_count = len(race.get("horses", [])) or len(ranked)
+    horses_map = {
+        h["name"]: h
+        for h in race.get("horses", [])
+        if isinstance(h, dict) and "name" in h
+    }
+
     candidates = []
-    for candidate in ranked[:3]:
-        place_probability = harville_place_probability(candidate["selection"], probabilities)
+    for index, candidate in enumerate(ranked):
+        selection = candidate["selection"]
+        place_probability = harville_place_probability(selection, calibrated_probs)
         if place_probability <= 0:
             continue
-        effective_odds = round(1 / place_probability, 2)
-        candidates.append({
-            "sport": "racing",
-            "event_id": race["race_id"],
-            "event_name": f"{race['venue']} R{race['race_number']}",
-            "market_type": "place",
-            "selection": candidate["selection"],
-            "model_probability": round(place_probability, 4),
-            "market_odds": None,
-            "derived_odds": effective_odds,
-            "odds_source": "harville_derived",
-            "edge": round(place_probability - (1 / effective_odds), 4),
-            "confidence": confidence_bucket(place_probability, 0.0),
-        })
+
+        horse = horses_map.get(selection) or {}
+
+        # 1. Live Betfair place odds if available
+        live_place_odds = (
+            candidate.get("place_odds")
+            or candidate.get("market_place_odds")
+            or candidate.get("betfair_place_price")
+            or horse.get("betfair_place_price")
+            or horse.get("place_odds")
+        )
+
+        # 2. Win odds fallback for Tote / Fixed conversion
+        win_odds = (
+            candidate.get("market_odds")
+            or candidate.get("win_odds")
+            or candidate.get("betfair_back_price")
+            or horse.get("betfair_back_price")
+        )
+
+        if live_place_odds and float(live_place_odds) > 1.0:
+            place_odds = round(float(live_place_odds), 2)
+            odds_source = "live_market"
+            market_odds = place_odds
+            derived_odds = None
+        elif win_odds and float(win_odds) > 1.0:
+            fraction = 0.20 if runners_count >= 8 else 0.25
+            place_odds = round(1.0 + (float(win_odds) - 1.0) * fraction, 2)
+            odds_source = "tote_converted"
+            market_odds = place_odds
+            derived_odds = None
+        else:
+            place_odds = round(1 / place_probability, 2) if place_probability > 0 else 2.0
+            odds_source = "harville_derived"
+            market_odds = None
+            derived_odds = place_odds
+
+        edge = round(place_probability - (1 / place_odds), 4) if place_odds > 0 else 0.0
+
+        # Evaluate runners across the entire field (4th through 10th):
+        # Top 3 anchors are included, plus longshot roughies across the field with positive place EV
+        if index < 3 or edge > 0:
+            candidates.append({
+                "sport": "racing",
+                "event_id": race["race_id"],
+                "event_name": f"{race['venue']} R{race['race_number']}",
+                "market_type": "place",
+                "selection": selection,
+                "model_probability": round(place_probability, 4),
+                "market_odds": market_odds,
+                "derived_odds": derived_odds,
+                "odds_source": odds_source,
+                "edge": edge,
+                "confidence": confidence_bucket(place_probability, edge),
+                "start_time": race.get("start_time"),
+                "barrier": candidate.get("barrier") or horse.get("barrier"),
+                "weight": candidate.get("weight") or horse.get("weight"),
+                "past_win_rate": candidate.get("past_win_rate") or horse.get("past_win_rate"),
+                "jockey_win_rate": candidate.get("jockey_win_rate") or horse.get("jockey_win_rate"),
+                "track_condition": candidate.get("track_condition") or horse.get("track_condition"),
+                "days_since_last_race": candidate.get("days_since_last_race") or horse.get("days_since_last_race"),
+            })
     return candidates
 
 
@@ -873,14 +981,32 @@ def allocate_candidates(
     else:
         selection_pool.sort(key=lambda c: (c.get("edge", 0.0), c.get("model_probability", 0.0)), reverse=True)
 
+    max_bets_total = int(rule_set.get("max_bets_per_day", 5))
+    sport_weights = rule_set.get("sport_weights", {})
+    active_sports = [s for s, w in sport_weights.items() if float(w) > 0]
+    is_balanced_card = len(active_sports) > 1 and not is_multi_only
+    max_per_sport = {
+        s: max(1, math.ceil(max_bets_total * float(w) * 1.5))
+        for s, w in sport_weights.items()
+    } if is_balanced_card else {}
+    sport_bet_counts: Dict[str, int] = {}
+
     remaining_bankroll = bankroll_available
     selected_head_to_head_events = set()
     selected_multi_events = set()
     selected_single_events = set()
+    deferred_for_second_pass = []
 
-    for candidate in selection_pool:
-        if len(selected) >= int(rule_set["max_bets_per_day"]):
-            break
+    def _try_allocate(candidate: Dict[str, Any], enforce_sport_cap: bool = True) -> bool:
+        nonlocal remaining_bankroll
+        if len(selected) >= max_bets_total:
+            return False
+
+        c_sport = str(candidate.get("sport", "")).lower()
+        if enforce_sport_cap and is_balanced_card and c_sport in max_per_sport:
+            if sport_bet_counts.get(c_sport, 0) >= max_per_sport[c_sport]:
+                deferred_for_second_pass.append(candidate)
+                return False
 
         # Max overlap check: no single candidate in >2 profiles per day
         sel_key = f"{candidate['sport']}:{candidate['event_id']}:{candidate['selection']}"
@@ -890,29 +1016,29 @@ def allocate_candidates(
                 for leg in candidate["legs"]
             )
             if leg_overlap or (selection_usage is not None and selection_usage.get(sel_key, 0) >= max_overlap):
-                continue
+                return False
         else:
             if selection_usage is not None and selection_usage.get(sel_key, 0) >= max_overlap:
-                continue
+                return False
 
         candidate_event_ids = _candidate_event_ids(candidate)
         if candidate.get("legs") and candidate_event_ids & (selected_head_to_head_events | selected_multi_events | selected_single_events):
-            continue
+            return False
         if candidate["market_type"] == "head_to_head" and candidate["event_id"] in (selected_head_to_head_events | selected_multi_events):
-            continue
+            return False
         if candidate["market_type"] != "head_to_head" and candidate["event_id"] in selected_multi_events:
-            continue
+            return False
 
         remaining_sport = _remaining_sport_capacity(candidate, per_sport_cap, per_sport_used)
         if remaining_sport <= 0 or remaining_bankroll <= 0:
-            continue
+            return False
 
         stake = suggested_stake(candidate, bankroll_available, rule_set)
         if stake <= 0:
-            continue
+            return False
         stake = round(min(stake, float(rule_set["max_stake_per_bet"]), remaining_sport, remaining_bankroll), 2)
         if stake < 1:
-            continue
+            return False
 
         writeup = generate_bet_writeup(candidate, rule_set.get("profile_key", ""))
         selected.append({
@@ -941,6 +1067,8 @@ def allocate_candidates(
 
         _consume_sport_capacity(candidate, per_sport_used, stake)
         remaining_bankroll -= stake
+        sport_bet_counts[c_sport] = sport_bet_counts.get(c_sport, 0) + 1
+
         if candidate.get("legs"):
             selected_multi_events.update(candidate_event_ids)
         else:
@@ -954,6 +1082,20 @@ def allocate_candidates(
                 for leg in candidate["legs"]:
                     lk = f"{leg['sport']}:{leg['event_id']}:{leg['selection']}"
                     selection_usage[lk] = selection_usage.get(lk, 0) + 1
+        return True
+
+    # Pass 1: Slate-balanced allocation (ensures NBA/NFL have dedicated capacity)
+    for candidate in selection_pool:
+        if len(selected) >= max_bets_total:
+            break
+        _try_allocate(candidate, enforce_sport_cap=True)
+
+    # Pass 2: Fill any remaining open slots from deferred candidates
+    if len(selected) < max_bets_total and deferred_for_second_pass:
+        for candidate in deferred_for_second_pass:
+            if len(selected) >= max_bets_total:
+                break
+            _try_allocate(candidate, enforce_sport_cap=False)
 
     return selected
 
@@ -1269,6 +1411,21 @@ def build_multi_candidates(candidates: List[Dict[str, Any]], rule_set: Dict[str,
             except Exception as e:
                 logger.error(f"Failed to build cross-event multi: {e}")
 
+    # 3. Deliberate Cross-Sport Multi Generation (Sport + Racing Mix)
+    # Pairs high-confidence US Sport anchors (NBA/NFL) with top Metro Racing bankers
+    sport_legs = [c for c in cross_event_candidates if str(c.get("sport", "")).lower() in ("nba", "nfl", "afl")]
+    racing_legs = [c for c in cross_event_candidates if str(c.get("sport", "")).lower() == "racing"]
+    if sport_legs and racing_legs and max_multi_legs >= 2:
+        for s_leg in sport_legs[:4]:
+            for r_leg in racing_legs[:4]:
+                if s_leg.get("event_id") != r_leg.get("event_id"):
+                    try:
+                        cross_multi = build_multi_candidate([s_leg, r_leg])
+                        if cross_multi and cross_multi.get("edge", 0) > 0:
+                            multis.append(cross_multi)
+                    except Exception as e:
+                        logger.error(f"Failed to build cross-sport multi: {e}")
+
     multis.sort(key=lambda candidate: (candidate["edge"], candidate["model_probability"]), reverse=True)
     return multis[: max(1, int(rule_set["max_bets_per_day"]))]
 
@@ -1310,14 +1467,16 @@ def _remaining_sport_capacity(candidate: Dict[str, Any], per_sport_cap: Dict[str
         return 0.0
     limits = []
     for sport, weight in allocation.items():
-        remaining = per_sport_cap[sport] - per_sport_used[sport]
+        cap = per_sport_cap.get(sport, 999999.0)
+        used = per_sport_used.get(sport, 0.0)
+        remaining = cap - used
         limits.append(remaining / weight if weight > 0 else 0.0)
     return min(limits) if limits else 0.0
 
 
 def _consume_sport_capacity(candidate: Dict[str, Any], per_sport_used: Dict[str, float], stake: float) -> None:
     for sport, weight in _candidate_sport_allocation(candidate).items():
-        per_sport_used[sport] += stake * weight
+        per_sport_used[sport] = per_sport_used.get(sport, 0.0) + (stake * weight)
 
 
 def nba_baseline_probability(features: Dict[str, Any]) -> float:
@@ -1338,3 +1497,333 @@ def _clamp_probability(value: Any) -> float:
     if probability > 1:
         probability = probability / 100
     return max(0.001, min(probability, 0.999))
+
+
+def recommend_custom_multi(
+    candidates: List[Dict[str, Any]],
+    win_legs: int = 1,
+    place_legs: int = 2,
+    sport_mode: str = "combined",
+    min_odds: float = 2.0,
+    max_odds: float = 50.0,
+    after_time: Optional[str] = None,
+    current_legs: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    current_legs = current_legs or []
+    used_event_ids = {
+        str(leg.get("event_id")).strip()
+        for leg in current_legs
+        if leg.get("event_id")
+    }
+
+    # Count existing win and place legs in current_legs
+    current_win_count = sum(
+        1 for leg in current_legs
+        if str(leg.get("market_type", "")).lower() != "place"
+    )
+    current_place_count = sum(
+        1 for leg in current_legs
+        if str(leg.get("market_type", "")).lower() == "place"
+    )
+
+    needed_win = max(0, int(win_legs) - current_win_count)
+    needed_place = max(0, int(place_legs) - current_place_count)
+
+    # Cutoff time filtering
+    cutoff_dt = None
+    if after_time:
+        raw = str(after_time).strip()
+        try:
+            if ":" in raw and "T" not in raw and "-" not in raw:
+                parts = [int(p) for p in raw.split(":")]
+                cutoff_dt = now_melbourne().replace(hour=parts[0], minute=parts[1], second=0, microsecond=0)
+            else:
+                cutoff_dt = to_melbourne_datetime(raw)
+        except Exception:
+            cutoff_dt = None
+
+    # Filter candidate pool
+    filtered_candidates: List[Dict[str, Any]] = []
+    sport_mode_clean = (sport_mode or "combined").lower()
+
+    for c in candidates:
+        event_id = str(c.get("event_id", "")).strip()
+        if not event_id or event_id in used_event_ids:
+            continue
+
+        c_sport = str(c.get("sport", "")).lower()
+        if sport_mode_clean == "racing_only" and c_sport != "racing":
+            continue
+        if sport_mode_clean == "sport_only" and c_sport == "racing":
+            continue
+
+        if cutoff_dt and c.get("start_time"):
+            try:
+                c_dt = to_melbourne_datetime(c["start_time"])
+                if c_dt < cutoff_dt:
+                    continue
+            except Exception:
+                pass
+
+        odds_val = effective_odds(c)
+        if not odds_val or odds_val <= 1.0:
+            continue
+
+        filtered_candidates.append(c)
+
+    # Separate into win and place candidate pools
+    win_pool = [
+        c for c in filtered_candidates
+        if str(c.get("market_type", "")).lower() != "place"
+    ]
+    place_pool = [
+        c for c in filtered_candidates
+        if str(c.get("market_type", "")).lower() == "place"
+    ]
+
+    # Sort each pool by edge descending, then model probability
+    win_pool.sort(key=lambda c: (float(c.get("edge", 0.0)), float(c.get("model_probability", 0.0))), reverse=True)
+    place_pool.sort(key=lambda c: (float(c.get("edge", 0.0)), float(c.get("model_probability", 0.0))), reverse=True)
+
+    # Normalize existing current legs
+    normalized_current = []
+    current_combined_odds = 1.0
+    current_combined_prob = 1.0
+    for leg in current_legs:
+        l_odds = effective_odds(leg) or 1.0
+        l_prob = _clamp_probability(leg.get("model_probability", 1.0 / l_odds if l_odds > 1 else 0.5))
+        current_combined_odds *= l_odds
+        current_combined_prob *= l_prob
+        normalized_current.append({
+            "sport": leg.get("sport", "multi"),
+            "event_id": str(leg.get("event_id", "")),
+            "event_name": str(leg.get("event_name", leg.get("selection", "Leg"))),
+            "market_type": str(leg.get("market_type", "win")),
+            "selection": str(leg.get("selection", "Selection")),
+            "odds_used": round(l_odds, 2),
+            "odds_source": leg.get("odds_source", "user_slip"),
+            "model_probability": round(l_prob, 4),
+            "edge": round(float(leg.get("edge", 0.0)), 4),
+            "confidence": leg.get("confidence", "medium"),
+            "start_time": leg.get("start_time"),
+        })
+
+    candidate_multis: List[Dict[str, Any]] = []
+
+    # If needed_win == 0 and needed_place == 0 and len(normalized_current) >= 2:
+    if needed_win == 0 and needed_place == 0 and len(normalized_current) >= 2:
+        comb_edge = round(current_combined_prob - (1.0 / current_combined_odds), 4)
+        candidate_multis.append({
+            "id": "rec-multi-slip",
+            "event_id": f"multi:{'|'.join(leg['event_id'] for leg in normalized_current)}",
+            "event_name": " + ".join(leg["event_name"] for leg in normalized_current),
+            "market_type": "multi",
+            "selection": " + ".join(f"{leg['selection']} ({leg['market_type'].capitalize()})" for leg in normalized_current),
+            "odds": round(current_combined_odds, 2),
+            "true_prob": round(current_combined_prob, 4),
+            "model_probability": round(current_combined_prob, 4),
+            "edge": comb_edge,
+            "expected_value": round(current_combined_prob * current_combined_odds - 1.0, 4),
+            "confidence": confidence_bucket(current_combined_prob, comb_edge),
+            "legs": normalized_current,
+            "win_legs_count": current_win_count,
+            "place_legs_count": current_place_count,
+            "writeup": f"Current Slip Multi: {len(normalized_current)} legs with {round(comb_edge * 100, 1)}% combined edge.",
+        })
+
+    # Sub-pools for combination search
+    win_subpool = win_pool[:12]
+    place_subpool = place_pool[:12]
+
+    win_combos = list(combinations(win_subpool, needed_win)) if needed_win > 0 else [()]
+    place_combos = list(combinations(place_subpool, needed_place)) if needed_place > 0 else [()]
+
+    for w_combo in win_combos:
+        w_events = {c["event_id"] for c in w_combo}
+        if len(w_events) != len(w_combo):
+            continue
+
+        for p_combo in place_combos:
+            p_events = {c["event_id"] for c in p_combo}
+            if len(p_events) != len(p_combo):
+                continue
+
+            if w_events & p_events:
+                continue
+
+            all_new_legs = list(w_combo) + list(p_combo)
+            if not all_new_legs and not normalized_current:
+                continue
+
+            total_odds = current_combined_odds
+            total_prob = current_combined_prob
+            norm_new_legs = []
+
+            for leg in all_new_legs:
+                l_odds = effective_odds(leg) or 1.0
+                l_prob = _clamp_probability(leg.get("model_probability", 1.0 / l_odds))
+                total_odds *= l_odds
+                total_prob *= l_prob
+                norm_new_legs.append({
+                    "sport": leg.get("sport", "racing"),
+                    "event_id": str(leg.get("event_id", "")),
+                    "event_name": str(leg.get("event_name", leg.get("selection", "Leg"))),
+                    "market_type": str(leg.get("market_type", "win")),
+                    "selection": str(leg.get("selection", "Selection")),
+                    "odds_used": round(l_odds, 2),
+                    "odds_source": leg.get("odds_source", "derived"),
+                    "model_probability": round(l_prob, 4),
+                    "edge": round(float(leg.get("edge", 0.0)), 4),
+                    "confidence": leg.get("confidence", "medium"),
+                    "start_time": leg.get("start_time"),
+                })
+
+            combined_legs = normalized_current + norm_new_legs
+            if len(combined_legs) < 2:
+                continue
+
+            if not (min_odds <= total_odds <= max_odds):
+                continue
+
+            comb_edge = round(total_prob - (1.0 / total_odds), 4)
+            ev = round(total_prob * total_odds - 1.0, 4)
+
+            w_count = current_win_count + len(w_combo)
+            p_count = current_place_count + len(p_combo)
+
+            writeup_parts = []
+            if w_count:
+                writeup_parts.append(f"{w_count} Win Anchor{'s' if w_count > 1 else ''}")
+            if p_count:
+                writeup_parts.append(f"{p_count} Place Roughie{'s' if p_count > 1 else ''}")
+            formula_desc = " + ".join(writeup_parts)
+            writeup = f"Strategic Multi ({formula_desc}): {len(combined_legs)} legs @ ${total_odds:.2f} ({round(comb_edge * 100, 1)}% Edge, {round(ev * 100, 1)}% EV)."
+
+            candidate_multis.append({
+                "id": f"rec-multi-{len(candidate_multis) + 1}",
+                "event_id": f"multi:{'|'.join(leg['event_id'] for leg in combined_legs)}",
+                "event_name": " + ".join(leg["event_name"] for leg in combined_legs),
+                "market_type": "multi",
+                "selection": " + ".join(f"{leg['selection']} ({leg['market_type'].capitalize()})" for leg in combined_legs),
+                "odds": round(total_odds, 2),
+                "true_prob": round(total_prob, 4),
+                "model_probability": round(total_prob, 4),
+                "edge": comb_edge,
+                "expected_value": ev,
+                "confidence": confidence_bucket(total_prob, comb_edge),
+                "legs": combined_legs,
+                "win_legs_count": w_count,
+                "place_legs_count": p_count,
+                "writeup": writeup,
+            })
+
+    # Sort multis by edge descending, then expected value
+    candidate_multis.sort(key=lambda m: (m["edge"], m["expected_value"]), reverse=True)
+    top_multis = candidate_multis[:3]
+
+    # If no multis matched strict odds range, relax bounds so recommendations are always provided
+    if not top_multis and (win_pool or place_pool):
+        all_pool_candidates = win_pool[:6] + place_pool[:6]
+        target_legs = max(2, (needed_win + needed_place) or 2)
+        combos = list(combinations(all_pool_candidates, min(len(all_pool_candidates), target_legs)))
+        fallback_multis = []
+        for combo in combos[:15]:
+            events = {c["event_id"] for c in combo}
+            if len(events) != len(combo):
+                continue
+            total_odds = current_combined_odds
+            total_prob = current_combined_prob
+            c_legs = []
+            for leg in combo:
+                l_odds = effective_odds(leg) or 1.0
+                l_prob = _clamp_probability(leg.get("model_probability", 1.0 / l_odds))
+                total_odds *= l_odds
+                total_prob *= l_prob
+                c_legs.append({
+                    "sport": leg.get("sport", "racing"),
+                    "event_id": str(leg.get("event_id", "")),
+                    "event_name": str(leg.get("event_name", leg.get("selection", "Leg"))),
+                    "market_type": str(leg.get("market_type", "win")),
+                    "selection": str(leg.get("selection", "Selection")),
+                    "odds_used": round(l_odds, 2),
+                    "odds_source": leg.get("odds_source", "derived"),
+                    "model_probability": round(l_prob, 4),
+                    "edge": round(float(leg.get("edge", 0.0)), 4),
+                    "confidence": leg.get("confidence", "medium"),
+                    "start_time": leg.get("start_time"),
+                })
+            all_l = normalized_current + c_legs
+            if len(all_l) < 2:
+                continue
+            comb_edge = round(total_prob - (1.0 / total_odds), 4)
+            ev = round(total_prob * total_odds - 1.0, 4)
+            fallback_multis.append({
+                "id": f"rec-multi-fallback-{len(fallback_multis) + 1}",
+                "event_id": f"multi:{'|'.join(leg['event_id'] for leg in all_l)}",
+                "event_name": " + ".join(leg["event_name"] for leg in all_l),
+                "market_type": "multi",
+                "selection": " + ".join(f"{leg['selection']} ({leg['market_type'].capitalize()})" for leg in all_l),
+                "odds": round(total_odds, 2),
+                "true_prob": round(total_prob, 4),
+                "model_probability": round(total_prob, 4),
+                "edge": comb_edge,
+                "expected_value": ev,
+                "confidence": confidence_bucket(total_prob, comb_edge),
+                "legs": all_l,
+                "win_legs_count": sum(1 for l in all_l if l["market_type"] != "place"),
+                "place_legs_count": sum(1 for l in all_l if l["market_type"] == "place"),
+                "writeup": f"Optimal Multi Pick: {len(all_l)} legs @ ${total_odds:.2f}.",
+            })
+        fallback_multis.sort(key=lambda m: (m["edge"], m["expected_value"]), reverse=True)
+        top_multis = fallback_multis[:3]
+
+    # Booster legs (top 5 single complementary legs)
+    booster_legs = []
+    seen_booster_events = set(used_event_ids)
+    all_booster_pool = place_pool + win_pool
+    for cand in all_booster_pool:
+        ev_id = str(cand.get("event_id", ""))
+        if ev_id in seen_booster_events:
+            continue
+        cand_odds = effective_odds(cand) or 1.0
+        if cand_odds <= 1.0:
+            continue
+        cand_prob = _clamp_probability(cand.get("model_probability", 1.0 / cand_odds))
+        cand_edge = round(float(cand.get("edge", cand_prob - (1.0 / cand_odds))), 4)
+
+        if current_legs:
+            b_odds = round(current_combined_odds * cand_odds, 2)
+            b_prob = current_combined_prob * cand_prob
+            b_edge = round(b_prob - (1.0 / b_odds), 4)
+            b_ev = round(b_prob * b_odds - 1.0, 4)
+            market_label = "Place" if str(cand.get("market_type")).lower() == "place" else "Win"
+            reason = f"Pair with {cand.get('selection')} to {market_label} for ${b_odds:.2f} combined ({round(b_ev * 100, 1):+0.1f}% EV)"
+        else:
+            b_odds = cand_odds
+            b_edge = cand_edge
+            market_label = "Place" if str(cand.get("market_type")).lower() == "place" else "Win"
+            reason = f"{market_label} Value Play @ ${cand_odds:.2f} ({round(cand_edge * 100, 1):+0.1f}% Edge)"
+
+        seen_booster_events.add(ev_id)
+        booster_legs.append({
+            "sport": cand.get("sport", "racing"),
+            "event_id": ev_id,
+            "event_name": cand.get("event_name", cand.get("selection", "Event")),
+            "market_type": cand.get("market_type", "place"),
+            "selection": cand.get("selection", "Selection"),
+            "odds": cand_odds,
+            "model_probability": round(cand_prob, 4),
+            "edge": cand_edge,
+            "confidence": cand.get("confidence", "medium"),
+            "start_time": cand.get("start_time"),
+            "boost_odds": b_odds,
+            "boost_edge": b_edge,
+            "recommendation_reason": reason,
+        })
+        if len(booster_legs) >= 5:
+            break
+
+    return {
+        "multis": top_multis,
+        "booster_legs": booster_legs,
+    }

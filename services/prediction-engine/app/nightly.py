@@ -8,11 +8,13 @@ from typing import Any, Dict, List, Optional, Sequence
 
 import app.data.afl_scraper as afl_scraper
 import app.data.nba_scraper as nba_scraper
+import app.data.nfl_scraper as nfl_scraper
 import app.data.scraper as racing_scraper
 import app.database as database
 import app.storage as storage
 from app.ml.afl import AFLPredictor
 from app.ml.nba import NBAPredictor
+from app.ml.nfl import NFLPredictor
 from app.ml.racing import RacingPredictor
 from app.strategy import StrategyService
 from app.time_utils import MELBOURNE_TZ, now_melbourne, today_melbourne
@@ -184,6 +186,12 @@ def ingest_completed_results(
         )
         summary["sports"]["nba"] = _settle_ingested_results(nba_results)
 
+    if "nfl" in requested:
+        nfl_results = nfl_scraper.fetch_completed_nfl_results(
+            max_results=max_results,
+        )
+        summary["sports"]["nfl"] = _settle_ingested_results(nfl_results)
+
     if "racing" in requested:
         racing_targets = storage.list_pending_racing_result_targets(limit=max_results)
         racing_results = racing_scraper.fetch_completed_racing_results(racing_targets, max_results=max_results)
@@ -202,16 +210,19 @@ def build_nightly_strategy_service(load_models: bool = True) -> StrategyService:
     racing_predictor = RacingPredictor()
     afl_predictor = AFLPredictor()
     nba_predictor = NBAPredictor()
+    nfl_predictor = NFLPredictor()
 
     if load_models:
         racing_predictor.load_or_train()
         afl_predictor.load_or_train()
         nba_predictor.load_or_train()
+        nfl_predictor.load_or_train()
 
     return StrategyService(
         racing_predictor=racing_predictor,
         afl_predictor=afl_predictor,
         nba_predictor=nba_predictor,
+        nfl_predictor=nfl_predictor,
     )
 
 

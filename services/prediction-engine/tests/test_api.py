@@ -1168,3 +1168,94 @@ class TestBobChatEndpoint:
         assert response.status_code == 200
         assert response.json()["scope"] == "provider_fallback"
         assert "Cats" in response.json()["message"]
+
+
+def test_multis_recommend_endpoint(client, monkeypatch):
+    import app.main as main_mod
+
+    # Mock strategy_service.recommend_custom_multi
+    monkeypatch.setattr(
+        main_mod.strategy_service,
+        "recommend_custom_multi",
+        lambda **kwargs: {
+            "multis": [
+                {
+                    "id": "rec-multi-1",
+                    "event_id": "multi:r1|r2",
+                    "event_name": "Flemington R1 + Flemington R2",
+                    "market_type": "multi",
+                    "selection": "Horse A (Win) + Horse B (Place)",
+                    "odds": 6.50,
+                    "true_prob": 0.20,
+                    "edge": 0.046,
+                    "expected_value": 0.30,
+                    "confidence": "medium",
+                    "legs": [
+                        {
+                            "sport": "racing",
+                            "event_id": "r1",
+                            "event_name": "Flemington R1",
+                            "market_type": "win",
+                            "selection": "Horse A",
+                            "odds_used": 2.50,
+                            "odds_source": "live_market",
+                            "model_probability": 0.45,
+                            "edge": 0.05,
+                            "confidence": "medium",
+                        },
+                        {
+                            "sport": "racing",
+                            "event_id": "r2",
+                            "event_name": "Flemington R2",
+                            "market_type": "place",
+                            "selection": "Horse B",
+                            "odds_used": 2.60,
+                            "odds_source": "tote_converted",
+                            "model_probability": 0.44,
+                            "edge": 0.055,
+                            "confidence": "medium",
+                        },
+                    ],
+                    "win_legs_count": 1,
+                    "place_legs_count": 1,
+                    "writeup": "Strategic Multi: 2 legs @ $6.50",
+                }
+            ],
+            "booster_legs": [
+                {
+                    "sport": "racing",
+                    "event_id": "r3",
+                    "event_name": "Flemington R3",
+                    "market_type": "place",
+                    "selection": "Roughie X",
+                    "odds": 4.50,
+                    "model_probability": 0.28,
+                    "edge": 0.058,
+                    "confidence": "medium",
+                    "boost_odds": 11.70,
+                    "boost_edge": 0.07,
+                    "recommendation_reason": "Top Roughie Place value play",
+                }
+            ],
+        },
+    )
+
+    response = client.post(
+        "/api/multis/recommend",
+        json={
+            "win_legs": 1,
+            "place_legs": 1,
+            "sport_mode": "racing_only",
+            "min_odds": 3.0,
+            "max_odds": 20.0,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "multis" in data
+    assert "booster_legs" in data
+    assert len(data["multis"]) == 1
+    assert data["multis"][0]["odds"] == 6.50
+    assert len(data["booster_legs"]) == 1
+    assert data["booster_legs"][0]["selection"] == "Roughie X"
+

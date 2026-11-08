@@ -1867,6 +1867,34 @@ def get_bobs_daily_recommendations(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+class MultiRecommendRequest(BaseModel):
+    win_legs: int = Field(default=1, ge=0, le=6)
+    place_legs: int = Field(default=2, ge=0, le=6)
+    sport_mode: str = Field(default="combined")
+    min_odds: float = Field(default=2.0, ge=1.0)
+    max_odds: float = Field(default=50.0, ge=1.0)
+    after_time: Optional[str] = None
+    current_legs: Optional[List[Dict[str, Any]]] = None
+
+
+@app.post("/api/multis/recommend")
+def recommend_multis_endpoint(request: MultiRecommendRequest):
+    try:
+        return strategy_service.recommend_custom_multi(
+            run_date=today_melbourne().isoformat(),
+            win_legs=request.win_legs,
+            place_legs=request.place_legs,
+            sport_mode=request.sport_mode,
+            min_odds=request.min_odds,
+            max_odds=request.max_odds,
+            after_time=request.after_time,
+            current_legs=request.current_legs,
+        )
+    except Exception as exc:
+        LOGGER.exception("Failed to generate strategic multi recommendations: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # --- NRL ENDPOINTS ---
 @app.get("/api/nrl/games/upcoming")
 def get_upcoming_nrl(date: Optional[str] = None):

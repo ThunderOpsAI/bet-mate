@@ -51,6 +51,7 @@ import KellyStakeControl from "./betslip/KellyStakeControl";
 import ShareSlipModal from "./betslip/ShareSlipModal";
 import BestPriceBadge from "./betslip/BestPriceBadge";
 import SrmOddsPanel from "./betslip/SrmOddsPanel";
+import SmartLegBooster from "./betslip/SmartLegBooster";
 
 export type ActiveBetItem = {
   id: string;
@@ -127,6 +128,27 @@ function PaperBetslipContent() {
   const [loadingActiveBets, setLoadingActiveBets] = useState(false);
 
   const [showShareModal, setShowShareModal] = useState(false);
+
+  const handleAddBoosterToSlip = (booster: any) => {
+    addBet(
+      {
+        sport: booster.sport,
+        event_id: booster.event_id,
+        event_name: booster.event_name,
+        selection: booster.selection,
+        bet_type: booster.market_type === "place" ? "PLACE" : "WIN",
+        market_type: booster.market_type,
+        odds: booster.odds,
+        stake: defaultStake,
+        model_prob: booster.model_probability,
+        model_edge_pct: Math.round(booster.edge * 1000) / 10,
+        confidence: booster.confidence || "medium",
+        notes: `Smart Booster: ${booster.recommendation_reason}`,
+      },
+      { openBetslip: true }
+    );
+    addToast(`Added booster leg: ${booster.selection}`, "success");
+  };
   const [expandedInsights, setExpandedInsights] = useState<Record<string, boolean>>({});
   const [multiEvaluation, setMultiEvaluation] = useState<MultiEvaluationResult | null>(null);
   const [isEditingSlipName, setIsEditingSlipName] = useState(false);
@@ -877,6 +899,13 @@ function PaperBetslipContent() {
                 }}
               />
             </div>
+
+            {/* Smart Leg Booster Assistant (Ticket #77) */}
+            {bets.length >= 1 && (
+              <div className="px-3 pt-2">
+                <SmartLegBooster bets={bets} onAddLeg={handleAddBoosterToSlip} />
+              </div>
+            )}
 
             {/* Dedicated Multi Accumulator View (Item 40, 41, 42, 43, 46, 47, 48, 52) */}
             {activeTab === "multi" && (

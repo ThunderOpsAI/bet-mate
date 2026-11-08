@@ -7,6 +7,7 @@ from app.strategy import (
     build_place_candidates,
     build_quinella_candidates,
     qualify_candidates,
+    recommend_custom_multi,
 )
 
 
@@ -469,5 +470,209 @@ def test_nba_multi_and_sgm_profiles_generate_daily_bets_when_games_present():
     sgm_card = build_strategy_card(sgm_profile, candidates, "2026-11-01")
     assert len(sgm_card["selected_bets"]) >= 1
     assert any(b.get("market_type") == "sgm" for b in sgm_card["selected_bets"])
+
+
+def test_build_place_candidates_evaluates_full_field_and_tote_formula():
+    race = {
+        "race_id": "flemington-r5",
+        "venue": "Flemington",
+        "race_number": 5,
+        "horses": [{"name": f"Horse {i}"} for i in range(1, 10)],
+    }
+    # 9 runners in field (>= 8 runners -> 0.20 Tote place factor)
+    # Runner 1, 2, 3: Favourites
+    # Runner 4: Roughie with win odds 15.00 -> Tote place odds = 1 + (15-1)*0.2 = 3.80
+    # With Henery calibration, place prob might be e.g. 0.32 -> edge = 0.32 - 1/3.80 = +0.0568 > 0
+    ranked = [
+        {"selection": "Horse 1", "model_probability": 0.30, "market_odds": 2.80},
+        {"selection": "Horse 2", "model_probability": 0.22, "market_odds": 4.20},
+        {"selection": "Horse 3", "model_probability": 0.16, "market_odds": 6.00},
+        {"selection": "Horse 4", "model_probability": 0.12, "market_odds": 15.00},  # 4th runner: roughie
+        {"selection": "Horse 5", "model_probability": 0.08, "market_odds": 20.00},
+        {"selection": "Horse 6", "model_probability": 0.05, "market_odds": 30.00},
+        {"selection": "Horse 7", "model_probability": 0.03, "market_odds": 50.00},
+        {"selection": "Horse 8", "model_probability": 0.02, "market_odds": 70.00},
+        {"selection": "Horse 9", "model_probability": 0.02, "market_odds": 80.00},
+    ]
+
+    place_candidates = build_place_candidates(race, ranked)
+    assert len(place_candidates) >= 4  # Expanded beyond top 3!
+    selections = [c["selection"] for c in place_candidates]
+    assert "Horse 1" in selections
+    assert "Horse 2" in selections
+    assert "Horse 3" in selections
+    assert "Horse 4" in selections
+
+    horse_4_cand = next(c for c in place_candidates if c["selection"] == "Horse 4")
+    # Verify 0.20 Tote conversion formula: 1.0 + (15.0 - 1.0) * 0.20 = 3.80
+    assert horse_4_cand["market_odds"] == 3.80
+    assert horse_4_cand["odds_source"] == "tote_converted"
+    assert horse_4_cand["edge"] > 0
+
+
+def test_build_place_candidates_uses_live_betfair_odds_when_present():
+    race = {
+        "race_id": "caulfield-r2",
+        "venue": "Caulfield",
+        "race_number": 2,
+        "horses": [
+            {"name": "Runner A", "betfair_place_price": 2.10},
+            {"name": "Runner B", "betfair_place_price": 3.40},
+            {"name": "Runner C", "betfair_place_price": 5.00},
+        ],
+    }
+    ranked = [
+        {"selection": "Runner A", "model_probability": 0.50, "market_odds": 2.50},
+        {"selection": "Runner B", "model_probability": 0.30, "market_odds": 4.50},
+        {"selection": "Runner C", "model_probability": 0.20, "market_odds": 8.00},
+    ]
+    candidates = build_place_candidates(race, ranked)
+    assert len(candidates) == 3
+    cand_a = next(c for c in candidates if c["selection"] == "Runner A")
+    assert cand_a["odds_source"] == "live_market"
+    assert cand_a["market_odds"] == 2.10
+
+
+def test_recommend_custom_multi_formula_and_cross_market_independence():
+    candidates = [
+        # Win candidates
+        {
+            "sport": "nba",
+            "event_id": "nba-g1",
+            "event_name": "Lakers vs Warriors",
+            "market_type": "head_to_head",
+            "selection": "Lakers",
+            "model_probability": 0.65,
+            "market_odds": 1.80,
+            "edge": 0.09,
+        },
+        {
+            "sport": "racing",
+            "event_id": "race-1",
+            "event_name": "Flemington R1",
+            "market_type": "win",
+            "selection": "Gold Bullion",
+            "model_probability": 0.55,
+            "market_odds": 2.20,
+            "edge": 0.09,
+        },
+        # Place candidates
+        {
+            "sport": "racing",
+            "event_id": "race-2",
+            "event_name": "Flemington R2",
+            "market_type": "place",
+            "selection": "Stormy Sky",
+            "model_probability": 0.45,
+            "market_odds": 2.50,
+            "edge": 0.05,
+        },
+        {
+            "sport": "racing",
+            "event_id": "race-3",
+            "event_name": "Flemington R3",
+            "market_type": "place",
+            "selection": "Silver Arrow",
+            "model_probability": 0.35,
+            "market_odds": 3.20,
+            "edge": 0.04,
+        },
+        # Same event as race-2 should NOT be combined in same multi
+        {
+            "sport": "racing",
+            "event_id": "race-2",
+            "event_name": "Flemington R2",
+            "market_type": "win",
+            "selection": "Desert Rose",
+            "model_probability": 0.40,
+            "market_odds": 2.80,
+            "edge": 0.04,
+        },
+    ]
+
+    # Request: 1 Win Leg + 2 Place Legs, target odds $5.00 to $25.00
+    result = recommend_custom_multi(
+        candidates=candidates,
+        win_legs=1,
+        place_legs=2,
+        sport_mode="combined",
+        min_odds=5.0,
+        max_odds=25.0,
+    )
+
+    assert "multis" in result
+    assert "booster_legs" in result
+    assert len(result["multis"]) >= 1
+
+    top_multi = result["multis"][0]
+    assert top_multi["win_legs_count"] == 1
+    assert top_multi["place_legs_count"] == 2
+    assert len(top_multi["legs"]) == 3
+    assert 5.0 <= top_multi["odds"] <= 25.0
+
+    # Verify cross-market independence: all leg event_ids must be unique
+    leg_event_ids = [leg["event_id"] for leg in top_multi["legs"]]
+    assert len(leg_event_ids) == len(set(leg_event_ids))
+
+
+def test_recommend_custom_multi_with_current_slip_and_booster_legs():
+    # User already has 1 Win leg in slip
+    current_slip = [
+        {
+            "sport": "nba",
+            "event_id": "nba-g10",
+            "event_name": "Celtics vs Heat",
+            "market_type": "head_to_head",
+            "selection": "Celtics",
+            "market_odds": 1.70,
+            "model_probability": 0.65,
+            "edge": 0.06,
+        }
+    ]
+
+    candidates = [
+        {
+            "sport": "racing",
+            "event_id": "race-8",
+            "event_name": "Moonee Valley R8",
+            "market_type": "place",
+            "selection": "Midnight Runner",
+            "market_odds": 4.50,
+            "model_probability": 0.28,
+            "edge": 0.0578,
+        },
+        {
+            "sport": "racing",
+            "event_id": "race-9",
+            "event_name": "Moonee Valley R9",
+            "market_type": "place",
+            "selection": "Solar Flare",
+            "market_odds": 3.80,
+            "model_probability": 0.32,
+            "edge": 0.0568,
+        },
+    ]
+
+    # User wants to add 1 place leg to their slip
+    result = recommend_custom_multi(
+        candidates=candidates,
+        win_legs=1,
+        place_legs=1,
+        current_legs=current_slip,
+    )
+
+    assert len(result["multis"]) >= 1
+    multi = result["multis"][0]
+    # Should include current leg + 1 complementary place leg
+    assert len(multi["legs"]) == 2
+    assert any(leg["selection"] == "Celtics" for leg in multi["legs"])
+    assert any(leg["market_type"] == "place" for leg in multi["legs"])
+
+    # Booster legs should provide suggestions for the slip
+    assert len(result["booster_legs"]) >= 1
+    booster = result["booster_legs"][0]
+    assert booster["boost_odds"] > booster["odds"]  # Combined with current slip odds
+    assert "Pair with" in booster["recommendation_reason"]
+
 
 

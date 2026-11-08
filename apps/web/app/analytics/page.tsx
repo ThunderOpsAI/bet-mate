@@ -29,8 +29,9 @@ import RefreshControls from "../components/RefreshControls";
 import { ML_API } from "../lib/mlApi";
 import { safeResponseJson } from "../lib/api";
 import { useAuth } from "../providers/AuthProvider";
+import DossierAnalyticsView from "../components/analytics/DossierAnalyticsView";
 
-type AnalyticsTab = "user" | "strategy" | "ml";
+type AnalyticsTab = "user" | "strategy" | "ml" | "dossier";
 
 type ModelMetadata = {
   name: string;
@@ -522,6 +523,7 @@ export default function AnalyticsPage() {
         {([
           { id: "user", label: "User" },
           { id: "strategy", label: "Strategy" },
+          { id: "dossier", label: "Race Dossier ($100 / $1k)" },
           { id: "ml", label: "ML" },
         ] as const).map((tab) => (
           <button
@@ -998,6 +1000,10 @@ export default function AnalyticsPage() {
             })}
           </div>
         </>
+      ) : null}
+
+      {activeTab === "dossier" ? (
+        <DossierAnalyticsView userBets={userBets} />
       ) : null}
     </ErrorBoundary>
   );

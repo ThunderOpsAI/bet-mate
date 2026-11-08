@@ -8,6 +8,7 @@ import HighEVFeedTable from "../../components/multi-builder/HighEVFeedTable";
 import MultiLegCard from "../../components/multi-builder/MultiLegCard";
 import MultiSummaryPanel from "../../components/multi-builder/MultiSummaryPanel";
 import MultiWizardModal from "../../components/multi-builder/MultiWizardModal";
+import SmartMultiHub from "../../components/multi-builder/SmartMultiHub";
 import type { EVLeg, SGMPriceResult, PairwiseWarning } from "../../components/multi-builder/types";
 import { useAuth } from "../../providers/AuthProvider";
 import { ML_API } from "../../lib/mlApi";
@@ -26,6 +27,7 @@ export default function MultiBuilderPage() {
     message: string;
   } | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState<boolean>(false);
+  const [builderMode, setBuilderMode] = useState<"smart" | "custom">("smart");
 
   // Fetch top 10 High EV feed
   const fetchEVFeed = useCallback(async () => {
@@ -334,77 +336,109 @@ export default function MultiBuilderPage() {
           </div>
         )}
 
-        {/* 2-Column Responsive Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Top 10 High EV Feed (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
-            <HighEVFeedTable
-              legs={feedLegs}
-              isLoading={isLoadingFeed}
-              selectedLegIds={activeLegs.map((l) => l.id)}
-              onAddLeg={handleAddLeg}
-              onRefresh={fetchEVFeed}
-            />
-
-            {/* Ingestion Pipeline Note */}
-            <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800 text-xs text-slate-400">
-              <div className="font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-yellow-400" /> Scheduled Ingestion Cycle
-              </div>
-              <p>
-                Odds and model probabilities are automatically updated twice daily: at <strong>00:00 AEST (Midnight)</strong> for early lines and <strong>08:00 AEST</strong> for the morning retail prop wave.
-              </p>
-            </div>
-          </div>
-
-          {/* Right Column: Active Legs & Summary Panel (5 cols) */}
-          <div className="lg:col-span-5 space-y-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                  <span>Active Multi Legs</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
-                    {activeLegs.length}
-                  </span>
-                </h2>
-              </div>
-
-              {activeLegs.length === 0 ? (
-                <div className="bg-slate-900/50 border border-dashed border-slate-800 rounded-xl p-8 text-center">
-                  <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                  <p className="text-sm font-medium text-slate-300">Your multi is empty</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Select legs from the Top 10 High EV feed on the left to build your accumulator.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {activeLegs.map((leg, idx) => (
-                    <MultiLegCard
-                      key={leg.id}
-                      leg={leg}
-                      index={idx}
-                      onRemove={handleRemoveLeg}
-                      warnings={warnings}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Multi Summary & Placing Panel */}
-            <MultiSummaryPanel
-              legCount={activeLegs.length}
-              pricing={pricing}
-              warnings={warnings}
-              stake={stake}
-              onStakeChange={setStake}
-              onPlaceBet={handlePlaceBet}
-              onClearMulti={handleClearMulti}
-              isPlacing={isPlacing}
-            />
-          </div>
+        {/* Builder Mode Switcher */}
+        <div className="flex items-center gap-3 border-b border-slate-800 pb-4 mb-8">
+          <button
+            type="button"
+            onClick={() => setBuilderMode("smart")}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              builderMode === "smart"
+                ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-900/30 border border-purple-500/30"
+                : "bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800"
+            }`}
+          >
+            <Sparkles className="w-4 h-4 text-purple-300" />
+            <span>Strategic Multi Recommender</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setBuilderMode("custom")}
+            className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              builderMode === "custom"
+                ? "bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-900/30 border border-purple-500/30"
+                : "bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800"
+            }`}
+          >
+            <Layers className="w-4 h-4" />
+            <span>Custom SGM Canvas & High EV Feed</span>
+          </button>
         </div>
+
+        {builderMode === "smart" ? (
+          <SmartMultiHub />
+        ) : (
+          /* 2-Column Responsive Layout */
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Column: Top 10 High EV Feed (7 cols) */}
+            <div className="lg:col-span-7 space-y-6">
+              <HighEVFeedTable
+                legs={feedLegs}
+                isLoading={isLoadingFeed}
+                selectedLegIds={activeLegs.map((l) => l.id)}
+                onAddLeg={handleAddLeg}
+                onRefresh={fetchEVFeed}
+              />
+
+              {/* Ingestion Pipeline Note */}
+              <div className="p-4 rounded-xl bg-slate-900/40 border border-slate-800 text-xs text-slate-400">
+                <div className="font-semibold text-slate-300 mb-1 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-yellow-400" /> Scheduled Ingestion Cycle
+                </div>
+                <p>
+                  Odds and model probabilities are automatically updated twice daily: at <strong>00:00 AEST (Midnight)</strong> for early lines and <strong>08:00 AEST</strong> for the morning retail prop wave.
+                </p>
+              </div>
+            </div>
+
+            {/* Right Column: Active Legs & Summary Panel (5 cols) */}
+            <div className="lg:col-span-5 space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                    <span>Active Multi Legs</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-mono">
+                      {activeLegs.length}
+                    </span>
+                  </h2>
+                </div>
+
+                {activeLegs.length === 0 ? (
+                  <div className="bg-slate-900/50 border border-dashed border-slate-800 rounded-xl p-8 text-center">
+                    <Layers className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <p className="text-sm font-medium text-slate-300">Your multi is empty</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Select legs from the Top 10 High EV feed on the left to build your accumulator.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {activeLegs.map((leg, idx) => (
+                      <MultiLegCard
+                        key={leg.id}
+                        leg={leg}
+                        index={idx}
+                        onRemove={handleRemoveLeg}
+                        warnings={warnings}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Multi Summary & Placing Panel */}
+              <MultiSummaryPanel
+                legCount={activeLegs.length}
+                pricing={pricing}
+                warnings={warnings}
+                stake={stake}
+                onStakeChange={setStake}
+                onPlaceBet={handlePlaceBet}
+                onClearMulti={handleClearMulti}
+                isPlacing={isPlacing}
+              />
+            </div>
+          </div>
+        )}
 
         {/* Guided Multi Wizard Modal (Item 73) */}
         <MultiWizardModal
