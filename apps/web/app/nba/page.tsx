@@ -15,6 +15,7 @@ import {
   UrgencyBadge,
 } from "../components/PredictionSignalBadges";
 import BestNbaOpportunities from "../components/nba/BestOpportunities";
+import NbaHotLegsAndMultis from "../components/nba/NbaHotLegsAndMultis";
 import RefreshControls from "../components/RefreshControls";
 import { buildBobExplanation } from "../lib/bob/explainer";
 import { fetchWithTimeout } from "../lib/fetchWithTimeout";
@@ -402,6 +403,10 @@ export default function NBAPage() {
 
       <ErrorBoundary sectionName="NBA opportunities">
         <BestNbaOpportunities opportunities={nbaOpportunities} />
+      </ErrorBoundary>
+
+      <ErrorBoundary sectionName="NBA Hot Legs & Smart Multis">
+        <NbaHotLegsAndMultis games={games} predictions={predictions} />
       </ErrorBoundary>
 
       <ErrorBoundary sectionName="NBA predictions">
