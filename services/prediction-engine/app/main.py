@@ -1745,6 +1745,24 @@ def get_today_ev_feed(sport: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@app.get("/api/props/live")
+def get_live_player_props_endpoint(sport: Optional[str] = None):
+    try:
+        from app.data.betfair_sports_odds import get_live_player_props
+        return get_live_player_props(sport=sport)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/api/sports/{sport}/props")
+def get_sport_player_props_endpoint(sport: str):
+    try:
+        from app.data.betfair_sports_odds import get_live_player_props
+        return get_live_player_props(sport=sport)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 # --- RECOMMENDATION ENGINE ENDPOINTS ---
 class AutoBuildMultiRequest(BaseModel):
     target_odds: Optional[float] = None

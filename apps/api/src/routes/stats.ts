@@ -925,6 +925,28 @@ router.get("/props", async (req: Request, res: Response) => {
     });
 
     if (!propMarkets || propMarkets.length === 0) {
+      // Fall back to live Betfair / model player props from ML prediction engine
+      try {
+        const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+        const sportParam = sport ? `?sport=${encodeURIComponent(String(sport))}` : "";
+        const resp = await fetch(`${mlApi}/api/props/live${sportParam}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (resp.ok) {
+          const liveProps = await resp.json();
+          if (Array.isArray(liveProps) && liveProps.length > 0) {
+            return res.json({
+              data: liveProps,
+              count: liveProps.length,
+              status: "ok",
+              source: "live_feed",
+            });
+          }
+        }
+      } catch (err: any) {
+        console.warn("Live prop fetch fallback warning:", err?.message);
+      }
+
       return res.json({
         data: [],
         status: "empty",
@@ -1038,8 +1060,34 @@ router.get("/props", async (req: Request, res: Response) => {
       status: "ok",
     });
   } catch (error: any) {
-    console.error("Error fetching prop stats:", error);
-    return res.status(500).json({ error: "Failed to fetch prop stats" });
+    console.error("Error fetching prop stats from database, falling back to live feed:", error);
+    try {
+      const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+      const sportParam = req.query.sport ? `?sport=${encodeURIComponent(String(req.query.sport))}` : "";
+      const resp = await fetch(`${mlApi}/api/props/live${sportParam}`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (resp.ok) {
+        const liveProps = await resp.json();
+        if (Array.isArray(liveProps) && liveProps.length > 0) {
+          return res.json({
+            data: liveProps,
+            count: liveProps.length,
+            status: "ok",
+            source: "live_feed",
+          });
+        }
+      }
+    } catch {
+      // Fall through to empty response
+    }
+
+    return res.status(200).json({
+      data: [],
+      status: "empty",
+      message: "No live prop markets currently available. Lines update as bookmakers publish odds.",
+      error: error?.message,
+    });
   }
 });
 
