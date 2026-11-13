@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
-const REQUEST_TIMEOUT_MS = 10000;
+const REQUEST_TIMEOUT_MS = 60000;
 
 async function forwardPost(targetPath: string, req: Request, res: Response) {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     const response = await fetch(`${mlApi}${targetPath}`, {
       method: "POST",
       headers: {
@@ -36,7 +37,7 @@ async function forwardPost(targetPath: string, req: Request, res: Response) {
 
 async function forwardGet(targetPath: string, req: Request, res: Response) {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     const queryParams = new URLSearchParams();
     for (const [key, value] of Object.entries(req.query)) {
       if (typeof value === "string") {

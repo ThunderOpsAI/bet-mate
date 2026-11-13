@@ -3,6 +3,7 @@ import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -398,13 +399,13 @@ const handlePriceMulti = async (req: AuthRequest, res: any) => {
     if (!Array.isArray(legs) || legs.length < 2) {
       return res.status(400).json({ error: "At least 2 legs required" });
     }
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     try {
       const mlRes = await fetch(`${mlApi}/api/sgm/price`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sport: sport || "nba", legs }),
-        signal: AbortSignal.timeout(3000),
+        signal: AbortSignal.timeout(15000),
       });
       if (mlRes.ok) {
         const mlPrice = await mlRes.json();

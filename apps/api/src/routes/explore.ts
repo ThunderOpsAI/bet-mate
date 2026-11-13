@@ -1,11 +1,12 @@
 import { Router } from "express";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 
 router.get("/hot-picks", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const response = await fetch(`${mlApi}/explore/hot-picks`);
+    const mlApi = getMlApiUrl();
+    const response = await fetch(`${mlApi}/explore/hot-picks`, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`ML API returned ${response.status}`);
     const data = await response.json();
     return res.json(data);
@@ -17,8 +18,8 @@ router.get("/hot-picks", async (req, res) => {
 
 router.get("/value-plays", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const response = await fetch(`${mlApi}/explore/value-plays`);
+    const mlApi = getMlApiUrl();
+    const response = await fetch(`${mlApi}/explore/value-plays`, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`ML API returned ${response.status}`);
     const data = await response.json();
     return res.json(data);
@@ -30,8 +31,8 @@ router.get("/value-plays", async (req, res) => {
 
 router.get("/top-jockeys", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const response = await fetch(`${mlApi}/explore/top-jockeys`);
+    const mlApi = getMlApiUrl();
+    const response = await fetch(`${mlApi}/explore/top-jockeys`, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`ML API returned ${response.status}`);
     const data = await response.json();
     return res.json(data);
@@ -43,8 +44,8 @@ router.get("/top-jockeys", async (req, res) => {
 
 router.get("/top-trainers", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const response = await fetch(`${mlApi}/explore/top-trainers`);
+    const mlApi = getMlApiUrl();
+    const response = await fetch(`${mlApi}/explore/top-trainers`, { signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error(`ML API returned ${response.status}`);
     const data = await response.json();
     return res.json(data);

@@ -1808,7 +1808,8 @@ def recommend_auto_build(request: AutoBuildMultiRequest):
                     from app.strategy import strategy_service
                     import datetime
                     today_str = datetime.date.today().isoformat()
-                    candidates = strategy_service.collect_candidates_for_date(today_str)
+                    strategy_service.collect_candidates_for_date(today_str)
+                    candidates = storage.get_daily_ev_feed(limit=50)
                 except Exception as ex:
                     logger.warning(f"Failed to fetch live candidates for auto-build: {ex}")
                     candidates = []
@@ -1850,7 +1851,8 @@ def recommend_swaps(request: LegSwapsRequest):
                     from app.strategy import strategy_service
                     import datetime
                     today_str = datetime.date.today().isoformat()
-                    candidates = strategy_service.collect_candidates_for_date(today_str)
+                    strategy_service.collect_candidates_for_date(today_str)
+                    candidates = storage.get_daily_ev_feed(limit=50)
                 except Exception as ex:
                     logger.warning(f"Failed to fetch live candidates for leg-swaps: {ex}")
                     candidates = []

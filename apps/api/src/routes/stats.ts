@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import prismaClient from "../services/prisma";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -927,10 +928,10 @@ router.get("/props", async (req: Request, res: Response) => {
     if (!propMarkets || propMarkets.length === 0) {
       // Fall back to live Betfair / model player props from ML prediction engine
       try {
-        const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+        const mlApi = getMlApiUrl();
         const sportParam = sport ? `?sport=${encodeURIComponent(String(sport))}` : "";
         const resp = await fetch(`${mlApi}/api/props/live${sportParam}`, {
-          signal: AbortSignal.timeout(5000),
+          signal: AbortSignal.timeout(15000),
         });
         if (resp.ok) {
           const liveProps = await resp.json();
@@ -1062,10 +1063,10 @@ router.get("/props", async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("Error fetching prop stats from database, falling back to live feed:", error);
     try {
-      const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+      const mlApi = getMlApiUrl();
       const sportParam = req.query.sport ? `?sport=${encodeURIComponent(String(req.query.sport))}` : "";
       const resp = await fetch(`${mlApi}/api/props/live${sportParam}`, {
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(15000),
       });
       if (resp.ok) {
         const liveProps = await resp.json();

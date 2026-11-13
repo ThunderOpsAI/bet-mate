@@ -1,5 +1,6 @@
 import { Router } from "express";
 import prismaClient from "../services/prisma";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -7,7 +8,7 @@ const prisma: any = prismaClient;
 // GET /api/races/today
 router.get("/today", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     const dateQuery = req.query.date ? `?date=${req.query.date}` : "";
     const response = await fetch(`${mlApi}/api/races/today${dateQuery}`);
     
@@ -30,7 +31,7 @@ router.get("/today", async (req, res) => {
 // GET /api/races/blackbook-running-today
 router.get("/blackbook-running-today", async (req, res) => {
   try {
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     const authHeader = req.headers.authorization;
     const response = await fetch(`${mlApi}/blackbook/running-today`, {
       headers: authHeader ? { Authorization: authHeader } : undefined
@@ -76,7 +77,7 @@ router.get("/:raceId", async (req, res) => {
 
     // Fallback: Check ML prediction engine live races
     try {
-      const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+      const mlApi = getMlApiUrl();
       // Fetch today and tomorrow's races to ensure we cover all live dashboard scenarios
       const [todayRes, tomorrowRes] = await Promise.all([
         fetch(`${mlApi}/api/races/today`).catch(() => null),
@@ -180,7 +181,7 @@ router.get("/:raceId/runners/:runnerId/primed-score", async (req, res) => {
     }
 
     // Dynamic calculation & persistence
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
+    const mlApi = getMlApiUrl();
     const raceRes = await fetch(`${mlApi}/api/races/today`).catch(() => null);
     let horseData: any = null;
     let venue = "Meeting";

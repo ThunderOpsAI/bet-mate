@@ -3,6 +3,7 @@ import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -150,13 +151,13 @@ router.get("/daily-digest", async (req: AuthRequest, res) => {
     const todayStr = new Date().toISOString().split("T")[0];
 
     // 2. Fetch live meetings and races from ML engine
-    const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+    const mlApiTarget = getMlApiUrl();
     let racesToday: any[] = [];
     let meetings: any[] = [];
 
     try {
       const raceRes = await fetch(`${mlApiTarget}/api/races/today`, {
-        signal: AbortSignal.timeout(6000),
+        signal: AbortSignal.timeout(15000),
       });
       if (raceRes.ok) {
         const raceData = await raceRes.json();

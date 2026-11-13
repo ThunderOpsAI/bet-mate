@@ -1,6 +1,7 @@
 import { Router } from "express";
 import prismaClient from "../services/prisma";
 import { getOrSetCache } from "../services/cache";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -48,7 +49,7 @@ const handleGetTodayFeed = async (req: any, res: any) => {
 
         // 2. If database returned no rows, attempt query to ML Engine
         if (!legs || legs.length === 0) {
-          const mlApi = process.env.ML_API_URL || "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
+          const mlApi = getMlApiUrl();
           const sportParam = sport ? `?sport=${sport}` : "";
           try {
             const mlRes = await fetch(`${mlApi}/api/ev-feed/today${sportParam}`, { signal: AbortSignal.timeout(12000) });
@@ -120,7 +121,7 @@ const handleGetTodayFeed = async (req: any, res: any) => {
   } catch (error: any) {
     console.error("Error fetching daily EV feed:", error);
     try {
-      const mlApi = process.env.ML_API_URL || "https://thunderops-ai--betmate-prediction-engine-web.modal.run";
+      const mlApi = getMlApiUrl();
       const mlRes = await fetch(`${mlApi}/api/ev-feed/today`, { signal: AbortSignal.timeout(8000) });
       if (mlRes.ok) {
         const mlData = await mlRes.json();

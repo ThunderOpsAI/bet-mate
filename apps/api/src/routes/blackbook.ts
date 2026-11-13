@@ -3,6 +3,7 @@ import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 const prisma: any = prismaClient;
@@ -10,8 +11,10 @@ const prisma: any = prismaClient;
 router.get("/search", async (req, res) => {
   try {
     const q = req.query.q as string || "";
-    const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-    const response = await fetch(`${mlApi}/blackbook/search?q=${encodeURIComponent(q)}`);
+    const mlApi = getMlApiUrl();
+    const response = await fetch(`${mlApi}/blackbook/search?q=${encodeURIComponent(q)}`, {
+      signal: AbortSignal.timeout(15000),
+    });
     if (!response.ok) {
       throw new Error(`ML API returned ${response.status}`);
     }

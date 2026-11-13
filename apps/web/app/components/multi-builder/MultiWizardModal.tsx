@@ -143,7 +143,18 @@ export default function MultiWizardModal({
 
       if (!res.ok) {
         const errorText = await res.text();
-        throw new Error(errorText || "Prediction engine service unavailable");
+        let message = errorText;
+        try {
+          const parsed = JSON.parse(errorText);
+          if (parsed.details && parsed.details.toLowerCase().includes("timeout")) {
+            message = "Prediction engine warm-up timed out. Container is now spinning up — please click 'Try Again' to retrieve optimal legs.";
+          } else {
+            message = parsed.details || parsed.error || parsed.message || errorText;
+          }
+        } catch {
+          // Plain text error
+        }
+        throw new Error(message || "Prediction engine service unavailable");
       }
 
       const data: AutoBuildResult = await res.json();

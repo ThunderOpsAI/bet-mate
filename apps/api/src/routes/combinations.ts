@@ -3,6 +3,7 @@ import prismaClient from "../services/prisma";
 import { z } from "zod";
 import type { AuthRequest } from "../middleware/auth";
 import { requireAuth } from "../middleware/auth";
+import { getMlApiUrl } from "../services/mlApi";
 
 function normalizeTrackName(name: string): string {
   return name.toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -126,8 +127,8 @@ router.get("/", async (req: AuthRequest, res) => {
 
     let todayRaces: any[] = [];
     try {
-      const mlApi = process.env.ML_API_URL || "http://127.0.0.1:8000";
-      const racesRes = await fetch(`${mlApi}/api/races/today`, { signal: AbortSignal.timeout(1500) });
+      const mlApi = getMlApiUrl();
+      const racesRes = await fetch(`${mlApi}/api/races/today`, { signal: AbortSignal.timeout(10000) });
       if (racesRes.ok) {
         const data = await racesRes.json();
         todayRaces = data.races || [];

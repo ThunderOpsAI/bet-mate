@@ -1,5 +1,6 @@
 import { Router } from "express";
 import prisma from "../services/prisma";
+import { getMlApiUrl } from "../services/mlApi";
 
 const router = Router();
 // uses shared prisma singleton
@@ -188,12 +189,13 @@ router.all("/settle-bets", async (req, res) => {
     const monthStart = getMelbourneMonthStart();
 
     // 0. Trigger ML engine's result ingestion so latest outcomes are synced
-    const mlApiTarget = process.env.ML_API_URL || process.env.ML_API_PROXY_TARGET || "http://127.0.0.1:8000";
+    const mlApiTarget = getMlApiUrl();
     try {
       await fetch(`${mlApiTarget}/api/predictions/results/ingest`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sports: ["all"] }),
+        signal: AbortSignal.timeout(15000),
       });
     } catch (ingestErr) {
       console.warn("Auto-ingest during bet settlement skipped/failed:", ingestErr);
