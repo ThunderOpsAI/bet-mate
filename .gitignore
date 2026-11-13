@@ -9,6 +9,7 @@ build/
 .out/
 .next/
 coverage/
+bun.lock
 
 # Environment files
 .env*
