@@ -2,7 +2,6 @@
   "name": "bet-mate",
   "private": true,
   "version": "1.0.0",
-  "packageManager": "pnpm@9.1.0",
   "engines": {
     "node": ">=20.0.0"
   },
@@ -16,8 +15,7 @@
     "db:migrate": "pnpm --filter @bet-mate/prisma prisma:migrate",
     "db:push": "pnpm --filter @bet-mate/prisma prisma:push",
     "api:build:prod": "pnpm --filter @bet-mate/prisma prisma:generate && pnpm --filter @bet-mate/api build",
-    "api:start:prod": "pnpm --filter @bet-mate/api start",
-    "postinstall": "pnpm --filter @bet-mate/prisma prisma:generate"
+    "api:start:prod": "pnpm --filter @bet-mate/api start"
   },
   "devDependencies": {
     "turbo": "^2.0.0"
