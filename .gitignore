@@ -65,6 +65,7 @@ services/prediction-engine/client-2048.key
 # Added by git setup script
 .env.local
 .env.*.local
+.env
 *.log
 venv/
 
