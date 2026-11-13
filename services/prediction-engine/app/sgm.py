@@ -55,10 +55,30 @@ def probability_from_odds(odds: float) -> float:
     return 1 / odds
 
 
+def _get_leg_odds(leg: Mapping[str, object]) -> float:
+    odds = float(leg.get("odds") or leg.get("best_odds") or leg.get("back_price") or 1.90)
+    return max(1.01, odds)
+
+
+def _get_leg_prob(leg: Mapping[str, object]) -> float:
+    raw_prob = (
+        leg.get("probability")
+        or leg.get("true_prob")
+        or leg.get("calibrated_prob")
+        or leg.get("model_probability")
+    )
+    if raw_prob is not None:
+        p = float(raw_prob)
+        if p > 1.0:
+            p = p / 100.0
+        return float(np.clip(p, 0.001, 0.999))
+    return probability_from_odds(_get_leg_odds(leg))
+
+
 def combine_independent_probabilities(legs: Sequence[Mapping[str, object]]) -> float:
     if len(legs) < 2:
         raise ValueError("SGM requires at least two legs")
-    probabilities = [float(leg.get("probability") or probability_from_odds(float(leg["odds"]))) for leg in legs]
+    probabilities = [_get_leg_prob(leg) for leg in legs]
     return float(prod(probabilities))
 
 
@@ -248,11 +268,16 @@ def score_multi_leg(leg: Mapping[str, object], sport: str = "nba") -> dict[str, 
         rationale = f"Neutral value at ${odds:.2f} odds ({calibrated_prob:.1%} implied) - {confidence} confidence"
 
     return {
+        "id": leg.get("id"),
+        "sport": str(leg.get("sport") or sport).lower(),
+        "game_context": str(leg.get("game_context") or leg.get("gameContext") or leg.get("event_name") or ""),
+        "leg_description": selection,
         "selection": selection,
         "market_type": market_type,
         "odds": round(odds, 2),
         "implied_prob": implied_prob,
         "calibrated_prob": round(calibrated_prob, 4),
+        "true_prob": round(calibrated_prob, 4),
         "edge": round(edge, 4),
         "edge_pct": edge_pct,
         "confidence": confidence,
@@ -467,10 +492,7 @@ def calculate_sgm_odds(
     if len(legs) < 2:
         raise ValueError("SGM requires at least two legs")
 
-    probabilities = [
-        float(leg.get("probability") or (float(leg.get("true_prob")) if leg.get("true_prob") else None) or probability_from_odds(float(leg["odds"])))
-        for leg in legs
-    ]
+    probabilities = [_get_leg_prob(leg) for leg in legs]
     fair_probability = combine_independent_probabilities(legs)
     corr_matrix = build_correlation_matrix(legs, sport=sport)
 
@@ -493,7 +515,7 @@ def calculate_sgm_odds(
     max_rho = max([w["rho"] for w in warnings], default=0.0)
 
     # Standard combined parlay odds
-    combined_odds = round(float(prod([float(leg.get("odds", 1.0)) for leg in legs])), 2)
+    combined_odds = round(float(prod([_get_leg_odds(leg) for leg in legs])), 2)
     expected_value_10 = round((10.0 * combined_odds * copula_probability) - 10.0, 2)
     combined_edge_pct = round(((copula_probability * combined_odds) - 1.0) * 100.0, 2)
     fair_copula_odds = round(1.0 / adjusted_probability, 2) if adjusted_probability > 0 else 0.0

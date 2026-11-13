@@ -230,9 +230,9 @@ export default function MultiWizardModal({
         className="relative z-10 w-full max-w-2xl bg-slate-950 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
       >
         {/* Wizard Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-4">
+        <div className="px-6 py-5 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
@@ -240,7 +240,7 @@ export default function MultiWizardModal({
                 <h2 className="text-lg sm:text-xl font-black text-white tracking-tight">
                   Guided Multi Wizard
                 </h2>
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
                   Build in 60s
                 </span>
               </div>
@@ -253,25 +253,25 @@ export default function MultiWizardModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
           >
             <X size={20} />
           </button>
         </div>
 
         {/* Step Progression Bar */}
-        <div className="bg-slate-900/40 border-b border-slate-800 px-4 sm:px-6 py-2.5 flex items-center justify-between text-xs">
+        <div className="bg-slate-900/40 border-b border-slate-800 px-6 py-3.5 flex items-center justify-between text-xs">
           {[
             { num: 1, label: "Sports" },
             { num: 2, label: "Target Odds" },
             { num: 3, label: "Risk Profile" },
             { num: 4, label: "AI Ticket" },
           ].map((s, idx) => (
-            <div key={s.num} className="flex items-center gap-2">
+            <div key={s.num} className="flex items-center gap-2.5">
               <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-[11px] transition-colors ${
+                className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center font-black text-xs transition-colors shrink-0 ${
                   step === s.num
-                    ? "bg-purple-600 text-white shadow-xs"
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-900/40 ring-2 ring-purple-500/30"
                     : step > s.num
                     ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                     : "bg-slate-800 text-slate-500"
@@ -291,14 +291,14 @@ export default function MultiWizardModal({
                 {s.label}
               </span>
               {idx < 3 && (
-                <span className="text-slate-700 hidden sm:inline">→</span>
+                <span className="text-slate-700 hidden sm:inline ml-1">→</span>
               )}
             </div>
           ))}
         </div>
 
         {/* Wizard Step Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="px-6 py-6 sm:px-8 sm:py-6 overflow-y-auto space-y-6 flex-1">
           {/* STEP 1: SPORTS */}
           {step === 1 && (
             <div className="space-y-4">
@@ -361,34 +361,34 @@ export default function MultiWizardModal({
               </div>
 
               {/* Stake input */}
-              <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl space-y-2">
+              <div className="p-4 sm:p-5 bg-slate-900/50 border border-slate-800 rounded-xl space-y-3">
                 <span className="text-xs font-bold text-slate-300 block">
                   Proposed Stake Amount:
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2.5">
                   {[5, 10, 20, 50].map((amt) => (
                     <button
                       key={amt}
                       type="button"
                       onClick={() => setStake(amt)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      className={`px-4 py-2 min-w-[3.75rem] rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
                         stake === amt
-                          ? "bg-purple-600 text-white"
-                          : "bg-slate-800 text-slate-400 hover:text-slate-200"
+                          ? "bg-purple-600 text-white shadow-md shadow-purple-900/30 ring-1 ring-purple-400/40"
+                          : "bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white"
                       }`}
                     >
                       ${amt}
                     </button>
                   ))}
-                  <div className="relative ml-2">
-                    <span className="absolute left-2.5 top-1.5 text-xs text-slate-500">$</span>
+                  <div className="relative ml-1">
+                    <span className="absolute left-3 top-2 text-xs text-slate-400 font-bold">$</span>
                     <input
                       type="number"
                       min="1"
                       step="1"
                       value={stake}
                       onChange={(e) => setStake(Math.max(1, Number(e.target.value)))}
-                      className="w-20 pl-6 pr-2 py-1.5 text-xs font-bold font-mono bg-slate-950 border border-slate-800 rounded-lg text-slate-100 focus:outline-none focus:border-purple-500"
+                      className="w-24 pl-7 pr-3 py-2 text-xs font-bold font-mono bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
                     />
                   </div>
                 </div>
@@ -511,29 +511,29 @@ export default function MultiWizardModal({
               </div>
 
               {/* Legs bounds */}
-              <div className="p-3.5 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
-                <span className="text-slate-400">Allowed Leg Count:</span>
-                <div className="flex items-center gap-2">
-                  <span>Between</span>
+              <div className="p-4 bg-slate-900/50 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
+                <span className="text-slate-300 font-medium">Allowed Leg Count:</span>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-slate-400">Between</span>
                   <select
                     value={minLegs}
                     onChange={(e) => setMinLegs(Number(e.target.value))}
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200"
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-1.5 text-slate-200 font-semibold focus:outline-none focus:border-purple-500"
                   >
                     <option value="2">2</option>
                     <option value="3">3</option>
                   </select>
-                  <span>and</span>
+                  <span className="text-slate-400">and</span>
                   <select
                     value={maxLegs}
                     onChange={(e) => setMaxLegs(Number(e.target.value))}
-                    className="bg-slate-950 border border-slate-800 rounded px-2 py-1 text-slate-200"
+                    className="bg-slate-950 border border-slate-800 rounded-lg px-3.5 py-1.5 text-slate-200 font-semibold focus:outline-none focus:border-purple-500"
                   >
                     <option value="3">3</option>
                     <option value="4">4</option>
                     <option value="5">5</option>
                   </select>
-                  <span>legs</span>
+                  <span className="text-slate-400">legs</span>
                 </div>
               </div>
             </div>
@@ -698,20 +698,20 @@ export default function MultiWizardModal({
                   </div>
 
                   {/* 1-Tap Add Action */}
-                  <div className="pt-2 flex items-center justify-end gap-2">
+                  <div className="pt-4 pb-1 flex items-center justify-end gap-3">
                     <button
                       type="button"
                       onClick={handleAddTicketToSlip}
-                      className="px-4 py-2 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-lg shadow-purple-900/30 flex items-center gap-1.5"
+                      className="px-5 py-2.5 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer shadow-lg shadow-purple-900/30 flex items-center gap-2"
                     >
                       {ticketAdded ? (
                         <>
-                          <CheckCircle2 size={15} />
+                          <CheckCircle2 size={16} />
                           <span>Added to Betslip ✓</span>
                         </>
                       ) : (
                         <>
-                          <Layers size={15} />
+                          <Layers size={16} />
                           <span>1-Tap Add Ticket to Betslip</span>
                         </>
                       )}
@@ -724,7 +724,7 @@ export default function MultiWizardModal({
                           setIsBetslipOpen(true);
                           onClose();
                         }}
-                        className="px-3 py-2 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
+                        className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
                       >
                         View Betslip
                       </button>
@@ -737,14 +737,14 @@ export default function MultiWizardModal({
         </div>
 
         {/* Wizard Footer Controls */}
-        <div className="p-4 sm:p-5 border-t border-slate-800 bg-slate-900/80 flex items-center justify-between gap-3">
+        <div className="px-6 sm:px-8 py-4 sm:py-5 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between gap-4">
           {step > 1 ? (
             <button
               type="button"
               onClick={() => setStep((s) => (s - 1) as any)}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer flex items-center gap-2"
             >
-              <ArrowLeft size={14} />
+              <ArrowLeft size={15} />
               <span>Back</span>
             </button>
           ) : (
@@ -756,25 +756,25 @@ export default function MultiWizardModal({
               type="button"
               disabled={step === 1 && selectedSports.length === 0}
               onClick={() => setStep((s) => (s + 1) as any)}
-              className="px-4 py-2 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-md shadow-purple-900/20"
+              className="px-6 py-2.5 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-purple-900/30"
             >
               <span>Next</span>
-              <ArrowRight size={14} />
+              <ArrowRight size={15} />
             </button>
           ) : step === 3 ? (
             <button
               type="button"
               onClick={handleGoToStep4}
-              className="px-4 py-2 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer flex items-center gap-1.5 shadow-md shadow-purple-900/20"
+              className="px-6 py-2.5 rounded-xl text-xs font-black bg-purple-600 hover:bg-purple-500 text-white transition-all cursor-pointer flex items-center gap-2 shadow-lg shadow-purple-900/30"
             >
-              <Sparkles size={14} />
+              <Sparkles size={15} />
               <span>Evaluate Optimal Ticket</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
             >
               Close
             </button>

@@ -1783,8 +1783,17 @@ class KellyStakeRequest(BaseModel):
 def recommend_auto_build(request: AutoBuildMultiRequest):
     try:
         candidates = request.candidate_pool
-        if candidates is None:
+        if not candidates:
             candidates = storage.get_daily_ev_feed(limit=50)
+            if not candidates:
+                try:
+                    from app.strategy import strategy_service
+                    import datetime
+                    today_str = datetime.date.today().isoformat()
+                    candidates = strategy_service.collect_candidates_for_date(today_str)
+                except Exception as ex:
+                    logger.warning(f"Failed to fetch live candidates for auto-build: {ex}")
+                    candidates = []
         return auto_build_multi(
             candidate_pool=candidates,
             target_odds=request.target_odds,

@@ -413,6 +413,45 @@ class TestRecommendationsEndpoints:
         assert len(data["legs"]) >= 2
         assert "kelly_recommendation" in data
 
+    def test_post_auto_build_endpoint_with_daily_ev_feed_format(self, client):
+        # Format matching SQLite daily_ev_feed (best_odds and true_prob, no 'odds' key)
+        daily_ev_legs = [
+            {
+                "id": "leg-1",
+                "sport": "nba",
+                "game_context": "BOS @ NYK",
+                "leg_description": "Celtics -3.5",
+                "true_prob": 0.58,
+                "best_odds": 1.95,
+                "edge_pct": 13.1,
+                "market_type": "handicap",
+            },
+            {
+                "id": "leg-2",
+                "sport": "nba",
+                "game_context": "LAL @ GSW",
+                "leg_description": "Over 228.5",
+                "true_prob": 0.56,
+                "best_odds": 1.92,
+                "edge_pct": 7.5,
+                "market_type": "total_points",
+            },
+        ]
+        payload = {
+            "target_odds": 3.7,
+            "risk_profile": "balanced",
+            "candidate_pool": daily_ev_legs,
+            "min_legs": 2,
+            "max_legs": 2,
+        }
+        response = client.post("/api/recommendations/auto-build", json=payload)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "success"
+        assert len(data["legs"]) == 2
+        assert data["legs"][0]["odds"] > 1.0
+        assert data["legs"][0]["leg_description"] == "Celtics -3.5"
+
     def test_post_weakest_leg_endpoint(self, client):
         payload = {
             "sport": "nba",

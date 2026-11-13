@@ -156,15 +156,15 @@ export default function MultiSummaryPanel({
           <div className="pt-2">
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300 mb-2">
               <span>Stake Amount</span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 {quickStakes.map((val) => (
                   <button
                     key={val}
                     type="button"
                     onClick={() => onStakeChange(val)}
-                    className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold transition-colors cursor-pointer ${
+                    className={`px-2.5 py-1 min-w-[2.5rem] rounded-md text-[11px] font-mono font-bold transition-colors cursor-pointer text-center ${
                       stake === val
-                        ? "bg-emerald-500 text-slate-950"
+                        ? "bg-emerald-500 text-slate-950 font-black shadow-xs"
                         : "bg-slate-800 text-slate-300 hover:bg-slate-700"
                     }`}
                   >
